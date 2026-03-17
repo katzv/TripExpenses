@@ -1,0 +1,1463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1565C0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Trip Expenses</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+/* ===== RESET & BASE ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  background: #EEF2F7; color: #1A1A2E; min-height: 100vh; overflow-x: hidden;
+}
+
+/* ===== CSS VARIABLES ===== */
+:root {
+  --primary: #1565C0;
+  --primary-d: #0D47A1;
+  --accent: #FF6D00;
+  --success: #2E7D32;
+  --danger: #C62828;
+  --bg: #EEF2F7;
+  --card: #FFFFFF;
+  --border: #E5E7EB;
+  --text: #1A1A2E;
+  --muted: #6B7280;
+  --shadow: 0 2px 10px rgba(0,0,0,0.10);
+  --radius: 14px;
+}
+
+/* ===== LOADING ===== */
+#loading {
+  position: fixed; inset: 0; background: #fff; z-index: 999;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+}
+.spinner {
+  width: 44px; height: 44px; border: 4px solid #E5E7EB;
+  border-top-color: var(--primary); border-radius: 50%; animation: spin 0.75s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ===== HEADER ===== */
+.header {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  height: 58px; background: linear-gradient(135deg, #0D47A1 0%, #1976D2 100%);
+  display: flex; align-items: center; padding: 0 12px;
+  box-shadow: 0 2px 12px rgba(13,71,161,0.4);
+}
+.hbtn {
+  background: rgba(255,255,255,0.18); border: none; color: #fff;
+  border-radius: 8px; padding: 7px 13px; font-size: 14px; font-weight: 600;
+  cursor: pointer; display: flex; align-items: center; gap: 5px; white-space: nowrap;
+}
+.hbtn:hover { background: rgba(255,255,255,0.28); }
+.hbtn.back { background: none; font-size: 22px; padding: 6px 10px; border-radius: 50%; width: 38px; height: 38px; }
+.hbtn.back.hide { display: none; }
+.htitle { color: #fff; font-size: 17px; font-weight: 700; flex: 1; padding: 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hactions { display: flex; gap: 6px; }
+
+/* ===== MAIN ===== */
+.main { margin-top: 58px; padding: 14px; max-width: 620px; margin-left: auto; margin-right: auto; }
+
+/* ===== VIEWS ===== */
+.view { display: none; }
+.view.active { display: block; animation: fadeIn 0.18s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ===== FAB ===== */
+#fab {
+  position: fixed; bottom: 22px; right: 20px; z-index: 50;
+  width: 56px; height: 56px; border-radius: 50%;
+  background: var(--accent); color: #fff; border: none;
+  font-size: 30px; line-height: 1; cursor: pointer;
+  box-shadow: 0 4px 18px rgba(255,109,0,0.5);
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.12s;
+}
+#fab:active { transform: scale(0.88); }
+#fab.hide { display: none; }
+
+/* ===== TOAST ===== */
+#toast {
+  position: fixed; bottom: 88px; left: 50%;
+  transform: translateX(-50%) translateY(16px);
+  opacity: 0; visibility: hidden;
+  background: #1A1A2E; color: #fff; padding: 11px 22px; border-radius: 22px;
+  font-size: 14px; font-weight: 500; z-index: 400; white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.28); pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s linear 0.25s;
+}
+#toast.show {
+  opacity: 1; visibility: visible;
+  transform: translateX(-50%) translateY(0);
+  transition-delay: 0s;
+}
+#toast.ok  { background: var(--success); }
+#toast.err { background: var(--danger); }
+
+/* ===== MODAL ===== */
+.modal-bg {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.48); z-index: 200;
+  display: flex; align-items: flex-end; justify-content: center;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s;
+}
+.modal-bg.open { opacity: 1; pointer-events: all; }
+.modal {
+  background: var(--card); border-radius: 20px 20px 0 0; padding: 24px 20px 32px;
+  width: 100%; max-width: 620px; transform: translateY(100%); transition: transform 0.28s ease;
+}
+.modal-bg.open .modal { transform: translateY(0); }
+.modal-title { font-size: 18px; font-weight: 700; margin-bottom: 14px; color: var(--text); }
+
+/* ===== CARDS ===== */
+.card {
+  background: var(--card); border-radius: var(--radius); padding: 18px;
+  box-shadow: var(--shadow); margin-bottom: 14px;
+}
+
+/* ===== SECTION LABEL ===== */
+.sec-label {
+  font-size: 11px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 10px; margin-top: 4px;
+}
+
+/* ===== TRIP CARDS ===== */
+.trip-card {
+  background: var(--card); border-radius: var(--radius); padding: 16px 18px;
+  margin-bottom: 12px; box-shadow: var(--shadow); cursor: pointer;
+  border-left: 5px solid var(--primary); transition: transform 0.12s;
+  display: flex; align-items: flex-start; gap: 12px;
+}
+.trip-card:active { transform: scale(0.985); }
+.trip-card-body { flex: 1; min-width: 0; }
+.trip-card-title { font-size: 17px; font-weight: 700; }
+.trip-card-sub { font-size: 13px; color: var(--muted); margin-top: 3px; }
+.trip-card-dates { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.trip-del-btn {
+  background: none; border: none; font-size: 20px; cursor: pointer;
+  color: var(--muted); padding: 4px; border-radius: 6px; flex-shrink: 0;
+}
+.trip-del-btn:hover { color: var(--danger); }
+
+/* ===== EMPTY STATE ===== */
+.empty { text-align: center; padding: 56px 20px; }
+.empty-icon { font-size: 60px; margin-bottom: 14px; }
+.empty-title { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+.empty-sub { font-size: 14px; color: var(--muted); margin-bottom: 22px; }
+
+/* ===== FORMS ===== */
+.fg { margin-bottom: 15px; }
+.fg label {
+  display: block; font-size: 12px; font-weight: 700; letter-spacing: 0.4px;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 5px;
+}
+.fg label .req { color: var(--accent); }
+.fc {
+  width: 100%; padding: 12px 13px; border: 1.5px solid var(--border);
+  border-radius: 10px; font-size: 16px; color: var(--text);
+  background: #FAFBFF; transition: border-color 0.2s; -webkit-appearance: none; appearance: none;
+}
+.fc:focus { outline: none; border-color: var(--primary); background: #fff; }
+.fc.bad { border-color: var(--danger); }
+select.fc { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236B7280' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px; cursor: pointer; }
+.frow { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.fhint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+/* ===== RATE INDICATOR ===== */
+.rate-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.badge {
+  display: inline-block; padding: 3px 9px; border-radius: 20px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.3px;
+}
+.badge.live    { background: #E8F5E9; color: #2E7D32; }
+.badge.cached  { background: #FFF3E0; color: #E65100; }
+.badge.manual  { background: #F3E5F5; color: #6A1B9A; }
+.badge.loading { background: #E3F2FD; color: #1565C0; }
+.badge.default { background: #E0F2F1; color: #00695C; }
+.rate-text { font-size: 12px; color: var(--muted); }
+
+/* ===== BUTTONS ===== */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 13px 22px; border-radius: 12px; font-size: 16px; font-weight: 700;
+  border: none; cursor: pointer; transition: opacity 0.15s, transform 0.1s;
+  min-height: 48px; width: 100%;
+}
+.btn:active { transform: scale(0.96); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--primary-d); }
+.btn-accent  { background: var(--accent);  color: #fff; }
+.btn-danger  { background: var(--danger);  color: #fff; }
+.btn-outline { background: transparent; color: var(--primary); border: 2px solid var(--primary); }
+.btn-sm { padding: 9px 16px; font-size: 14px; min-height: 38px; width: auto; border-radius: 9px; }
+.btn-row { display: flex; gap: 10px; }
+.btn-row .btn { flex: 1; }
+
+/* ===== TRIP SUMMARY BANNER ===== */
+.summary-banner {
+  background: linear-gradient(135deg, #0D47A1, #1976D2);
+  border-radius: var(--radius); padding: 18px 20px; margin-bottom: 14px; color: #fff;
+}
+.sum-country { font-size: 13px; opacity: 0.82; margin-bottom: 3px; }
+.sum-total { font-size: 34px; font-weight: 900; letter-spacing: -0.5px; }
+.sum-meta { font-size: 13px; opacity: 0.78; margin-top: 4px; }
+
+/* ===== FILTER CHIPS ===== */
+.chips { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 12px; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chip {
+  padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600;
+  border: 2px solid var(--border); background: var(--card); color: var(--muted);
+  cursor: pointer; white-space: nowrap; transition: all 0.14s;
+}
+.chip.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+/* ===== DATE GROUP ===== */
+.dg-label {
+  font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.7px;
+  color: var(--muted); padding: 8px 0 6px;
+}
+
+/* ===== EXPENSE CARD ===== */
+.exp-card {
+  background: var(--card); border-radius: 11px; padding: 13px 15px;
+  margin-bottom: 8px; box-shadow: 0 1px 5px rgba(0,0,0,0.07);
+  display: flex; align-items: center; gap: 12px; cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.exp-card:active { transform: scale(0.985); box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+.exp-icon {
+  width: 42px; height: 42px; border-radius: 11px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; flex-shrink: 0;
+}
+.exp-body { flex: 1; min-width: 0; }
+.exp-name { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.exp-meta { font-size: 12px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.exp-amt { text-align: right; flex-shrink: 0; }
+.exp-orig { font-size: 12px; color: var(--muted); }
+.exp-ils { font-size: 16px; font-weight: 800; }
+.exp-edit-hint { font-size: 11px; color: var(--primary); margin-top: 2px; opacity: 0.7; }
+
+/* ===== REPORT ===== */
+.report-banner {
+  background: linear-gradient(135deg, #0D47A1, #1976D2);
+  border-radius: var(--radius); padding: 20px; margin-bottom: 14px; color: #fff;
+}
+.rep-title { font-size: 22px; font-weight: 800; }
+.rep-meta { font-size: 13px; opacity: 0.82; margin-top: 5px; }
+.rep-totals { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 16px; }
+.rep-tot-item { text-align: center; background: rgba(255,255,255,0.12); border-radius: 10px; padding: 10px 6px; }
+.rep-tot-lbl { font-size: 11px; opacity: 0.82; margin-bottom: 4px; }
+.rep-tot-val { font-size: 20px; font-weight: 900; }
+.chart-wrap { position: relative; height: 280px; margin: 8px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+thead th {
+  background: #F0F4FF; padding: 10px 10px; text-align: left;
+  font-size: 11px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--muted);
+}
+tbody td { padding: 11px 10px; border-bottom: 1px solid var(--border); }
+tbody tr:last-child td { border-bottom: none; }
+.tot-row td { font-weight: 800; background: #F0F4FF; font-size: 15px; }
+.type-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.rep-note { font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+/* ===== RESPONSIVE ===== */
+@media (min-width: 600px) {
+  .main { padding: 20px; }
+  #fab { right: calc(50% - 290px + 20px); }
+}
+</style>
+</head>
+<body>
+
+<!-- Loading -->
+<div id="loading">
+  <div class="spinner"></div>
+  <p style="color:var(--muted);font-size:14px">Loading...</p>
+</div>
+
+<!-- Header -->
+<header class="header">
+  <button class="hbtn back hide" id="hBack" onclick="goBack()">&#8592;</button>
+  <span class="htitle" id="hTitle">✈ Trip Expenses</span>
+  <div class="hactions" id="hActions"></div>
+</header>
+
+<!-- FAB -->
+<button id="fab" class="hide" onclick="showAddExpense()" title="Add expense">+</button>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- Modal -->
+<div class="modal-bg" id="modalBg" onclick="closeBgModal(event)">
+  <div class="modal">
+    <div class="modal-title" id="modalTitle"></div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<main class="main">
+
+  <!-- VIEW: TRIPS LIST -->
+  <div class="view active" id="view-trips">
+    <div id="trips-list"></div>
+  </div>
+
+  <!-- VIEW: NEW / EDIT TRIP -->
+  <div class="view" id="view-new-trip">
+    <div class="card">
+      <div class="fg">
+        <label>Title <span class="req">*</span></label>
+        <input class="fc" id="fTripTitle" type="text" placeholder="e.g., Europe 2026">
+      </div>
+      <div class="fg">
+        <label>Destination Country <span class="req">*</span></label>
+        <input class="fc" id="fTripCountry" type="text" list="dl-countries"
+               placeholder="e.g., France" oninput="onCountryInput()">
+        <datalist id="dl-countries"></datalist>
+        <div class="fhint" id="currHint" style="color:var(--primary);font-weight:600"></div>
+      </div>
+      <div class="frow">
+        <div class="fg">
+          <label>From Date</label>
+          <input class="fc" id="fTripStart" type="date">
+        </div>
+        <div class="fg">
+          <label>To Date</label>
+          <input class="fc" id="fTripEnd" type="date">
+        </div>
+      </div>
+      <button class="btn btn-primary" id="saveTripBtn" onclick="saveTrip()">
+        &#128640; Create Trip
+      </button>
+    </div>
+  </div>
+
+  <!-- VIEW: TRIP DETAIL (Expense List) -->
+  <div class="view" id="view-trip">
+    <div id="tripSummary"></div>
+    <div class="chips" id="filterChips"></div>
+    <div id="expenseList"></div>
+    <div style="height:80px"></div>
+  </div>
+
+  <!-- VIEW: ADD / EDIT EXPENSE -->
+  <div class="view" id="view-expense">
+    <div class="card">
+      <div class="fg">
+        <label>Date <span class="req">*</span></label>
+        <input class="fc" id="fDate" type="date">
+      </div>
+      <div class="fg">
+        <label>Expense (name / description) <span class="req">*</span></label>
+        <input class="fc" id="fName" type="text" placeholder="e.g., Air France, McDonald's">
+      </div>
+      <div class="fg">
+        <label>Type <span class="req">*</span></label>
+        <div style="display:flex;gap:8px">
+          <select class="fc" id="fType" style="flex:1" onchange="onTypeChange()"></select>
+          <button class="btn btn-outline btn-sm" onclick="showAddType()" title="Add custom type">+ Type</button>
+        </div>
+      </div>
+      <div class="frow">
+        <div class="fg">
+          <label>Amount <span class="req">*</span></label>
+          <input class="fc" id="fAmount" type="number" step="0.01" min="0"
+                 placeholder="0.00" oninput="scheduleRate()">
+        </div>
+        <div class="fg">
+          <label>Currency</label>
+          <select class="fc" id="fCurrency" onchange="scheduleRate()"></select>
+        </div>
+      </div>
+      <div class="fg">
+        <label>Amount (ILS) &#8362; <span class="req">*</span></label>
+        <input class="fc" id="fILS" type="number" step="0.01" min="0"
+               placeholder="0.00" oninput="onManualILS()">
+        <div class="rate-row" id="rateRow" style="display:none">
+          <span class="badge loading" id="rateBadge">...</span>
+          <span class="rate-text" id="rateText"></span>
+        </div>
+      </div>
+      <!-- Info 2 — dynamic -->
+      <div class="fg" id="info2Wrap" style="display:none">
+        <label id="info2Label">Additional Info</label>
+        <div id="info2Input"></div>
+      </div>
+      <!-- Info 3 -->
+      <div class="fg">
+        <label>Notes (optional)</label>
+        <input class="fc" id="fNotes" type="text" placeholder="Any extra notes...">
+      </div>
+
+      <button class="btn btn-primary" id="saveExpBtn" onclick="saveExpense()">
+        &#128190; Save Expense
+      </button>
+      <div style="height:10px"></div>
+      <button class="btn btn-outline" onclick="goBack()">Cancel</button>
+      <div id="delExpWrap" style="display:none;margin-top:14px">
+        <hr style="border:none;border-top:1px solid var(--border);margin-bottom:14px">
+        <button class="btn btn-danger btn-sm" style="width:auto" onclick="confirmDeleteExpense()">
+          &#128465; Delete This Expense
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIEW: REPORT -->
+  <div class="view" id="view-report">
+    <div id="reportContent"></div>
+    <div style="height:30px"></div>
+  </div>
+
+</main>
+
+<datalist id="dl-currencies"></datalist>
+
+<script>
+// =======================================================
+// DATA & CONSTANTS
+// =======================================================
+
+const CAT_COLORS = {
+  'Flight':           '#2196F3',
+  'Lodging':          '#9C27B0',
+  'Car Rental':       '#FF9800',
+  'Insurance':        '#607D8B',
+  'Petrol':           '#F44336',
+  'Toll Roads':       '#795548',
+  'Parking':          '#FF5722',
+  'Public Transport': '#00BCD4',
+  'Meals':            '#4CAF50',
+  'Souvenirs':        '#E91E63',
+  'Attractions':      '#FFC107',
+  'Other':            '#9E9E9E'
+};
+
+const CAT_ICONS = {
+  'Flight': '✈️', 'Lodging': '🏨', 'Car Rental': '🚗',
+  'Insurance': '🛡️', 'Petrol': '⛽', 'Toll Roads': '🛣️',
+  'Parking': '🅿️', 'Public Transport': '🚌', 'Meals': '🍽️',
+  'Souvenirs': '🎁', 'Attractions': '🎡', 'Other': '📌'
+};
+
+const CURRENCIES = [
+  'ILS','EUR','USD','GBP','JPY','THB','CHF','NOK','SEK','DKK',
+  'PLN','CZK','HUF','RON','BGN','AUD','CAD','NZD','SGD','HKD',
+  'CNY','INR','KRW','MXN','BRL','TRY','ZAR','IDR','MYR','PHP',
+  'ISK','AED','QAR','SAR','KWD','BHD','OMR','JOD','EGP'
+];
+
+const COUNTRY_CURRENCY = {
+  'france':'EUR','germany':'EUR','italy':'EUR','spain':'EUR','portugal':'EUR',
+  'netherlands':'EUR','belgium':'EUR','austria':'EUR','greece':'EUR','finland':'EUR',
+  'ireland':'EUR','luxembourg':'EUR','malta':'EUR','slovakia':'EUR','slovenia':'EUR',
+  'estonia':'EUR','latvia':'EUR','lithuania':'EUR','croatia':'EUR','cyprus':'EUR',
+  'united states':'USD','usa':'USD','us':'USD',
+  'united kingdom':'GBP','uk':'GBP','england':'GBP','scotland':'GBP','wales':'GBP',
+  'israel':'ILS',
+  'japan':'JPY','thailand':'THB','switzerland':'CHF','norway':'NOK','sweden':'SEK',
+  'denmark':'DKK','poland':'PLN','czech republic':'CZK','czechia':'CZK',
+  'hungary':'HUF','romania':'RON','bulgaria':'BGN','australia':'AUD',
+  'canada':'CAD','new zealand':'NZD','singapore':'SGD','hong kong':'HKD',
+  'china':'CNY','india':'INR','south korea':'KRW','mexico':'MXN',
+  'brazil':'BRL','turkey':'TRY','south africa':'ZAR','indonesia':'IDR',
+  'malaysia':'MYR','philippines':'PHP','iceland':'ISK',
+  'uae':'AED','qatar':'QAR','saudi arabia':'SAR','kuwait':'KWD',
+  'bahrain':'BHD','oman':'OMR','jordan':'JOD','egypt':'EGP'
+};
+
+const COUNTRIES = [
+  'Afghanistan','Albania','Algeria','Andorra','Angola','Argentina','Armenia','Australia',
+  'Austria','Azerbaijan','Bahrain','Bangladesh','Belarus','Belgium','Bolivia','Bosnia',
+  'Brazil','Bulgaria','Cambodia','Canada','Chile','China','Colombia','Croatia','Cyprus',
+  'Czech Republic','Czechia','Denmark','Ecuador','Egypt','Estonia','Ethiopia','Finland',
+  'France','Georgia','Germany','Ghana','Greece','Guatemala','Hong Kong','Hungary',
+  'Iceland','India','Indonesia','Iran','Iraq','Ireland','Israel','Italy','Jamaica',
+  'Japan','Jordan','Kazakhstan','Kenya','Kuwait','Latvia','Lebanon','Libya','Lithuania',
+  'Luxembourg','Malaysia','Malta','Mexico','Morocco','Nepal','Netherlands','New Zealand',
+  'Nigeria','Norway','Oman','Pakistan','Palestine','Panama','Peru','Philippines',
+  'Poland','Portugal','Qatar','Romania','Russia','Saudi Arabia','Serbia','Singapore',
+  'Slovakia','Slovenia','South Africa','South Korea','Spain','Sri Lanka','Sweden',
+  'Switzerland','Taiwan','Thailand','Tunisia','Turkey','UAE','Uganda','Ukraine',
+  'United Kingdom','United States','Uruguay','USA','UK','Uzbekistan','Vietnam','Zimbabwe'
+];
+
+// =======================================================
+// APP STATE
+// =======================================================
+
+const S = {
+  trips: [],
+  expenses: [],
+  expenseTypes: [],
+  currentTrip: null,
+  currentExpenseId: null,  // null = add new, string = editing existing
+  filter: 'All',
+  rateTimer: null,
+  manualILS: false,
+  lastRateInfo: null,
+  defaultRates: {},
+  pieChart: null
+};
+
+// History stack for back navigation
+const navStack = [];
+
+// =======================================================
+// INITIALISATION
+// =======================================================
+
+function init() {
+  // Populate country datalist
+  const dl = document.getElementById('dl-countries');
+  COUNTRIES.forEach(c => {
+    const o = document.createElement('option'); o.value = c; dl.appendChild(o);
+  });
+  // Populate currency dropdowns
+  populateCurrSel('fCurrency');
+
+  // Escape key closes any open modal
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.getElementById('modalBg').classList.contains('open')) {
+      closeModal();
+    }
+  });
+
+  // Load trips & types in parallel
+  google.script.run
+    .withSuccessHandler(trips => {
+      S.trips = trips || [];
+      google.script.run
+        .withSuccessHandler(types => {
+          S.expenseTypes = types || defaultTypes();
+          populateTypeSelect();
+          navigate('trips');
+          document.getElementById('loading').style.display = 'none';
+        })
+        .withFailureHandler(() => {
+          S.expenseTypes = defaultTypes();
+          populateTypeSelect();
+          navigate('trips');
+          document.getElementById('loading').style.display = 'none';
+        })
+        .getExpenseTypes();
+    })
+    .withFailureHandler(err => {
+      toast('Could not connect: ' + err.message, 'err');
+      document.getElementById('loading').style.display = 'none';
+    })
+    .getTrips();
+}
+
+function defaultTypes() {
+  return ['Flight','Lodging','Car Rental','Insurance','Petrol','Toll Roads',
+          'Parking','Public Transport','Meals','Souvenirs','Attractions','Other'];
+}
+
+// =======================================================
+// NAVIGATION
+// =======================================================
+
+function navigate(view, params = {}) {
+  // Deactivate all
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-' + view).classList.add('active');
+
+  const fab    = document.getElementById('fab');
+  const hBack  = document.getElementById('hBack');
+  const hActs  = document.getElementById('hActions');
+  const hTitle = document.getElementById('hTitle');
+
+  fab.classList.add('hide');
+  hBack.classList.add('hide');
+  hActs.innerHTML = '';
+
+  if (view === 'trips') {
+    hTitle.textContent = '✈ Trip Expenses';
+    hActs.innerHTML = `<button class="hbtn" onclick="navigate('new-trip')">+ New Trip</button>`;
+    renderTrips();
+
+  } else if (view === 'new-trip') {
+    hTitle.textContent = 'New Trip';
+    hBack.classList.remove('hide');
+    clearTripForm();
+
+  } else if (view === 'trip') {
+    hTitle.textContent = S.currentTrip.title;
+    hBack.classList.remove('hide');
+    hActs.innerHTML = `<button class="hbtn" onclick="navigate('report')" title="Report">&#128202; Report</button>`;
+    fab.classList.remove('hide');
+    S.filter = 'All';
+    loadExpenses();
+
+  } else if (view === 'expense') {
+    hTitle.textContent = S.currentExpenseId ? 'Edit Expense' : 'Add Expense';
+    hBack.classList.remove('hide');
+
+  } else if (view === 'report') {
+    hTitle.textContent = 'Expense Report';
+    hBack.classList.remove('hide');
+    loadReport();
+  }
+
+  navStack.push(view);
+  window.scrollTo(0, 0);
+}
+
+function goBack() {
+  const current = document.querySelector('.view.active')?.id?.replace('view-', '');
+  if (current === 'expense' || current === 'report') {
+    navigate('trip');
+  } else {
+    navigate('trips');
+  }
+}
+
+// =======================================================
+// TRIPS VIEW
+// =======================================================
+
+function renderTrips() {
+  const el = document.getElementById('trips-list');
+  if (S.trips.length === 0) {
+    el.innerHTML = `
+      <div class="empty">
+        <div class="empty-icon">✈️</div>
+        <div class="empty-title">No trips yet</div>
+        <div class="empty-sub">Create your first trip to start tracking expenses</div>
+        <button class="btn btn-primary" style="width:auto;padding:13px 36px" onclick="navigate('new-trip')">
+          + Create Trip
+        </button>
+      </div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div class="sec-label">Your Trips (${S.trips.length})</div>
+    ${S.trips.map(t => {
+      const days = tripDays(t);
+      return `
+      <div class="trip-card" onclick="openTrip('${t.id}')">
+        <div class="trip-card-body">
+          <div class="trip-card-title">${esc(t.title)}</div>
+          <div class="trip-card-sub">📍 ${esc(t.country)} &nbsp;·&nbsp; ${t.currency}</div>
+          <div class="trip-card-dates">📅 ${dateRange(t.startDate, t.endDate)}${days ? ` &nbsp;·&nbsp; ${days} days` : ''}</div>
+        </div>
+        <button class="trip-del-btn" title="Delete trip"
+                onclick="event.stopPropagation();confirmDelTrip('${t.id}')">🗑</button>
+      </div>`;
+    }).join('')}`;
+}
+
+function openTrip(id) {
+  S.currentTrip = S.trips.find(t => t.id === id);
+  S.defaultRates = {};  // Reset rates only when switching trips
+  navigate('trip');
+}
+
+function tripDays(t) {
+  if (!t.startDate || !t.endDate) return 0;
+  return Math.round((new Date(t.endDate) - new Date(t.startDate)) / 86400000) + 1;
+}
+
+// =======================================================
+// NEW TRIP FORM
+// =======================================================
+
+function clearTripForm() {
+  document.getElementById('fTripTitle').value   = '';
+  document.getElementById('fTripCountry').value = '';
+  document.getElementById('fTripStart').value   = '';
+  document.getElementById('fTripEnd').value     = '';
+  document.getElementById('currHint').textContent = '';
+}
+
+function onCountryInput() {
+  const c = document.getElementById('fTripCountry').value;
+  const cur = countryToCur(c);
+  document.getElementById('currHint').textContent = c ? `Default currency: ${cur}` : '';
+}
+
+function countryToCur(c) {
+  return COUNTRY_CURRENCY[(c || '').toLowerCase().trim()] || 'EUR';
+}
+
+function saveTrip() {
+  const title   = document.getElementById('fTripTitle').value.trim();
+  const country = document.getElementById('fTripCountry').value.trim();
+  if (!title || !country) { toast('Please fill in Title and Country', 'err'); return; }
+
+  const btn = document.getElementById('saveTripBtn');
+  btn.disabled = true; btn.textContent = 'Creating...';
+
+  const data = {
+    title, country,
+    currency: countryToCur(country),
+    startDate: document.getElementById('fTripStart').value,
+    endDate:   document.getElementById('fTripEnd').value
+  };
+
+  google.script.run
+    .withSuccessHandler(res => {
+      btn.disabled = false; btn.textContent = '🚀 Create Trip';
+      if (res.success) {
+        google.script.run
+          .withSuccessHandler(trips => {
+            S.trips = trips;
+            S.currentTrip = trips.find(t => t.id === res.id);
+            navigate('trip');
+            toast('Trip created!', 'ok');
+          })
+          .getTrips();
+      }
+    })
+    .withFailureHandler(err => {
+      btn.disabled = false; btn.textContent = '🚀 Create Trip';
+      toast('Error: ' + err.message, 'err');
+    })
+    .createTrip(data);
+}
+
+// =======================================================
+// EXPENSE LIST VIEW
+// =======================================================
+
+function loadExpenses() {
+  const el = document.getElementById('expenseList');
+  el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted)">Loading...</div>';
+
+  google.script.run
+    .withSuccessHandler(exps => {
+      S.expenses = exps || [];
+      renderExpenses();
+    })
+    .withFailureHandler(() => {
+      el.innerHTML = '<div style="color:var(--danger);padding:20px">Failed to load expenses</div>';
+    })
+    .getExpenses(S.currentTrip.id);
+
+  // Fetch default rates only if not already cached (reset happens in openTrip on trip switch)
+  if (Object.keys(S.defaultRates).length === 0) {
+    google.script.run
+      .withSuccessHandler(rates => { S.defaultRates = rates || {}; })
+      .withFailureHandler(() => {})
+      .getDefaultRates(S.currentTrip.currency);
+  }
+}
+
+function renderExpenses() {
+  // Summary banner
+  const totalILS = S.expenses.reduce((s, e) => s + (parseFloat(e.amountILS) || 0), 0);
+  document.getElementById('tripSummary').innerHTML = `
+    <div class="summary-banner">
+      <div class="sum-country">📍 ${esc(S.currentTrip.country)} &nbsp;·&nbsp; ${S.currentTrip.currency}</div>
+      <div class="sum-total">&#8362; ${fmt(totalILS)}</div>
+      <div class="sum-meta">${S.expenses.length} expense${S.expenses.length !== 1 ? 's' : ''}
+        &nbsp;·&nbsp; ${dateRange(S.currentTrip.startDate, S.currentTrip.endDate)}</div>
+    </div>`;
+
+  // Filter chips
+  const types = ['All', ...new Set(S.expenses.map(e => e.type))];
+  document.getElementById('filterChips').innerHTML = types.map(t => `
+    <div class="chip${S.filter === t ? ' on' : ''}" onclick="setFilter('${t}')">
+      ${t === 'All' ? 'All' : ((CAT_ICONS[t] || '') + ' ' + t)}
+    </div>`).join('');
+
+  // Filtered + sorted
+  const filtered = S.filter === 'All' ? S.expenses : S.expenses.filter(e => e.type === S.filter);
+  const el = document.getElementById('expenseList');
+
+  if (filtered.length === 0) {
+    el.innerHTML = `
+      <div class="empty">
+        <div class="empty-icon">💸</div>
+        <div class="empty-title">No expenses ${S.filter !== 'All' ? 'in this category' : 'yet'}</div>
+        <div class="empty-sub">Tap + to add your first expense</div>
+      </div>`;
+    return;
+  }
+
+  // Group by date descending
+  const groups = {};
+  [...filtered]
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+    .forEach(e => {
+      const d = e.date || 'Unknown date';
+      if (!groups[d]) groups[d] = [];
+      groups[d].push(e);
+    });
+
+  el.innerHTML = Object.keys(groups)
+    .sort((a, b) => b.localeCompare(a))
+    .map(d => `
+      <div class="dg-label">${fmtDate(d)}</div>
+      ${groups[d].map(e => expCard(e)).join('')}
+    `).join('');
+}
+
+function expCard(e) {
+  const col  = CAT_COLORS[e.type] || '#9E9E9E';
+  const icon = CAT_ICONS[e.type]  || '📌';
+  const meta = [e.type, e.info2 ? e.info2 : null, e.info3 ? e.info3 : null]
+               .filter(Boolean).join(' · ');
+  return `
+    <div class="exp-card" onclick="editExpense('${e.id}')" title="Tap to edit">
+      <div class="exp-icon" style="background:${col}22;color:${col}">${icon}</div>
+      <div class="exp-body">
+        <div class="exp-name">${esc(e.expense)}</div>
+        <div class="exp-meta">${esc(meta)}</div>
+        <div class="exp-edit-hint">tap to edit</div>
+      </div>
+      <div class="exp-amt">
+        <div class="exp-orig">${e.currency !== 'ILS' ? num(e.amount) + ' ' + e.currency : ''}</div>
+        <div class="exp-ils" style="color:${col}">&#8362;&nbsp;${fmt(e.amountILS)}</div>
+      </div>
+    </div>`;
+}
+
+function setFilter(f) {
+  S.filter = f;
+  renderExpenses();
+}
+
+// =======================================================
+// ADD / EDIT EXPENSE FORM
+// =======================================================
+
+function showAddExpense() {
+  S.currentExpenseId = null;
+  S.manualILS = false;
+  S.lastRateInfo = null;
+  clearExpForm();
+  document.getElementById('delExpWrap').style.display = 'none';
+  navigate('expense');
+}
+
+function editExpense(id) {
+  const e = S.expenses.find(x => x.id === id);
+  if (!e) return;
+  S.currentExpenseId = id;
+  S.manualILS = false;
+  S.lastRateInfo = null;
+  fillExpForm(e);
+  document.getElementById('delExpWrap').style.display = 'block';
+  navigate('expense');
+}
+
+function clearExpForm() {
+  document.getElementById('fDate').value   = today();
+  document.getElementById('fName').value   = '';
+  document.getElementById('fNotes').value  = '';
+  document.getElementById('fAmount').value = '';
+  document.getElementById('fILS').value    = '';
+  document.getElementById('rateRow').style.display = 'none';
+
+  // Default currency from trip
+  const cur = S.currentTrip?.currency || 'EUR';
+  const sel = document.getElementById('fCurrency');
+  sel.value = CURRENCIES.includes(cur) ? cur : 'EUR';
+
+  // First type
+  document.getElementById('fType').selectedIndex = 0;
+  onTypeChange();
+}
+
+function fillExpForm(e) {
+  document.getElementById('fDate').value   = e.date   || today();
+  document.getElementById('fName').value   = e.expense || '';
+  document.getElementById('fNotes').value  = e.info3  || '';
+  document.getElementById('fAmount').value = e.amount || '';
+  document.getElementById('fILS').value    = e.amountILS || '';
+  document.getElementById('fCurrency').value = e.currency || S.currentTrip?.currency || 'EUR';
+
+  // Set type (may be custom)
+  const typeSel = document.getElementById('fType');
+  typeSel.value = e.type || '';
+  // If not found, add it temporarily
+  if (!typeSel.value && e.type) {
+    const opt = document.createElement('option');
+    opt.value = e.type; opt.textContent = e.type;
+    typeSel.appendChild(opt);
+    typeSel.value = e.type;
+  }
+
+  if (e.rate && e.rateSource) {
+    showRate(e.rate, e.rateSource, e.rateDate, e.currency);
+  }
+
+  onTypeChange(e.info2);
+}
+
+function onTypeChange(existingInfo2 = null) {
+  const type = document.getElementById('fType').value;
+  const wrap  = document.getElementById('info2Wrap');
+  const lbl   = document.getElementById('info2Label');
+  const inp   = document.getElementById('info2Input');
+
+  if (type === 'Lodging') {
+    wrap.style.display = 'block';
+    lbl.textContent = 'Dates of Stay';
+    inp.innerHTML = `<input class="fc" id="fInfo2" type="text"
+      placeholder="e.g., Mar 5–7" value="${esc(existingInfo2 || '')}">`;
+
+  } else if (type === 'Meals') {
+    wrap.style.display = 'block';
+    lbl.textContent = 'Meal Type';
+    const opts = ['Breakfast','Lunch','Dinner','Supermarket','Snacks'];
+    inp.innerHTML = `<select class="fc" id="fInfo2">
+      <option value="">— Select meal type —</option>
+      ${opts.map(o => `<option value="${o}"${existingInfo2===o?' selected':''}>${o}</option>`).join('')}
+    </select>`;
+
+  } else if (type === 'Petrol') {
+    wrap.style.display = 'block';
+    lbl.textContent = 'Liters';
+    inp.innerHTML = `<input class="fc" id="fInfo2" type="number" step="0.1" min="0"
+      placeholder="e.g., 45.5" value="${esc(existingInfo2 || '')}">`;
+
+  } else {
+    wrap.style.display = 'none';
+    inp.innerHTML = '';
+  }
+}
+
+// ---- Exchange Rate ----
+
+function scheduleRate() {
+  if (S.manualILS) return;
+  clearTimeout(S.rateTimer);
+
+  const amount = parseFloat(document.getElementById('fAmount').value);
+  const cur    = document.getElementById('fCurrency').value;
+  if (!amount || amount <= 0) {
+    document.getElementById('rateRow').style.display = 'none';
+    return;
+  }
+
+  if (cur === 'ILS') {
+    document.getElementById('fILS').value = amount.toFixed(2);
+    showRate(1, 'same', today(), 'ILS');
+    return;
+  }
+
+  // Use pre-fetched today's rate for instant display (no async, no timing issues)
+  const dr = S.defaultRates[cur];
+  if (dr) {
+    document.getElementById('fILS').value = (amount * dr.rate).toFixed(2);
+    showRate(dr.rate, 'default', dr.date, cur);
+    return;
+  }
+
+  // Fallback: async fetch for currencies not pre-loaded
+  showRateLoading();
+  S.rateTimer = setTimeout(() => {
+    const date = document.getElementById('fDate').value || today();
+    const reqCur = cur;
+    google.script.run
+      .withSuccessHandler(result => {
+        if (document.getElementById('fCurrency').value !== reqCur) return;
+        if (result) {
+          S.defaultRates[cur] = result; // cache for future use
+          document.getElementById('fILS').value = (amount * result.rate).toFixed(2);
+          showRate(result.rate, 'default', result.date, cur);
+        } else {
+          showRateFail();
+        }
+      })
+      .withFailureHandler(() => showRateFail())
+      .getExchangeRate(cur, 'ILS', date);
+  }, 650);
+}
+
+function showRateLoading() {
+  const row = document.getElementById('rateRow');
+  const badge = document.getElementById('rateBadge');
+  const txt   = document.getElementById('rateText');
+  row.style.display = 'flex';
+  badge.className = 'badge loading'; badge.textContent = 'fetching rate…';
+  txt.textContent = '';
+}
+
+function showRate(rate, source, date, fromCur) {
+  const row   = document.getElementById('rateRow');
+  const badge = document.getElementById('rateBadge');
+  const txt   = document.getElementById('rateText');
+  row.style.display = 'flex';
+  const cur = fromCur || document.getElementById('fCurrency').value;
+
+  if (source === 'live') {
+    badge.className = 'badge live'; badge.textContent = '✓ live rate';
+    txt.textContent = `1 ${cur} = ${parseFloat(rate).toFixed(4)} ILS${date ? ' ('+fmtDate(date)+')' : ''}`;
+  } else if (source === 'cached') {
+    badge.className = 'badge cached'; badge.textContent = '⚠ cached rate';
+    txt.textContent = `approx. 1 ${cur} = ${parseFloat(rate).toFixed(4)} ILS (${date || 'earlier'})`;
+  } else if (source === 'manual') {
+    badge.className = 'badge manual'; badge.textContent = '✎ manual';
+    txt.textContent = 'You entered the ILS amount manually';
+  } else if (source === 'same') {
+    badge.className = 'badge live'; badge.textContent = '= same currency';
+    txt.textContent = '';
+  } else if (source === 'default') {
+    badge.className = 'badge default'; badge.textContent = '~ today\'s rate';
+    txt.textContent = `est. 1 ${cur} = ${parseFloat(rate).toFixed(4)} ILS (${date ? fmtDate(date) : 'today'})`;
+  } else {
+    badge.className = 'badge cached'; badge.textContent = '✗ unavailable';
+    txt.textContent = 'Enter ILS amount manually';
+  }
+}
+
+function showRateFail() {
+  showRate(null, 'fail', null, null);
+}
+
+function onManualILS() {
+  S.manualILS = true;
+  showRate(null, 'manual', null, null);
+}
+
+// ---- Save Expense ----
+
+function saveExpense() {
+  const date    = document.getElementById('fDate').value;
+  const name    = document.getElementById('fName').value.trim();
+  const type    = document.getElementById('fType').value;
+  const amount  = document.getElementById('fAmount').value;
+  const cur     = document.getElementById('fCurrency').value;
+  const ilsVal  = document.getElementById('fILS').value;
+
+  // Validation
+  let valid = true;
+  const fields = [
+    ['fDate',   !date],
+    ['fName',   !name],
+    ['fAmount', !amount || parseFloat(amount) <= 0],
+    ['fILS',    !ilsVal || parseFloat(ilsVal) <= 0]
+  ];
+  fields.forEach(([id, bad]) => {
+    const el = document.getElementById(id);
+    if (bad) { el.classList.add('bad'); valid = false; }
+    else      { el.classList.remove('bad'); }
+  });
+  if (!type) { toast('Please select an expense type', 'err'); return; }
+  if (!valid) { toast('Please fill in all required fields', 'err'); return; }
+
+  const amtNum = parseFloat(amount);
+  const btn = document.getElementById('saveExpBtn');
+  btn.disabled = true;
+
+  // ILS currency: no conversion needed
+  if (cur === 'ILS') {
+    _doSaveExpense(date, name, type, amtNum, cur, amtNum, 1, 'same', date);
+    return;
+  }
+
+  // Manual ILS entry: use what the user typed
+  if (S.manualILS) {
+    const ilsNum = parseFloat(ilsVal);
+    _doSaveExpense(date, name, type, amtNum, cur, ilsNum, ilsNum / amtNum, 'manual', date);
+    return;
+  }
+
+  // If we already have today's pre-fetched rate AND the expense date matches, skip the API call
+  const dr = S.defaultRates[cur];
+  if (dr && dr.date === date) {
+    _doSaveExpense(date, name, type, amtNum, cur,
+      parseFloat((amtNum * dr.rate).toFixed(2)), dr.rate, dr.source, dr.date);
+    return;
+  }
+
+  // Fetch actual historical rate for the expense date (past-dated expenses)
+  btn.textContent = 'Fetching rate…';
+  google.script.run
+    .withSuccessHandler(result => {
+      const rateInfo = result || S.defaultRates[cur];
+      const ilsNum = rateInfo
+        ? parseFloat((amtNum * rateInfo.rate).toFixed(2))
+        : parseFloat(ilsVal);
+      const rate     = rateInfo ? rateInfo.rate        : (parseFloat(ilsVal) / amtNum);
+      const rateSrc  = rateInfo ? rateInfo.source      : 'manual';
+      const rateDate = rateInfo ? rateInfo.date        : date;
+      _doSaveExpense(date, name, type, amtNum, cur, ilsNum, rate, rateSrc, rateDate);
+    })
+    .withFailureHandler(() => {
+      // Fallback: use the estimated ILS value already shown
+      const ilsNum = parseFloat(ilsVal);
+      _doSaveExpense(date, name, type, amtNum, cur, ilsNum, ilsNum / amtNum, 'manual', date);
+    })
+    .getExchangeRate(cur, 'ILS', date);
+}
+
+function _doSaveExpense(date, name, type, amtNum, cur, ilsNum, rate, rateSrc, rateDate) {
+  const info2El = document.getElementById('fInfo2');
+  const info2   = info2El ? info2El.value : '';
+  const info3   = document.getElementById('fNotes').value.trim();
+
+  const data = {
+    tripId: S.currentTrip.id,
+    date, expense: name, type,
+    amount: amtNum, currency: cur,
+    amountILS: ilsNum,
+    rate: rate || 1, rateDate: rateDate || date, rateSource: rateSrc,
+    info2, info3
+  };
+
+  const btn = document.getElementById('saveExpBtn');
+  btn.textContent = 'Saving…';
+
+  const fn = S.currentExpenseId ? 'updateExpense' : 'addExpense';
+  if (S.currentExpenseId) data.id = S.currentExpenseId;
+
+  google.script.run
+    .withSuccessHandler(res => {
+      btn.disabled = false; btn.textContent = '💾 Save Expense';
+      if (res && res.success) {
+        navigate('trip');
+        toast(S.currentExpenseId ? 'Expense updated!' : 'Expense added!', 'ok');
+      } else {
+        toast('Save failed', 'err');
+      }
+    })
+    .withFailureHandler(err => {
+      btn.disabled = false; btn.textContent = '💾 Save Expense';
+      toast('Error: ' + err.message, 'err');
+    })
+    [fn](data);
+}
+
+function confirmDeleteExpense() {
+  showModal('Delete Expense', `
+    <p style="color:var(--muted);margin-bottom:16px">
+      Delete "<strong>${esc(S.expenses.find(e=>e.id===S.currentExpenseId)?.expense || '')}</strong>"?
+      This cannot be undone.
+    </p>
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="doDeleteExpense()">Delete</button>
+    </div>`);
+}
+
+function doDeleteExpense() {
+  closeModal();
+  google.script.run
+    .withSuccessHandler(() => {
+      navigate('trip');
+      toast('Expense deleted', 'ok');
+    })
+    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .deleteExpense(S.currentExpenseId, S.currentTrip.id);
+}
+
+// =======================================================
+// TRIP DELETE
+// =======================================================
+
+function confirmDelTrip(id) {
+  const t = S.trips.find(x => x.id === id);
+  showModal('Delete Trip', `
+    <p style="color:var(--muted);margin-bottom:8px">
+      Delete trip "<strong>${esc(t?.title)}</strong>" and all its expenses?
+    </p>
+    <p style="color:var(--danger);font-size:13px;margin-bottom:16px">This cannot be undone.</p>
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="doDelTrip('${id}')">Delete</button>
+    </div>`);
+}
+
+function doDelTrip(id) {
+  closeModal();
+  google.script.run
+    .withSuccessHandler(() => {
+      S.trips = S.trips.filter(t => t.id !== id);
+      renderTrips();
+      toast('Trip deleted', 'ok');
+    })
+    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .deleteTrip(id);
+}
+
+// =======================================================
+// EXPENSE TYPES
+// =======================================================
+
+function populateTypeSelect() {
+  const sel = document.getElementById('fType');
+  sel.innerHTML = S.expenseTypes
+    .map(t => `<option value="${t}">${t}</option>`)
+    .join('');
+}
+
+function showAddType() {
+  const custom = S.expenseTypes.filter(t => !defaultTypes().includes(t));
+  const customList = custom.length > 0
+    ? custom.map(t => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+          <span style="font-size:15px">${esc(t)}</span>
+          <button class="btn btn-danger btn-sm" style="width:auto" onclick='deleteType(${JSON.stringify(t)})'>&#10005; Delete</button>
+        </div>`).join('')
+    : '<div style="color:var(--muted);font-size:13px;padding:6px 0">No custom types yet.</div>';
+
+  showModal('Manage Types', `
+    <div class="sec-label" style="margin-top:0">Custom Types</div>
+    <div style="margin-bottom:16px">${customList}</div>
+    <div class="fg">
+      <label>Add New Type</label>
+      <input class="fc" id="newTypeName" type="text" placeholder="e.g., Medical, Activities">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="closeModal()">Close</button>
+      <button class="btn btn-primary" onclick="saveNewType()">&#10003; Add Type</button>
+    </div>`);
+  setTimeout(() => document.getElementById('newTypeName')?.focus(), 300);
+}
+
+function deleteType(name) {
+  google.script.run
+    .withSuccessHandler(types => {
+      S.expenseTypes = types;
+      populateTypeSelect();
+      toast('Type "' + name + '" deleted', 'ok');
+      showAddType();
+    })
+    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .deleteExpenseType(name);
+}
+
+function saveNewType() {
+  const name = (document.getElementById('newTypeName')?.value || '').trim();
+  if (!name) { toast('Enter a type name', 'err'); return; }
+  closeModal();
+  google.script.run
+    .withSuccessHandler(types => {
+      S.expenseTypes = types;
+      populateTypeSelect();
+      document.getElementById('fType').value = name;
+      onTypeChange();
+      toast('Type "' + name + '" added', 'ok');
+    })
+    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .addExpenseType(name);
+}
+
+// =======================================================
+// REPORT
+// =======================================================
+
+function loadReport() {
+  document.getElementById('reportContent').innerHTML =
+    '<div style="text-align:center;padding:48px;color:var(--muted)">Generating report…</div>';
+  google.script.run
+    .withSuccessHandler(renderReport)
+    .withFailureHandler(err => {
+      document.getElementById('reportContent').innerHTML =
+        `<div style="color:var(--danger);padding:20px">Error: ${err.message}</div>`;
+    })
+    .getReport(S.currentTrip.id);
+}
+
+function renderReport(r) {
+  if (!r) { document.getElementById('reportContent').innerHTML = '<p>No data</p>'; return; }
+
+  const usd = r.totalUSD != null ? `$${fmt(r.totalUSD)}` : 'N/A';
+  const eur = r.totalEUR != null ? `€${fmt(r.totalEUR)}` : 'N/A';
+
+  document.getElementById('reportContent').innerHTML = `
+    <div class="report-banner">
+      <div class="rep-title">${esc(r.trip.title)}</div>
+      <div class="rep-meta">
+        📍 ${esc(r.trip.country)} &nbsp;·&nbsp; ${r.days} day${r.days!==1?'s':''} planned
+        &nbsp;·&nbsp; ${r.expenseCount} expense${r.expenseCount!==1?'s':''}
+        &nbsp;·&nbsp; ${dateRange(r.trip.startDate, r.trip.endDate)}
+      </div>
+      <div class="rep-totals">
+        <div class="rep-tot-item">
+          <div class="rep-tot-lbl">ILS &#8362;</div>
+          <div class="rep-tot-val">${fmt(r.totalILS)}</div>
+        </div>
+        <div class="rep-tot-item">
+          <div class="rep-tot-lbl">USD $</div>
+          <div class="rep-tot-val">${usd}</div>
+        </div>
+        <div class="rep-tot-item">
+          <div class="rep-tot-lbl">EUR €</div>
+          <div class="rep-tot-val">${eur}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sec-label">Spending by Category</div>
+      <div class="chart-wrap"><canvas id="pieCanvas"></canvas></div>
+    </div>
+
+    <div class="card">
+      <div class="sec-label">Breakdown Table</div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th style="text-align:center">#</th>
+              <th>ILS &#8362;</th>
+              <th>USD $</th>
+              <th>EUR €</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${r.categories.map(cat => {
+              const col = CAT_COLORS[cat.type] || '#9E9E9E';
+              return `<tr>
+                <td>
+                  <span class="type-dot" style="background:${col}"></span>
+                  ${esc(cat.type)}
+                </td>
+                <td style="text-align:center">${cat.count}</td>
+                <td>&#8362; ${fmt(cat.totalILS)}</td>
+                <td>${cat.totalUSD != null ? '$'+fmt(cat.totalUSD) : '–'}</td>
+                <td>${cat.totalEUR != null ? '€'+fmt(cat.totalEUR) : '–'}</td>
+              </tr>`;
+            }).join('')}
+            <tr class="tot-row">
+              <td>TOTAL</td>
+              <td style="text-align:center">${r.expenseCount}</td>
+              <td>&#8362; ${fmt(r.totalILS)}</td>
+              <td>${r.totalUSD != null ? '$'+fmt(r.totalUSD) : '–'}</td>
+              <td>${r.totalEUR != null ? '€'+fmt(r.totalEUR) : '–'}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="rep-note">
+        Conversion rates from frankfurter.app as of ${r.ratesDate} (ECB official rates)
+      </div>
+    </div>`;
+
+  // Draw pie chart
+  setTimeout(() => {
+    if (S.pieChart) { S.pieChart.destroy(); S.pieChart = null; }
+    const ctx = document.getElementById('pieCanvas');
+    if (!ctx || !r.categories.length) return;
+    S.pieChart = new Chart(ctx, {
+      type: 'pie',
+      data: {
+        labels: r.categories.map(c => c.type),
+        datasets: [{
+          data: r.categories.map(c => c.totalILS),
+          backgroundColor: r.categories.map(c => CAT_COLORS[c.type] || '#9E9E9E'),
+          borderWidth: 2, borderColor: '#fff'
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { padding: 14, font: { size: 12 }, usePointStyle: true }
+          },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                const pct = ((ctx.raw / r.totalILS) * 100).toFixed(1);
+                return `  ₪${fmt(ctx.raw)}  (${pct}%)`;
+              }
+            }
+          }
+        }
+      }
+    });
+  }, 120);
+}
+
+// =======================================================
+// MODAL
+// =======================================================
+
+function showModal(title, body) {
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalBody').innerHTML = body;
+  document.getElementById('modalBg').classList.add('open');
+}
+function closeModal() {
+  document.getElementById('modalBg').classList.remove('open');
+}
+function closeBgModal(e) {
+  if (e.target === document.getElementById('modalBg')) closeModal();
+}
+
+// =======================================================
+// TOAST
+// =======================================================
+
+let toastT;
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (type ? ' ' + type : '');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.classList.remove('show'), 3200);
+}
+
+// =======================================================
+// HELPERS
+// =======================================================
+
+function populateCurrSel(id) {
+  const sel = document.getElementById(id);
+  if (!sel) return;
+  sel.innerHTML = CURRENCIES.map(c => `<option value="${c}">${c}</option>`).join('');
+}
+
+function today() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function fmt(n) {
+  if (n == null || n === '') return '—';
+  return Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+function num(n) {
+  if (n == null || n === '') return '';
+  return Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+function esc(s) {
+  if (!s) return '';
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function fmtDate(d) {
+  if (!d) return '';
+  try {
+    return new Date(d + 'T12:00:00Z')
+      .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch(e) { return d; }
+}
+
+function dateRange(s, e) {
+  if (!s && !e) return 'Dates TBD';
+  if (!e) return fmtDate(s) + ' →';
+  if (!s) return '→ ' + fmtDate(e);
+  return fmtDate(s) + ' – ' + fmtDate(e);
+}
+
+// =======================================================
+// START
+// =======================================================
+window.addEventListener('load', init);
+</script>
+</body>
+</html>

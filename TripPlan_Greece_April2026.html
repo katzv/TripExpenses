@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>טיול משפחתי ביוון – אפריל 2026 🇬🇷</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 24px 20px;
+      color: #1a1a2e;
+      background: #fff;
+      line-height: 1.7;
+      direction: rtl;
+      text-align: right;
+    }
+    .cover {
+      background: linear-gradient(135deg, #1a5276, #2e86c1, #117a65);
+      color: #fff;
+      border-radius: 14px;
+      padding: 32px 36px 28px;
+      margin-bottom: 28px;
+    }
+    .cover h1 { font-size: 2.1em; margin-bottom: 10px; }
+    .cover-dates { font-size: 1.1em; opacity: 0.92; }
+    .cover-dates span { margin-left: 24px; }
+
+    h2 { font-size: 1.5em; color: #1a5276; border-bottom: 2px solid #aed6f1; padding-bottom: 6px; margin: 32px 0 14px; }
+    h3 { font-size: 1.15em; color: #2e86c1; margin: 20px 0 8px; }
+    h4 { font-size: 1.02em; color: #117a65; margin: 14px 0 5px; }
+    p  { margin-bottom: 10px; }
+
+    .option { border: 2px solid #2e86c1; border-radius: 12px; margin-bottom: 42px; overflow: hidden; }
+    .option-header { background: #1a5276; color: #fff; padding: 18px 24px; }
+    .option-header h2 { color: #fff; border: none; margin: 0; font-size: 1.4em; }
+    .option-header .tagline { opacity: 0.85; font-size: 0.93em; margin-top: 4px; }
+    .option-body { padding: 22px 26px; }
+
+    /* Route table – LTR cells to prevent arrow flip */
+    .route-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 0.91em; }
+    .route-table th { background: #2e86c1; color: #fff; padding: 8px 12px; text-align: center; }
+    .route-table td { border: 1px solid #d6eaf8; padding: 8px 12px; text-align: center; direction: ltr; }
+    .route-table td.date-col { direction: rtl; }
+    .route-table tr:nth-child(even) td { background: #eaf4fc; }
+
+    .day { border-right: 4px solid #2e86c1; background: #f4f9fd; border-radius: 8px 0 0 8px; padding: 12px 16px; margin: 10px 0; }
+    .day-label { font-size: 0.8em; font-weight: 700; color: #2e86c1; direction: ltr; display: inline-block; }
+    .day h4 { margin: 3px 0 8px; color: #1a5276; }
+
+    .hike { background: #eafaf1; border: 1px solid #82e0aa; border-radius: 8px; padding: 12px 16px; margin: 10px 0; }
+    .hike h4 { color: #1e8449; margin: 0 0 6px; direction: ltr; }
+    .hike-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.87em; margin-bottom: 6px; direction: ltr; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 0.82em; font-weight: 700; }
+    .easy     { background: #d5f5e3; color: #1e8449; }
+    .moderate { background: #fdebd0; color: #ca6f1e; }
+    .carrier-only { background: #e8daef; color: #6c3483; }
+    .stroller-ok  { background: #d6eaf8; color: #1a5276; }
+
+    .tip { background: #fef9e7; border-right: 4px solid #f7dc6f; border-radius: 8px 0 0 8px; padding: 10px 16px; margin: 12px 0; font-size: 0.93em; }
+    .tip strong { color: #9a7d0a; }
+
+    .food-box { background: #fff8f0; border: 1px solid #e8c99a; border-radius: 8px; padding: 14px 18px; margin: 10px 0; }
+    .food-box h4 { color: #a04000; margin-bottom: 6px; }
+
+    .photo-box { background: #f4f0fb; border: 1px solid #c39bd3; border-radius: 8px; padding: 14px 18px; margin: 10px 0; }
+    .photo-box h4 { color: #6c3483; margin-bottom: 6px; }
+
+    .links-box { background: #f0f6ff; border: 1px solid #aed6f1; border-radius: 8px; padding: 12px 16px; margin: 10px 0; font-size: 0.91em; }
+    .links-box h4 { color: #1a5276; margin-bottom: 6px; }
+
+    ul.lnk { list-style: none; padding: 0; }
+    ul.lnk li { margin: 5px 0; }
+    ul.lnk li::before { content: "🔗 "; }
+    a { color: #1a5276; direction: ltr; unicode-bidi: embed; }
+    a:hover { color: #2e86c1; }
+
+    .compare-table { width: 100%; border-collapse: collapse; font-size: 0.9em; margin: 14px 0; }
+    .compare-table th { background: #117a65; color: #fff; padding: 10px 12px; text-align: right; }
+    .compare-table td { border: 1px solid #a9dfbf; padding: 9px 12px; vertical-align: top; }
+    .compare-table tr:nth-child(even) td { background: #eafaf1; }
+
+    .hike-summary { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+    .hike-summary th { background: #2e86c1; color: #fff; padding: 8px 10px; text-align: right; }
+    .hike-summary td { border: 1px solid #d6eaf8; padding: 7px 10px; direction: ltr; text-align: left; }
+    .hike-summary td.heb { direction: rtl; text-align: right; }
+    .hike-summary tr:nth-child(even) td { background: #f4f9fd; }
+
+    @media print {
+      body { padding: 8px; font-size: 0.88em; }
+      .option { page-break-inside: avoid; }
+      .cover, .option-header, .route-table th, .compare-table th, .hike-summary th {
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }
+      a { text-decoration: none; }
+    }
+    hr { border: none; border-top: 1px solid #d6eaf8; margin: 26px 0; }
+    ul { padding-right: 18px; padding-left: 0; }
+    li { margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════ COVER ═════════════════════════ -->
+<div class="cover">
+  <h1>🇬🇷 טיול משפחה – צפון יוון, אפריל 2026</h1>
+  <div class="cover-dates">
+    <span>✈️ הגעה: רביעי 1.4.26 · 10:35 (SKG)</span>
+    <span>✈️ יציאה: שבת 11.4.26 · 15:25 (SKG)</span>
+    <span>📅 10 לילות · 11 ימים</span>
+  </div>
+</div>
+
+<div class="tip">
+  <strong>⚠️ שבוע הפסחא היוונית:</strong> חג הפסחא 2026 חל ב-12 באפריל. כל הטיול חופף לשבוע הקדוש – הזמינו לינה מוקדם! ביום שישי הטוב (10.4) תהלוכת ה-Epitaphios ברחובות ב-~21:00 היא חוויה מרגשת שלא כדאי לפספס.
+</div>
+
+<!-- ═══════════════════════ OVERVIEW TABLE ════════════════ -->
+<h2>🗺️ ארבע האפשרויות במבט אחד</h2>
+<table class="compare-table">
+  <thead>
+    <tr><th>אפשרות</th><th>עצירה 1</th><th>עצירה 2</th><th>Thessaloniki</th><th>אופי</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>A ⭐ מומלצת</strong></td><td>Meteora · 4 לילות</td><td>Zagoria · 4 לילות</td><td>2 לילות</td><td>סלעים דרמטיים + כפרי הרים אותנטיים</td></tr>
+    <tr><td><strong>B</strong></td><td>Zagoria · 5 לילות</td><td>Meteora · 3 לילות</td><td>2 לילות</td><td>שהייה עמוקה ב-Zagoria</td></tr>
+    <tr><td><strong>C</strong></td><td>Pelion · 4 לילות</td><td>Meteora · 4 לילות</td><td>2 לילות</td><td>יערות מיתולוגיים + מנזרים</td></tr>
+    <tr><td><strong>D</strong></td><td>Olympus/Litochoro · 3 לילות</td><td>Meteora · 5 לילות</td><td>2 לילות</td><td>הר האלים + נסיעה קצרה ביום ראשון</td></tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════ OPTION A ══════════════════════ -->
+<div class="option">
+  <div class="option-header">
+    <h2>⭐ אפשרות A – Meteora + Zagoria + Thessaloniki</h2>
+    <div class="tagline">השילוב האיקוני של צפון יוון · הכי שלם עבור הנוף, הכפרים וההליכות</div>
+  </div>
+  <div class="option-body">
+
+    <table class="route-table">
+      <thead><tr><th>יום ותאריך</th><th>From</th><th>To</th><th>מרחק</th><th>נסיעה</th></tr></thead>
+      <tbody>
+        <tr><td class="date-col">יום 1 · 1.4 (רביעי)</td><td>SKG Airport</td><td>Kalambaka / Kastraki</td><td>~240 km</td><td>~3 h</td></tr>
+        <tr><td class="date-col">יום 5 · 5.4 (ראשון)</td><td>Kalambaka</td><td>Papingo, Zagoria</td><td>~175 km</td><td>~2.5 h</td></tr>
+        <tr><td class="date-col">יום 9 · 9.4 (חמישי)</td><td>Papingo</td><td>Thessaloniki</td><td>~355 km</td><td>~4 h</td></tr>
+        <tr><td class="date-col">יום 11 · 11.4 (שבת)</td><td>Thessaloniki center</td><td>SKG Airport</td><td>~16 km</td><td>~20 min</td></tr>
+      </tbody>
+    </table>
+
+    <!-- ─── METEORA ─── -->
+    <h3>📍 Meteora & Kastraki – לילות 1–4 · 1–4 באפריל</h3>
+    <p>לינה בכפר <strong>Kastraki</strong> – הרבה יותר אווירתי מ-Kalambaka. עמודי הסלע המונוליתיים עם המנזרים עליהם הם אחד מפלאי אירופה. <a href="https://www.booking.com/searchresults.en.html?ss=Kastraki%2C+Greece" target="_blank">חיפוש לינה ב-Kastraki</a></p>
+
+    <div class="day">
+      <div class="day-label">Day 1 · Wed, Apr 1</div>
+      <h4>הגעה לשדה התעופה ← נסיעה ל-Kastraki</h4>
+      <ul>
+        <li>נחיתה 10:35, איסוף רכב (צפו ~1.5 שעות) ← נסיעה 3 שעות דרום ב-E75 דרך Larissa</li>
+        <li>הגעה ~15:00, צ'ק-אין, מנוחה</li>
+        <li>הליכת ערב ראשונה בכפר Kastraki בין הסלעים</li>
+      </ul>
+    </div>
+
+    <div class="day">
+      <div class="day-label">Day 2 · Thu, Apr 2</div>
+      <h4>Rousanou + Holy Trinity + שקיעה ב-Psaropetra</h4>
+      <ul>
+        <li>בוקר: מנזר <strong>Rousanou</strong> – חצוב בגוש סלע, נשים חיות בו עד היום; חצר עם פריחה ונוף מרהיב</li>
+        <li>אמצע הבוקר: מנזר <strong>Holy Trinity (Agia Triada)</strong> – 140 מדרגות חצובות בסלע; הופיע בסרט ג'יימס בונד "For Your Eyes Only" (1981)</li>
+        <li>אחר הצהריים: הליכת Double Rock Path (ראו טבלת הליכות)</li>
+        <li>שקיעה בנקודת תצפית <strong>Psaropetra</strong> – 10 דקות מהחניה, הנוף הטוב ביותר</li>
+      </ul>
+    </div>
+
+    <div class="day">
+      <div class="day-label">Day 3 · Fri, Apr 3</div>
+      <h4>Grand Meteora + מוזיאון + כפר Kalambaka</h4>
+      <ul>
+        <li>בוקר: <strong>Grand Meteora Monastery</strong> – הגדול ביותר (מהמאה ה-14), מוזיאון מרשים, קריפטה עם גולגלות נזירים</li>
+        <li>צהריים: פיקניק עם פשטידות מהמאפיות של Kalambaka</li>
+        <li>אחר הצהריים: הכנסייה הביזנטית בעיר הישנה של Kalambaka (מהמאה ה-12)</li>
+      </ul>
+    </div>
+
+    <div class="day">
+      <div class="day-label">Day 4 · Sat, Apr 4</div>
+      <h4>Varlaam + הליכת בוקר + סיום</h4>
+      <ul>
+        <li>בוקר: <strong>Varlaam Monastery</strong> – ציורי קיר מדהימים מהמאה ה-16, מנגנון הרשת ההיסטורי לנשיאת אספקה</li>
+        <li>אחר הצהריים: הליכת Kastraki Village Trail (ראו טבלה)</li>
+        <li>ערב: הכנה לנסיעה של מחר</li>
+      </ul>
+    </div>
+
+    <div class="photo-box">
+      <h4>📸 נקודות תצפית ופוטו-אופס ב-Meteora</h4>
+      <ul>
+        <li><strong>Psaropetra Rock Viewpoint</strong> – הנוף הקלאסי של Meteora בשקיעה · <a href="https://www.google.com/maps/search/Psaropetra+viewpoint+Meteora" target="_blank">Google Maps</a> · <a href="https://www.google.com/search?q=Psaropetra+viewpoint+Meteora+photos&tbm=isch" target="_blank">תמונות</a></li>
+        <li><strong>Adrachti Rock</strong> (סלע הפטריה) – הסלע בצורת פטריה האיקוני, 5 דקות מהכביש הראשי · <a href="https://www.google.com/maps/search/Adrachti+Rock+Meteora" target="_blank">Google Maps</a></li>
+        <li><strong>ערפל בוקר</strong> מוקדם מעל Kalambaka – בין 6:30–8:00 הסלעים צצים מתוך ענן; מגיעים לנקודת Doupiani Rock בחניה הקטנה · <a href="https://www.google.com/maps/search/Doupiani+Rock+Kastraki+Meteora" target="_blank">Google Maps</a></li>
+        <li><strong>כביש המנזרים בשעת זהב</strong> – 30 דקות לפני שקיעה, נסיעה איטית בכביש הלולייני בין Grand Meteora ל-Varlaam</li>
+        <li><strong>Holy Trinity</strong> – הצילום מהמרפסת עם פס הסלע מאחור; זהו המנזר שצולם בסרט Bond · <a href="https://www.google.com/search?q=Holy+Trinity+Monastery+Meteora+James+Bond+photos&tbm=isch" target="_blank">תמונות</a></li>
+      </ul>
+    </div>
+
+    <div class="links-box">
+      <h4>🔗 קישורים ספציפיים – Meteora</h4>
+      <ul class="lnk">
+        <li><a href="https://www.visitmeteora.travel/rousanou-monastery/" target="_blank">visitmeteora.travel – Rousanou Monastery (תמונות + מידע)</a></li>
+        <li><a href="https://www.visitmeteora.travel/holy-trinity-monastery/" target="_blank">visitmeteora.travel – Holy Trinity Monastery</a></li>
+        <li><a href="https://www.visitmeteora.travel/great-meteoron-monastery/" target="_blank">visitmeteora.travel – Grand Meteora Monastery</a></li>
+        <li><a href="https://www.visitmeteora.travel/varlaam-monastery/" target="_blank">visitmeteora.travel – Varlaam Monastery</a></li>
+        <li><a href="https://www.google.com/maps/search/Rousanou+Monastery+Meteora+Greece" target="_blank">Google Maps – Rousanou Monastery</a></li>
+        <li><a href="https://www.google.com/maps/search/Holy+Trinity+Monastery+Meteora+Greece" target="_blank">Google Maps – Holy Trinity Monastery</a></li>
+        <li><a href="https://www.google.com/maps/search/Grand+Meteora+Monastery+Greece" target="_blank">Google Maps – Grand Meteora Monastery</a></li>
+        <li><a href="https://www.google.com/search?q=Rousanou+Monastery+Meteora&tbm=isch" target="_blank">תמונות – Rousanou Monastery</a></li>
+        <li><a href="https://www.google.com/search?q=Holy+Trinity+Monastery+Meteora&tbm=isch" target="_blank">תמונות – Holy Trinity Monastery</a></li>
+        <li><a href="https://www.google.com/search?q=Grand+Meteora+Monastery&tbm=isch" target="_blank">תמונות – Grand Meteora Monastery</a></li>
+        <li><a href="https://www.google.com/search?q=Psaropetra+viewpoint+Meteora&tbm=isch" target="_blank">תמונות – Psaropetra viewpoint</a></li>
+      </ul>
+    </div>
+
+    <div class="food-box">
+      <h4>🍽️ אוכל ייחודי באזור Meteora</h4>
+      <ul>
+        <li><strong>Taverna To Paramithi</strong>, Kastraki – טברנה משפחתית ישנה עם בשר על גחלים ופשטידות Thessaly; מיקום: <a href="https://www.google.com/maps/search/Taverna+Kastraki+Meteora" target="_blank">Google Maps</a></li>
+        <li><strong>Meteoron Panorama Restaurant</strong> – ארוחה עם נוף ישיר לסלעים; <a href="https://www.google.com/maps/search/Meteoron+Panorama+Restaurant+Kalambaka" target="_blank">Google Maps</a></li>
+        <li><strong>מאפיות Kalambaka</strong> – פשטידת Kreatopita (בשר) ו-Spanakopita; קחו לנסיעות ולהליכות</li>
+        <li><strong>Kontosouvli</strong> (חזיר על שיפוד) ו-Kokoretsi (ראו – זה לאמיצים בלבד) – מאכלים אזוריים של Thessaly</li>
+      </ul>
+    </div>
+
+    <!-- ─── ZAGORIA ─── -->
+    <h3>📍 Zagoria (Zagorochoria) – לילות 5–8 · 5–8 באפריל</h3>
+    <p>44 כפרים בנויי אבן בהרי Pindus, ביניהם הקניון העמוק בעולם (Vikos) וגשרי אבן מימי הביניים. לינה ב-<strong>Megalo Papingo</strong> או ב-<strong>Aristi</strong> – הזמינו מוקדם! בנסיעה מ-Meteora: אפשר לעצור שעה ב-<strong>Ioannina</strong> (עיר אגם יפהפייה).</p>
+
+    <div class="day">
+      <div class="day-label">Day 5 · Sun, Apr 6</div>
+      <h4>נסיעה Meteora ← Ioannina ← Papingo</h4>
+      <ul>
+        <li>נסיעה ~2.5 שעות דרך Egnatia Odos · עצירה אופציונלית שעה ב-Ioannina (ארוחת צהריים על שפת האגם)</li>
+        <li>הגעה ל-Papingo · התמקמות · הליכה קצרה ראשונה בכפר</li>
+      </ul>
+    </div>
+
+    <div class="day">
+      <div class="day-label">Day 6 · Mon, Apr 7</div>
+      <h4>בריכות Papingo + שביל Megalo–Mikro</h4>
+      <ul>
+        <li>בוקר: הליכה לבריכות הסלע של <strong>Papingo</strong> – בריכות טורקיז בצבע אמרלד חצובות בסלע גיר</li>
+        <li>אחר הצהריים: הליכת קלדרימי בין Megalo ל-Mikro Papingo (שעה הלוך-חזור)</li>
+      </ul>
+    </div>
+
+    <div class="day">
+      <div class="day-label">Day 7 · Tue, Apr 8</div>
+      <h4>תצפית Vikos Gorge + גשרי האבן של Kipi</h4>
+      <ul>
+        <li>בוקר: נסיעה לכפר Monodendri ← הליכה קצרה לנקודת תצפית <strong>Oxia</strong> – הקניון הפתוח לרגליכם, 900 מטר עומק</li>
+        <li>אחר הצהריים: אזור <strong>Kipi</strong> – שלושה גשרי קשת מימי הביניים לאורך נחל, שטוח, מתאים לעגלה בחלקו</li>
+      </ul>
+    </div>
+
+    <div class="day">
+      <div class="day-label">Day 8 · Wed, Apr 9</div>
+      <h4>מדרגות Vradeto + כפר Tsepelovo</h4>
+      <ul>
+        <li>בוקר: מדרגות ה-Skala Vradeto – זיגזג של אבן עתיק על גבי צוק, נוף פנורמי לקניון</li>
+        <li>אחר הצהריים: כפר Tsepelovo – כיכר, עצי מישגן ישנים, חנות מוצרי הרר</li>
+      </ul>
+    </div>
+
+    <div class="photo-box">
+      <h4>📸 נקודות תצפית ופוטו-אופס ב-Zagoria</h4>
+      <ul>
+        <li><strong>Oxia Viewpoint</strong> – הצילום האיקוני על Vikos Gorge; עמדו על קצה הצוק בשעת בוקר · <a href="https://www.google.com/maps/search/Oxia+viewpoint+Zagori+Greece" target="_blank">Google Maps</a> · <a href="https://www.google.com/search?q=Oxia+viewpoint+Vikos+Gorge&tbm=isch" target="_blank">תמונות</a></li>
+        <li><strong>Megalo Papingo עם צוק Astraka ברקע</strong> – הנוף הקלאסי של Zagoria; הזמן הטוב – בוקר מוקדם לפני ערפל · <a href="https://www.google.com/search?q=Megalo+Papingo+Astraka+photos&tbm=isch" target="_blank">תמונות</a></li>
+        <li><strong>גשר Plakidas</strong> (קשת משולשת, Kipi) – הגשר הפוטוגני ביותר מבין גשרי האבן · <a href="https://www.google.com/maps/search/Plakidas+bridge+Kipi+Zagori" target="_blank">Google Maps</a></li>
+        <li><strong>בריכות הסלע של Papingo</strong> – השתקפות Astraka במים הטורקיז; מגיעים מוקדם לפני קבוצות · <a href="https://www.google.com/search?q=Papingo+rock+pools+photos&tbm=isch" target="_blank">תמונות</a></li>
+        <li><strong>כפר Mikro Papingo</strong> – הכיכר הקטנה עם הפנטין – אחד הנופים היפים ביוון · <a href="https://www.google.com/search?q=Mikro+Papingo+village+photos&tbm=isch" target="_blank">תמונות</a></li>
+      </ul>
+    </div>
+
+    <div class="links-box">
+      <h4>🔗 קישורים ספציפיים – Zagoria</h4>
+      <ul class="lnk">
+        <li><a href="https://www.alltrails.com/trail/greece/epirus/papingo-rock-pools" target="_blank">AllTrails – Papingo Rock Pools (מסלול + תמונות + ביקורות)</a></li>
+        <li><a href="https://www.alltrails.com/trail/greece/epirus/monodendri-to-oxia-viewpoint" target="_blank">AllTrails – Oxia Viewpoint trail</a></li>
+        <li><a href="https://www.alltrails.com/trail/greece/epirus/skala-vradeto" target="_blank">AllTrails – Skala Vradeto stairs</a></li>
+        <li><a href="https://www.google.com/maps/search/Papingo+rock+pools+Greece" target="_blank">Google Maps – Papingo Rock Pools (trailhead)</a></li>
+        <li><a href="https://www.google.com/maps/search/Monodendri+village+Zagori+Greece" target="_blank">Google Maps – Monodendri (Oxia trailhead)</a></li>
+        <li><a href="https://www.google.com/maps/search/Kipi+stone+bridges+Zagori+Greece" target="_blank">Google Maps – Kipi stone bridges</a></li>
+        <li><a href="https://www.google.com/search?q=Vikos+gorge+Zagoria+Greece&tbm=isch" target="_blank">תמונות – Vikos Gorge</a></li>
+        <li><a href="https://www.google.com/search?q=Zagoria+stone+villages+Greece&tbm=isch" target="_blank">תמונות – כפרי Zagoria</a></li>
+      </ul>
+    </div>
+
+    <div class="food-box">
+      <h4>🍽️ אוכל ייחודי ב-Zagoria</h4>
+      <ul>
+        <li><strong>Aristi Mountain Resort Restaurant</strong> – המסעדה האיכותית ביותר באזור, שדרוג של מטבח הרי Pindus; <a href="https://www.google.com/maps/search/Aristi+Mountain+Resort+Zagori" target="_blank">Google Maps</a></li>
+        <li><strong>Trachanas</strong> – מרק מחיטה מותססת עם יוגורט, מרק הררי עתיק; חפשו בכל קפה או טברנה בכפרים</li>
+        <li><strong>פורל טרי</strong> – מגדלים בנחלים המקומיים; בקשו ב-"ψάρι ντόπιο" (פסארי דוביו) – דג מקומי</li>
+        <li><strong>Metsovone</strong> – גבינה מעושנת מהעיירה Metsovo (45 דקות נסיעה); אפשרי ביום טיול</li>
+        <li><strong>קפה בכפר Tsepelovo</strong> – הקפהניון הקטן בכיכר, קפה ελληνικό (יווני) עם λουκουμάδες</li>
+      </ul>
+    </div>
+
+    <!-- ─── THESSALONIKI ─── -->
+    <h3>📍 Thessaloniki – לילות 9–10 · 9–10 באפריל</h3>
+    <p>נסיעה ~4 שעות דרך Egnatia Odos. Thessaloniki נחשבת לבירת האוכל של יוון. הטיילת (Paralia) שטוחה לחלוטין.</p>
+    <p><strong>10 באפריל = יום שישי הטוב:</strong> טקס ה-Epitaphios (תהלוכת ארון בנרות) ברחובות ב-~21:00 – חוויה מרגשת ונדירה.</p>
+
+    <div class="day">
+      <div class="day-label">Day 9 · Thu, Apr 9</div>
+      <h4>הגעה ל-Thessaloniki</h4>
+      <ul>
+        <li>צ'ק-אין, מנוחה · ערב: טיילת Paralia + White Tower (פתוח עד 20:00) · ארוחת ערב ב-Ladadika</li>
+      </ul>
+    </div>
+
+    <div class="day">
+      <div class="day-label">Day 10 · Fri, Apr 10 – Good Friday</div>
+      <h4>שווקים + Ano Poli + Rotonda + Epitaphios</h4>
+      <ul>
+        <li>בוקר: שוק <strong>Modiano</strong> + שוק <strong>Kapani</strong> – קמרונות, גבינות, זיתים, ריחות; הביאו שקיות ריקות!</li>
+        <li>אמצע הבוקר: <strong>Ano Poli</strong> (העיר העליונה) – בתים עות'מאניים, חומות ביזנטיות, נוף על העיר; נסעו ברכב למעלה</li>
+        <li>ביקור ב-<strong>Rotonda</strong> (UNESCO, מהמאה ה-4) – מבנה עגול מרשים</li>
+        <li>אחר הצהריים: <strong>Ergon Agora</strong> – חנות-מסעדת קונספט, המקום הכי מצולם ב-Thessaloniki; <a href="https://www.ergonfoods.com/" target="_blank">ergonfoods.com</a></li>
+        <li><strong>21:00:</strong> תהלוכת Epitaphios מכנסיית Agia Sofia – כל העיר יוצאת לרחוב עם נרות</li>
+      </ul>
+    </div>
+
+    <div class="day">
+      <div class="day-label">Day 11 · Sat, Apr 11</div>
+      <h4>בוקר אחרון ← המראה 15:25</h4>
+      <ul>
+        <li>ארוחת בוקר: <strong>Bougatsa Serraikon</strong> (מפורסמת מ-1960) או <strong>Trigona Panoramatos</strong> אם נוסעים לשכונת Panorama</li>
+        <li>סוף הבוקר: החזרת רכב, שדה התעופה (~20 דקות מהמרכז)</li>
+      </ul>
+    </div>
+
+    <div class="photo-box">
+      <h4>📸 נקודות תצפית ופוטו-אופס ב-Thessaloniki</h4>
+      <ul>
+        <li><strong>White Tower בשקיעה</strong> – הסמל של העיר, האור הזהוב מהמים; <a href="https://www.google.com/maps/search/White+Tower+Thessaloniki" target="_blank">Google Maps</a></li>
+        <li><strong>Ano Poli בשעת הזהב</strong> – מגדל Trigoniou עם נוף פנורמי לעיר ולמפרץ; <a href="https://www.google.com/maps/search/Trigoniou+Tower+Thessaloniki" target="_blank">Google Maps</a></li>
+        <li><strong>Rotonda interior</strong> – כיפה ענקית מהמאה ה-4, תמונות דרמטיות מבפנים; <a href="https://www.google.com/search?q=Rotonda+Thessaloniki+interior+photos&tbm=isch" target="_blank">תמונות</a></li>
+        <li><strong>Modiano Market מבפנים</strong> – קמרונות, אור טבעי ממעלה, צבעים; <a href="https://www.google.com/search?q=Modiano+market+Thessaloniki+interior&tbm=isch" target="_blank">תמונות</a></li>
+        <li><strong>Paralia ב-Blue Hour</strong> (20 דקות אחרי שקיעה) – השמים כחולים, האורות של העיר מתחת</li>
+      </ul>
+    </div>
+
+    <div class="food-box">
+      <h4>🍽️ מקומות אוכל ייחודיים ב-Thessaloniki</h4>
+      <ul>
+        <li><strong>Ergon Agora</strong> – חנות-מסעדה של מוצרי יוון פרמיום, מוכרת בינלאומית; Aristotelous 1 · <a href="https://www.ergonfoods.com/" target="_blank">ergonfoods.com</a> · <a href="https://www.google.com/maps/search/Ergon+Agora+Thessaloniki" target="_blank">Google Maps</a></li>
+        <li><strong>Bougatsa Serraikon</strong> – מאפיית Bougatsa מ-1960, עומדים ואוכלים בדלפק; <a href="https://www.google.com/maps/search/Bougatsa+Serraikon+Thessaloniki" target="_blank">Google Maps</a></li>
+        <li><strong>Trigona Panoramatos</strong> – משולשי בצק פריך ממולאים קרם דבש; המקום המקורי בשכונת Panorama (6 ק"מ מהמרכז) · <a href="https://www.google.com/maps/search/Trigona+Panoramatos+Thessaloniki" target="_blank">Google Maps</a></li>
+        <li><strong>Bit Bazaar</strong> – שוק אוכל רחוב עם בירה יוונית ורמקולים; בחסות ה-street food scene של העיר · <a href="https://www.google.com/maps/search/Bit+Bazaar+Thessaloniki" target="_blank">Google Maps</a></li>
+        <li><strong>Zythos Restaurant</strong> – בית שייקספיר של מטבח יוווני מסורתי עם בירות craft; הופיע במדריכי אוכל רבים · <a href="https://www.google.com/maps/search/Zythos+Restaurant+Thessaloniki" target="_blank">Google Maps</a></li>
+        <li><strong>Ouzeri Tiffany's</strong> – מסעדת אוזו מסורתית, ידועה ב-Thessaloniki מזה עשרות שנים · <a href="https://www.google.com/maps/search/Tiffany+Ouzeri+Thessaloniki" target="_blank">Google Maps</a></li>
+      </ul>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════ OPTION B ══════════════════════ -->
+<div class="option">
+  <div class="option-header">
+    <h2>אפשרות B – Zagoria (עמוק יותר) + Meteora + Thessaloniki</h2>
+    <div class="tagline">5 לילות ב-Zagoria לשקיעה אמיתית · פחות נסיעות · כניסה ויציאה מ-Thessaloniki</div>
+  </div>
+  <div class="option-body">
+
+    <table class="route-table">
+      <thead><tr><th>יום ותאריך</th><th>From</th><th>To</th><th>מרחק</th><th>נסיעה</th></tr></thead>
+      <tbody>
+        <tr><td class="date-col">יום 1 · 1.4 (רביעי)</td><td>SKG Airport</td><td>Zagoria (via Ioannina)</td><td>~430 km</td><td>~4.5 h</td></tr>
+        <tr><td class="date-col">יום 6 · 6.4 (שני)</td><td>Zagoria</td><td>Kalambaka / Kastraki</td><td>~175 km</td><td>~2.5 h</td></tr>
+        <tr><td class="date-col">יום 9 · 9.4 (חמישי)</td><td>Kalambaka</td><td>Thessaloniki</td><td>~240 km</td><td>~3 h</td></tr>
+        <tr><td class="date-col">יום 11 · 11.4 (שבת)</td><td>Thessaloniki center</td><td>SKG Airport</td><td>~16 km</td><td>~20 min</td></tr>
+      </tbody>
+    </table>
+
+    <div class="tip"><strong>יום 1:</strong> הנסיעה ארוכה (~4.5 שעות). שקלו לינה ראשונה ב-<strong>Ioannina</strong> ולהמשיך ל-Zagoria ביום 2 – עיר אגם יפהפייה שמחלקת את הנסיעה בצורה נוחה.</div>
+
+    <div class="day">
+      <div class="day-label">Days 1–5 · Apr 1–5</div>
+      <h4>Zagoria – 5 לילות · פעילויות נוספות</h4>
+      <ul>
+        <li>כל ההליכות והמקומות מאפשרות A (Zagoria), בקצב רגוע יותר</li>
+        <li><strong>יום נוסף:</strong> הליכה לתחתית <strong>Vikos Gorge</strong> מכפר Vikos לגשר Kleidonia והחזרה – שטוח לאורך קרקעית הקניון, ~4 ק"מ לגשר + 4 ק"מ חזרה = 8 ק"מ סה"כ (אין צורך ב-2 רכבים) · <a href="https://www.alltrails.com/trail/greece/epirus/vikos-gorge-trail" target="_blank">AllTrails – Vikos Gorge floor</a></li>
+        <li><strong>יום טיול ל-Metsovo</strong> (1.5 שעות נסיעה) – עיירת הרים יפהפייה, מפורסמת בגבינות Metsovone, יין מקומי, מוזיאון פולקלור ורחובות מסורתיים · <a href="https://www.google.com/maps/search/Metsovo+Greece" target="_blank">Google Maps</a> · <a href="https://www.google.com/search?q=Metsovo+Greece+photos&tbm=isch" target="_blank">תמונות</a></li>
+      </ul>
+    </div>
+
+    <div class="day">
+      <div class="day-label">Days 6–8 · Apr 6–8</div>
+      <h4>Meteora – 3 לילות · מוקד על המיטב</h4>
+      <ul>
+        <li>6.4: הגעה, Kastraki, שקיעה ב-Psaropetra</li>
+        <li>7.4: Grand Meteora + Varlaam + הליכה</li>
+        <li>8.4: Rousanou + Holy Trinity + עיר Kalambaka</li>
+      </ul>
+    </div>
+
+    <div class="day">
+      <div class="day-label">Days 9–10 · Apr 9–10</div>
+      <h4>Thessaloniki – 2 לילות (זהה לאפשרות A)</h4>
+    </div>
+
+    <div class="tip"><strong>למה B:</strong> אם הנסיעות ברכב קשות לילדים, עדיף להשקיע יותר זמן במקום אחד. Zagoria מספיק עשיר ל-5 לילות.</div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════ OPTION C ══════════════════════ -->
+<div class="option">
+  <div class="option-header">
+    <h2>אפשרות C – Pelion Peninsula + Meteora + Thessaloniki</h2>
+    <div class="tagline">יערות ערמונים ותפוחים, כפרי הקנטאורים של המיתולוגיה + מנזרי הסלע</div>
+  </div>
+  <div class="option-body">
+
+    <table class="route-table">
+      <thead><tr><th>יום ותאריך</th><th>From</th><th>To</th><th>מרחק</th><th>נסיעה</th></tr></thead>
+      <tbody>
+        <tr><td class="date-col">יום 1 · 1.4 (רביעי)</td><td>SKG Airport</td><td>Pelion / Makrinitsa (via Volos)</td><td>~230 km</td><td>~2.5 h</td></tr>
+        <tr><td class="date-col">יום 5 · 5.4 (ראשון)</td><td>Pelion</td><td>Kalambaka / Kastraki</td><td>~200 km</td><td>~2.5 h</td></tr>
+        <tr><td class="date-col">יום 9 · 9.4 (חמישי)</td><td>Kalambaka</td><td>Thessaloniki</td><td>~240 km</td><td>~3 h</td></tr>
+        <tr><td class="date-col">יום 11 · 11.4 (שבת)</td><td>Thessaloniki center</td><td>SKG Airport</td><td>~16 km</td><td>~20 min</td></tr>
+      </tbody>
+    </table>
+
+    <h3>📍 Pelion Peninsula – לילות 1–4 · 1–4 באפריל</h3>
+    <p>חצי האי של הקנטאורים. יערות ערמונים ותפוחים, כפרים עם גגות פצלת ירוקה-שחורה, ומפרצי חצץ שקטים. הים באפריל קר מדי לרחצה אבל הנוף קסום. לינה ב-<strong>Makrinitsa</strong> או <strong>Tsagarada</strong>.</p>
+
+    <div class="day">
+      <div class="day-label">Days 1–4 · Apr 1–4</div>
+      <h4>Pelion – 4 לילות</h4>
+      <ul>
+        <li><strong>1.4:</strong> הגעה ← Pelion (~2.5 שעות); הכפר Makrinitsa – כיכר עם עץ מישגן ענק ונוף על מפרץ Volos</li>
+        <li><strong>2.4:</strong> הליכת קלדרימי Makrinitsa ← Portaria (2 ק"מ, קל) · אחר הצהריים: עיר Volos ונמל</li>
+        <li><strong>3.4:</strong> נסיעה לחוף המזרחי · כפר <strong>Tsagarada</strong> (עץ מישגן בן 1000 שנה!) · הליכה לחוף Mylopotamos (2.5 ק"מ הלוך, יורד לחוף חצץ)</li>
+        <li><strong>4.4:</strong> Centaur Trail – Portaria ← Hania (~5 ק"מ, בינוני, יער ערמונים) · Volos ערב – תסיפורו המסורתיים</li>
+      </ul>
+    </div>
+
+    <div class="photo-box">
+      <h4>📸 נקודות תצפית ופוטו-אופס ב-Pelion</h4>
+      <ul>
+        <li><strong>Makrinitsa Square</strong> – הכיכר עם הפנטין ועץ המישגן הענק, נוף על Volos Bay מאחור · <a href="https://www.google.com/search?q=Makrinitsa+village+square+photos&tbm=isch" target="_blank">תמונות</a></li>
+        <li><strong>Tsagarada Plane Tree</strong> – עץ בן 1000+ שנה, גזע ענק בכיכר; <a href="https://www.google.com/maps/search/Tsagarada+plane+tree+Pelion" target="_blank">Google Maps</a></li>
+        <li><strong>חוף Mylopotamos</strong> – חוף חצץ לבן כחשוף בין צוקים, נגיש רק ברגל; <a href="https://www.google.com/search?q=Mylopotamos+beach+Pelion+photos&tbm=isch" target="_blank">תמונות</a></li>
+        <li><strong>נמל Volos בשקיעה</strong> – צי דייגים, καφενεία על המים</li>
+      </ul>
+    </div>
+
+    <div class="food-box">
+      <h4>🍽️ אוכל ייחודי ב-Pelion</h4>
+      <ul>
+        <li><strong>Tsipouradika של Volos</strong> – בתי tsipouro (רוח ארד כפולה מיוון) שמגישים מנות קטנות חינם עם כל כוס. אווירה לא ניתנת לחקירה, מאוד משפחתית; <a href="https://www.google.com/maps/search/tsipouradiko+Volos" target="_blank">Google Maps</a></li>
+        <li><strong>Spetzofai</strong> – תבשיל נקניקיות ופלפל, המנה האיקונית של Pelion</li>
+        <li><strong>מאפיות כפר</strong> עם ריבות תפוח, פשטידות ערמון, ומוצרי יער מקומיים</li>
+      </ul>
+    </div>
+
+    <div class="day">
+      <div class="day-label">Days 5–8 · Apr 5–8</div>
+      <h4>Meteora (4 לילות) – זהה לאפשרות A</h4>
+    </div>
+    <div class="day">
+      <div class="day-label">Days 9–10 · Apr 9–10</div>
+      <h4>Thessaloniki (2 לילות) – זהה לאפשרות A</h4>
+    </div>
+
+    <div class="tip"><strong>למה C:</strong> Pelion שונה לגמרי מ-Zagoria – יותר שפע ירוק, פחות מבודד, קרוב לים. מתאים אם אתם נמשכים לאווירת כפר יערי עם ריח הים.</div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════ OPTION D ══════════════════════ -->
+<div class="option">
+  <div class="option-header">
+    <h2>אפשרות D – Mount Olympus (Litochoro) + Meteora + Thessaloniki</h2>
+    <div class="tagline">הר האלים + נסיעה קצרה ביום הראשון + קניון Enipeas + המנזרים האיקוניים</div>
+  </div>
+  <div class="option-body">
+
+    <table class="route-table">
+      <thead><tr><th>יום ותאריך</th><th>From</th><th>To</th><th>מרחק</th><th>נסיעה</th></tr></thead>
+      <tbody>
+        <tr><td class="date-col">יום 1 · 1.4 (רביעי)</td><td>SKG Airport</td><td>Litochoro (foot of Olympus)</td><td>~90 km</td><td>~1.5 h</td></tr>
+        <tr><td class="date-col">יום 4 · 4.4 (שבת)</td><td>Litochoro</td><td>Kalambaka / Kastraki</td><td>~170 km</td><td>~2 h</td></tr>
+        <tr><td class="date-col">יום 9 · 9.4 (חמישי)</td><td>Kalambaka</td><td>Thessaloniki</td><td>~240 km</td><td>~3 h</td></tr>
+        <tr><td class="date-col">יום 11 · 11.4 (שבת)</td><td>Thessaloniki center</td><td>SKG Airport</td><td>~16 km</td><td>~20 min</td></tr>
+      </tbody>
+    </table>
+
+    <div class="tip">
+      <strong>למה Litochoro ולא Zagoria?</strong> עם נחיתה ב-10:35, הנסיעה ל-Litochoro (90 ק"מ, שעה וחצי) היא הנוחה ביותר מבין כל האפשרויות – מגיעים ב-~14:00, מסתדרים בנוחות ביום ראשון. לעומת זאת Zagoria (~4.5 שעות) או Meteora (~3 שעות) מסיימים את היום ביגיעה.
+    </div>
+
+    <h3>📍 Litochoro & Mount Olympus – לילות 1–3 · 1–3 באפריל</h3>
+    <p>
+      <strong>Litochoro</strong> היא העיירה למרגלות הר האולימפוס (2,917 מ') – הר הגבוה ביוון ובית האלים של המיתולוגיה. עם ילדים קטנים, הפסגה ומסלולי הפנאי הגבוהים מחוץ לתחום – אבל קניון Enipeas שמתחתיו הוא יפהפה ומתאים.
+    </p>
+
+    <div class="day">
+      <div class="day-label">Day 1 · Wed, Apr 1</div>
+      <h4>הגעה לשדה התעופה ← Litochoro</h4>
+      <ul>
+        <li>נחיתה 10:35 · איסוף רכב · נסיעה ~1.5 שעות דרומה ← הגעה ~14:00</li>
+        <li>אחר הצהריים: סיור בכפר Litochoro הישן – רחובות מדורגים, נוף לפסגות האולימפוס</li>
+        <li>ערב: אכלו מקומי, הסתכלו על ההר מהכיכר המרכזית</li>
+      </ul>
+    </div>
+
+    <div class="day">
+      <div class="day-label">Day 2 · Thu, Apr 2</div>
+      <h4>קניון Enipeas + Prionia</h4>
+      <ul>
+        <li>בוקר מוקדם: <strong>הליכת קניון Enipeas</strong> (ראו מסלול למטה) – הדגשה ראשית של Litochoro</li>
+        <li>אלטרנטיבה לאחר הצהריים: נסיעה ברכב למעלה עד חניון <strong>Prionia</strong> (1,100 מ') – נקודת הנוף הגבוהה הנגישה ברכב; מפל קטן שם</li>
+        <li>אחר הצהריים: חוף <strong>Plaka Litochorou</strong> – 2 ק"מ מהעיר, שטוח, אפשרי עם עגלה; מתאים לפיקניק ומשחק חול (מים עדיין קרים)</li>
+      </ul>
+    </div>
+
+    <div class="day">
+      <div class="day-label">Day 3 · Fri, Apr 3</div>
+      <h4>כפרי Pieria + מקדש Zeus</h4>
+      <ul>
+        <li>בוקר: ביקור ב-<strong>Dion</strong> – עיר קדושה עתיקה למרגלות האולימפוס, שם הקריבו לזאוס לפני קרב; מוזיאון ואתר חפירות; <a href="https://www.google.com/maps/search/Dion+archaeological+site+Greece" target="_blank">Google Maps</a></li>
+        <li>אחר הצהריים: ביקור בכפר <strong>Rapsani</strong> – מפורסם ביינות שלו (אזור PDO); <a href="https://www.google.com/maps/search/Rapsani+wine+village+Greece" target="_blank">Google Maps</a></li>
+        <li>חזרה ל-Litochoro לערב אחרון</li>
+      </ul>
+    </div>
+
+    <h4>🥾 הליכות ב-Litochoro / Olympus</h4>
+
+    <div class="hike">
+      <h4>Enipeas Gorge – חלק תחתון (Litochoro ← Prionia, קטע ראשון)</h4>
+      <div class="hike-meta">
+        <span class="badge moderate">בינוני</span>
+        <span class="badge carrier-only">מנשא לתינוק</span>
+        <span>📏 ~5 km (הלוך-חזור עד ה-waterfall)</span>
+        <span>⏱ 2–2.5 h</span>
+        <span>📈 ~200 m</span>
+      </div>
+      <p>
+        השביל עולה לאורך נחל Enipeas ביער עצי אורן ספרדי. קניון עם צוקים, גשרונים עץ, מפל בדרך.
+        <strong>חשוב:</strong> אל תנסו את המסלול המלא ל-Prionia (~10 ק"מ) – רק הקטע התחתון. הילד 4 מסתדר עם הפסקות. תינוק במנשא.
+      </p>
+      <a href="https://www.alltrails.com/trail/greece/pieria/enipeas-gorge-trail" target="_blank">AllTrails – Enipeas Gorge</a> ·
+      <a href="https://www.google.com/maps/search/Enipeas+gorge+trailhead+Litochoro" target="_blank">Google Maps – נקודת ההתחלה</a>
+    </div>
+
+    <div class="photo-box">
+      <h4>📸 נקודות תצפית ופוטו-אופס ב-Litochoro / Olympus</h4>
+      <ul>
+        <li><strong>כיכר Litochoro</strong> בשחר – ההר מאחורה ורוד בזריחה; <a href="https://www.google.com/search?q=Litochoro+village+Olympus+photos&tbm=isch" target="_blank">תמונות</a></li>
+        <li><strong>קניון Enipeas</strong> – צוקים, נחל וקשתות ירוקות; <a href="https://www.google.com/search?q=Enipeas+gorge+Olympus+photos&tbm=isch" target="_blank">תמונות</a></li>
+        <li><strong>חניון Prionia (1,100 מ')</strong> – הנקודה הגבוהה הנגישה ברכב; הרים מסביב, מפל קטן; <a href="https://www.google.com/maps/search/Prionia+parking+Olympus" target="_blank">Google Maps</a></li>
+        <li><strong>אתר Dion</strong> – עמודים, פסיפסים, מאגרים ← <a href="https://www.google.com/search?q=Dion+archaeological+site+Greece+photos&tbm=isch" target="_blank">תמונות</a></li>
+      </ul>
+    </div>
+
+    <div class="links-box">
+      <h4>🔗 קישורים ספציפיים – Olympus / Litochoro</h4>
+      <ul class="lnk">
+        <li><a href="https://www.olympusfd.gr/" target="_blank">olympusfd.gr – אתר רשמי Olympus National Park</a></li>
+        <li><a href="https://www.alltrails.com/trail/greece/pieria/enipeas-gorge-trail" target="_blank">AllTrails – Enipeas Gorge trail</a></li>
+        <li><a href="https://www.google.com/maps/search/Litochoro+town+Greece" target="_blank">Google Maps – Litochoro</a></li>
+        <li><a href="https://www.google.com/maps/search/Dion+archaeological+museum+Greece" target="_blank">Google Maps – אתר Dion</a></li>
+        <li><a href="https://www.google.com/search?q=Mount+Olympus+Litochoro+Greece+photos&tbm=isch" target="_blank">תמונות – Litochoro & Olympus</a></li>
+      </ul>
+    </div>
+
+    <div class="food-box">
+      <h4>🍽️ אוכל ייחודי ב-Litochoro</h4>
+      <ul>
+        <li><strong>יינות Rapsani</strong> – PDO wine region ישיר מהר האולימפוס; חפשו בכל מסעדה; <a href="https://www.google.com/search?q=Rapsani+wine+Olympus+Greece" target="_blank">מידע</a></li>
+        <li><strong>פירות ים ב-Plaka Litochorou</strong> – טברנות קטנות על החוף עם דגים טריים; <a href="https://www.google.com/maps/search/Plaka+Litochorou+taverna" target="_blank">Google Maps</a></li>
+        <li><strong>Loukoumades</strong> – כדורי בצק מטוגן בדבש ואגוזים; חפשו בכיכר המרכזית של Litochoro</li>
+      </ul>
+    </div>
+
+    <div class="day">
+      <div class="day-label">Days 4–8 · Apr 4–8</div>
+      <h4>Meteora – 5 לילות (4.4–8.4)</h4>
+      <p>5 לילות ב-Meteora מאפשרים קצב רגוע יותר: כל מנזר בנפרד, כמה הליכות, ובוקרים פנויים. תכנית מלאה זהה לאפשרות A (Meteora).</p>
+    </div>
+
+    <div class="day">
+      <div class="day-label">Days 9–10 · Apr 9–10</div>
+      <h4>Thessaloniki – 2 לילות (זהה לאפשרות A)</h4>
+    </div>
+
+    <div class="tip"><strong>למה D:</strong> אם יום הגעה קל חשוב לכם (ילדים עייפים מטיסה), Litochoro היא הנסיעה הקצרה ביותר. הקניון יפהפה ומיוחד. 5 לילות ב-Meteora כבונוס. החסרון: פחות אפשרויות הליכה מגוונות מ-Zagoria.</div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════ HIKE SUMMARY ════════════════== -->
+<h2>🥾 סיכום כל ההליכות</h2>
+<table class="hike-summary">
+  <thead>
+    <tr>
+      <th>Trail Name</th>
+      <th class="heb">מיקום</th>
+      <th class="heb">קושי</th>
+      <th>Distance</th>
+      <th>Time</th>
+      <th class="heb">עגלה</th>
+      <th class="heb">אפשרות</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>Double Rock Path</td><td class="heb">Meteora</td><td class="heb">קל</td><td>3 km</td><td>1.5–2 h</td><td class="heb">❌ מנשא</td><td class="heb">A B C D</td></tr>
+    <tr><td>Kastraki Village Trail</td><td class="heb">Meteora</td><td class="heb">בינוני</td><td>5 km</td><td>2–3 h</td><td class="heb">❌ מנשא</td><td class="heb">A B C D</td></tr>
+    <tr><td>Psaropetra Viewpoint</td><td class="heb">Meteora</td><td class="heb">קל</td><td>0.5 km</td><td>10 min</td><td class="heb">⚠️ סלעי</td><td class="heb">A B C D</td></tr>
+    <tr><td>Papingo Rock Pools</td><td class="heb">Zagoria</td><td class="heb">קל</td><td>2.5 km</td><td>1–1.5 h</td><td class="heb">❌ מנשא</td><td class="heb">A B</td></tr>
+    <tr><td>Megalo–Mikro Papingo path</td><td class="heb">Zagoria</td><td class="heb">קל</td><td>4 km</td><td>1.5 h</td><td class="heb">❌ מנשא</td><td class="heb">A B</td></tr>
+    <tr><td>Oxia Viewpoint (Vikos Gorge)</td><td class="heb">Zagoria</td><td class="heb">קל</td><td>1.5 km</td><td>45 min</td><td class="heb">❌ מנשא</td><td class="heb">A B</td></tr>
+    <tr><td>Kipi Stone Bridges loop</td><td class="heb">Zagoria</td><td class="heb">קל</td><td>4 km</td><td>1.5–2 h</td><td class="heb">⚠️ חלקי</td><td class="heb">A B</td></tr>
+    <tr><td>Skala Vradeto (stairs)</td><td class="heb">Zagoria</td><td class="heb">בינוני</td><td>2 km</td><td>1.5–2 h</td><td class="heb">❌ מנשא</td><td class="heb">A B</td></tr>
+    <tr><td>Vikos Gorge floor walk</td><td class="heb">Zagoria</td><td class="heb">קל</td><td>8 km r/t (4 km each way to Kleidonia bridge)</td><td>3–4 h</td><td class="heb">❌ מנשא</td><td class="heb">B</td></tr>
+    <tr><td>Makrinitsa → Portaria</td><td class="heb">Pelion</td><td class="heb">קל</td><td>4 km</td><td>1.5 h</td><td class="heb">❌ מנשא</td><td class="heb">C</td></tr>
+    <tr><td>Tsagarada → Mylopotamos beach</td><td class="heb">Pelion</td><td class="heb">בינוני</td><td>5 km</td><td>2–2.5 h</td><td class="heb">❌ מנשא</td><td class="heb">C</td></tr>
+    <tr><td>Enipeas Gorge (lower section)</td><td class="heb">Olympus</td><td class="heb">בינוני</td><td>5 km</td><td>2–2.5 h</td><td class="heb">❌ מנשא</td><td class="heb">D</td></tr>
+  </tbody>
+</table>
+
+<hr>
+<p style="font-size:0.83em; color:#777; text-align:center;">
+  טיול משפחה · Thessaloniki, Greece · 1–11 באפריל 2026 · 10 לילות<br>
+  <strong>לשמירה כ-PDF:</strong> דפדפן ← הדפסה ← שמור כ-PDF
+</p>
+
+</body>
+</html>
