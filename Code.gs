@@ -4,8 +4,7 @@
 // =============================================
 
 function doGet(e) {
-  return HtmlService.createTemplateFromFile('Index')
-    .evaluate()
+  return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('Trip Expense Manager')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, user-scalable=no')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -59,11 +58,103 @@ function createTrip(d) {
   return { success: true, id: id };
 }
 
+function updateTrip(d) {
+  var trips = getTrips();
+  for (var i = 0; i < trips.length; i++) {
+    if (trips[i].id === d.id) {
+      trips[i].title     = d.title;
+      trips[i].startDate = d.startDate || '';
+      trips[i].endDate   = d.endDate   || '';
+      break;
+    }
+  }
+  save('trips', trips);
+  return { success: true };
+}
+
 function deleteTrip(id) {
   var trips = getTrips().filter(function(t) { return t.id !== id; });
   save('trips', trips);
   props.deleteProperty('exp_' + id);
+  deleteCheckinFile(id);
   return { success: true };
+}
+
+// ---- TRACKER CHECK-INS ----
+// Stored as: props['checkins_{tripId}'] = JSON object keyed by check-in ID
+//   { "id1": {...}, "id2": {...} }
+//
+// Keyed storage (vs array) gives O(1) lookup/update/delete without index maintenance.
+// loadCheckins() returns a sorted array so the client is unaware of the internal shape.
+
+// Internal: load the {id → entry} map from PropertiesService
+function loadCheckinsMap(tripId) {
+  return load('checkins_' + tripId, {});
+}
+
+// Internal: write the {id → entry} map back to PropertiesService
+function saveCheckinsMap(tripId, map) {
+  save('checkins_' + tripId, map);
+}
+
+// ---- Public tracker functions (called via google.script.run) ----
+
+// Returns array sorted ascending by timestamp
+function loadCheckins(tripId) {
+  var map = loadCheckinsMap(tripId);
+  return Object.keys(map).map(function(k) { return map[k]; }).sort(function(a, b) {
+    return a.timestamp < b.timestamp ? -1 : 1;
+  });
+}
+
+function saveCheckin(d) {
+  var map = loadCheckinsMap(d.tripId);
+  var id = uuid();
+  map[id] = {
+    id:        id,
+    tripId:    d.tripId,
+    timestamp: d.timestamp || nowISO(),
+    name:      d.name,
+    type:      d.type,
+    lat:       d.lat       || null,
+    lng:       d.lng       || null,
+    gpsSource: d.gpsSource || 'none',
+    createdAt: nowISO()
+  };
+  saveCheckinsMap(d.tripId, map);
+  return { success: true, id: id };
+}
+
+// O(1) lookup by id — no linear scan needed
+function updateCheckin(d) {
+  var map = loadCheckinsMap(d.tripId);
+  if (!map[d.id]) return { success: false, error: 'Not found' };
+  map[d.id] = {
+    id:        d.id,
+    tripId:    d.tripId,
+    timestamp: d.timestamp,
+    name:      d.name,
+    type:      d.type,
+    lat:       d.lat       || null,
+    lng:       d.lng       || null,
+    gpsSource: d.gpsSource || map[d.id].gpsSource || 'none',
+    createdAt: map[d.id].createdAt  // preserve original creation time
+  };
+  saveCheckinsMap(d.tripId, map);
+  return { success: true };
+}
+
+// O(1) delete by id
+function deleteCheckin(checkinId, tripId) {
+  var map = loadCheckinsMap(tripId);
+  delete map[checkinId];
+  saveCheckinsMap(tripId, map);
+  return { success: true };
+}
+
+// Called by deleteTrip — removes checkin data for this trip
+function deleteCheckinFile(tripId) {
+  props.deleteProperty('checkins_' + tripId);
 }
 
 // ---- EXPENSES ----

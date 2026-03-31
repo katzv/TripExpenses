@@ -7,7 +7,6 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Trip Expenses</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 /* ===== RESET & BASE ===== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -36,13 +35,20 @@ body {
 /* ===== LOADING ===== */
 #loading {
   position: fixed; inset: 0; background: #fff; z-index: 999;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  transition: opacity 0.3s ease;
 }
-.spinner {
-  width: 44px; height: 44px; border: 4px solid #E5E7EB;
-  border-top-color: var(--primary); border-radius: 50%; animation: spin 0.75s linear infinite;
+#load-icon { font-size: 44px; margin-bottom: 10px; }
+#load-title { font-size: 20px; font-weight: 800; color: var(--text); margin-bottom: 28px; letter-spacing: -0.3px; }
+#load-bar-wrap {
+  width: 220px; height: 5px; background: #E5E7EB; border-radius: 3px; overflow: hidden; margin-bottom: 12px;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
+#load-bar {
+  height: 100%; width: 5%; background: linear-gradient(90deg, var(--primary), #42A5F5);
+  border-radius: 3px; transition: width 0.45s ease;
+}
+#load-pct { font-size: 15px; font-weight: 800; color: var(--primary); margin-top: 10px; }
+#load-status { font-size: 12px; color: var(--muted); margin-top: 3px; }
 
 /* ===== HEADER ===== */
 .header {
@@ -275,14 +281,51 @@ tbody tr:last-child td { border-bottom: none; }
   .main { padding: 20px; }
   #fab { right: calc(50% - 290px + 20px); }
 }
+
+/* ===== TRACKER ===== */
+.tracker-tabs { display: flex; background: var(--card); border-radius: var(--radius); padding: 4px; gap: 3px; margin-bottom: 14px; box-shadow: var(--shadow); }
+.tracker-tab { flex: 1; padding: 9px 6px; border: none; border-radius: 10px; background: none; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; transition: all 0.15s; }
+.tracker-tab.on { background: var(--primary); color: #fff; }
+.ci-form { background: var(--card); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 14px; box-shadow: var(--shadow); }
+.ci-form-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+.suggest-wrap { position: relative; }
+.suggest-list { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1.5px solid var(--border); border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.13); z-index: 50; max-height: 220px; overflow-y: auto; }
+.suggest-item { padding: 11px 14px; font-size: 14px; cursor: pointer; border-bottom: 1px solid var(--border); }
+.suggest-item:last-child { border-bottom: none; }
+.suggest-item:hover { background: #F0F4FF; }
+.suggest-item .si-name { font-weight: 600; }
+.suggest-item .si-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+.gps-status { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+.gps-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+.gps-dot.ok { background: var(--success); }
+.gps-dot.spin-dot { background: var(--primary); animation: pulse 1s infinite; }
+.gps-dot.err { background: var(--danger); }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+.ci-card { background: var(--card); border-radius: 11px; padding: 12px 15px; margin-bottom: 8px; box-shadow: 0 1px 5px rgba(0,0,0,0.07); display: flex; align-items: center; gap: 11px; cursor: pointer; transition: transform 0.1s; }
+.ci-card:active { transform: scale(0.985); }
+.ci-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+.ci-body { flex: 1; min-width: 0; }
+.ci-name { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ci-time { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.ci-gps { font-size: 11px; color: var(--primary); margin-top: 1px; }
+.cal-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cal-table th { background: #F0F4FF; padding: 8px 6px; text-align: left; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+.cal-table td { padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.cal-table tr:last-child td { border-bottom: none; }
+.cal-date-cell { font-weight: 700; white-space: nowrap; color: var(--text); }
+.cal-ci-pill { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; margin: 2px 3px 2px 0; }
+#tracker-map { height: 320px; border-radius: var(--radius); overflow: hidden; }
 </style>
 </head>
 <body>
 
 <!-- Loading -->
 <div id="loading">
-  <div class="spinner"></div>
-  <p style="color:var(--muted);font-size:14px">Loading...</p>
+  <div id="load-icon">✈</div>
+  <div id="load-title">Trip Expenses</div>
+  <div id="load-bar-wrap"><div id="load-bar"></div></div>
+  <div id="load-pct">5%</div>
+  <div id="load-status">Starting up…</div>
 </div>
 
 <!-- Header -->
@@ -421,6 +464,67 @@ tbody tr:last-child td { border-bottom: none; }
     <div style="height:30px"></div>
   </div>
 
+  <!-- VIEW: TRACKER -->
+  <div class="view" id="view-tracker">
+    <div class="tracker-tabs">
+      <button class="tracker-tab on" id="tab-list" onclick="switchTrackerTab('list')">📋 List</button>
+      <button class="tracker-tab"    id="tab-cal"  onclick="switchTrackerTab('cal')">📅 Calendar</button>
+      <button class="tracker-tab"    id="tab-map"  onclick="switchTrackerTab('map')">🗺 Map</button>
+    </div>
+
+    <div class="ci-form" id="ci-form-wrap" style="display:none">
+      <div class="ci-form-title">📍 Check-in</div>
+      <div class="fg" style="margin-bottom:10px">
+        <label>Place Name <span class="req">*</span></label>
+        <div class="suggest-wrap">
+          <input class="fc" id="ciName" type="text" placeholder="Start typing a place name…"
+                 autocomplete="off" oninput="onCiNameInput()" onfocus="onCiNameFocus()">
+          <div class="suggest-list" id="ciSuggest" style="display:none"></div>
+        </div>
+        <div class="gps-status" id="gpsStatus">
+          <div class="gps-dot spin-dot" id="gpsDot"></div>
+          <span id="gpsText">Acquiring GPS…</span>
+        </div>
+      </div>
+      <div class="fg" style="margin-bottom:10px">
+        <label>Date</label>
+        <input class="fc" id="ciDate" type="date">
+      </div>
+      <div class="fg" style="margin-bottom:12px">
+        <label>Type</label>
+        <select class="fc" id="ciType">
+          <option value="place">📌 Place</option>
+          <option value="hotel">🏨 Hotel</option>
+          <option value="restaurant">🍽 Restaurant</option>
+          <option value="attraction">🎡 Attraction</option>
+          <option value="transport">🚗 Transport</option>
+          <option value="other">🗂 Other</option>
+        </select>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-outline btn-sm" onclick="cancelCheckin()">Cancel</button>
+        <button class="btn btn-accent btn-sm" id="ciSaveBtn" onclick="saveCheckinUI()">📍 Check In</button>
+      </div>
+    </div>
+
+    <div id="panel-list">
+      <div id="ciList"></div>
+      <div style="height:80px"></div>
+    </div>
+
+    <div id="panel-cal" style="display:none">
+      <div class="card" id="calContent"></div>
+      <div style="height:30px"></div>
+    </div>
+
+    <div id="panel-map" style="display:none">
+      <div class="card" style="padding:0;overflow:hidden">
+        <div id="tracker-map"></div>
+      </div>
+      <div style="height:30px"></div>
+    </div>
+  </div>
+
 </main>
 
 <datalist id="dl-currencies"></datalist>
@@ -450,6 +554,15 @@ const CAT_ICONS = {
   'Insurance': '🛡️', 'Petrol': '⛽', 'Toll Roads': '🛣️',
   'Parking': '🅿️', 'Public Transport': '🚌', 'Meals': '🍽️',
   'Souvenirs': '🎁', 'Attractions': '🎡', 'Other': '📌'
+};
+
+const CI_COLORS = {
+  'place':'#1565C0','hotel':'#9C27B0','restaurant':'#4CAF50',
+  'attraction':'#FF9800','transport':'#F44336','other':'#9E9E9E'
+};
+const CI_ICONS = {
+  'place':'📌','hotel':'🏨','restaurant':'🍽️',
+  'attraction':'🎡','transport':'🚗','other':'🗂️'
 };
 
 const CURRENCIES = [
@@ -509,7 +622,16 @@ const S = {
   manualILS: false,
   lastRateInfo: null,
   defaultRates: {},
-  pieChart: null
+  pieChart: null,
+  // Tracker
+  checkins: [],
+  trackerTab: 'list',
+  editingCheckinId: null,
+  gpsCoords: null,
+  gpsSource: 'none',
+  leafletMap: null,
+  leafletMarkers: [],
+  suggestTimer: null
 };
 
 // History stack for back navigation
@@ -519,7 +641,54 @@ const navStack = [];
 // INITIALISATION
 // =======================================================
 
+let _loadTicker = null;
+
+function dbg(msg) {
+  console.log('[TripExp]', msg);
+}
+
+function setLoadProgress(pct, msg) {
+  if (_loadTicker) { clearInterval(_loadTicker); _loadTicker = null; }
+  const bar   = document.getElementById('load-bar');
+  const pctEl = document.getElementById('load-pct');
+  const txt   = document.getElementById('load-status');
+  if (bar)   bar.style.width = pct + '%';
+  if (pctEl) pctEl.textContent = Math.round(pct) + '%';
+  if (txt && msg) txt.textContent = msg;
+}
+
+// Slowly advance bar from `from` toward `to` over `ms` ms while waiting for a server call
+function tickLoadProgress(from, to, ms) {
+  const bar   = document.getElementById('load-bar');
+  const pctEl = document.getElementById('load-pct');
+  let cur = from;
+  const step = (to - from) / (ms / 80);
+  _loadTicker = setInterval(() => {
+    cur = Math.min(cur + step, to);
+    if (bar)   bar.style.width = Math.round(cur) + '%';
+    if (pctEl) pctEl.textContent = Math.round(cur) + '%';
+    if (cur >= to) { clearInterval(_loadTicker); _loadTicker = null; }
+  }, 80);
+}
+
+function hideLoading() {
+  if (_loadTicker) { clearInterval(_loadTicker); _loadTicker = null; }
+  const el = document.getElementById('loading');
+  el.style.opacity = '0';
+  setTimeout(() => { el.style.display = 'none'; }, 300);
+}
+
 function init() {
+  dbg('init() started');
+  setLoadProgress(10, 'Initializing…');
+
+  if (typeof google === 'undefined' || !google.script) {
+    dbg('ERROR: google.script not available');
+    setLoadProgress(100, 'Not running inside Google Apps Script');
+    return;
+  }
+  dbg('google.script OK');
+
   // Populate country datalist
   const dl = document.getElementById('dl-countries');
   COUNTRIES.forEach(c => {
@@ -535,30 +704,46 @@ function init() {
     }
   });
 
-  // Load trips & types in parallel
+  // Click outside suggestion list closes it
+  document.addEventListener('click', e => {
+    const wrap = document.querySelector('.suggest-wrap');
+    if (wrap && !wrap.contains(e.target)) hideSuggestions();
+  });
+
+  setLoadProgress(25, 'Connecting to server…');
+  tickLoadProgress(25, 88, 15000); // tick while waiting for both parallel calls
+
+  // Fire both calls simultaneously — resolves when both return
+  let _trips = null, _types = null, _loadErr = null;
+  function _onBothLoaded() {
+    if (_loadErr) {
+      dbg('ERROR from server: ' + _loadErr);
+      setLoadProgress(100, 'Connection failed');
+      toast('Could not connect: ' + _loadErr, 'err');
+      hideLoading();
+      return;
+    }
+    if (_trips === null || _types === null) return; // still waiting for the other
+    dbg('both calls returned OK');
+    S.trips = _trips;
+    S.expenseTypes = _types.length ? _types : defaultTypes();
+    populateTypeSelect();
+    setLoadProgress(100, 'Ready!');
+    navigate('trips');
+    hideLoading();
+  }
+
+  dbg('calling getTrips…');
   google.script.run
-    .withSuccessHandler(trips => {
-      S.trips = trips || [];
-      google.script.run
-        .withSuccessHandler(types => {
-          S.expenseTypes = types || defaultTypes();
-          populateTypeSelect();
-          navigate('trips');
-          document.getElementById('loading').style.display = 'none';
-        })
-        .withFailureHandler(() => {
-          S.expenseTypes = defaultTypes();
-          populateTypeSelect();
-          navigate('trips');
-          document.getElementById('loading').style.display = 'none';
-        })
-        .getExpenseTypes();
-    })
-    .withFailureHandler(err => {
-      toast('Could not connect: ' + err.message, 'err');
-      document.getElementById('loading').style.display = 'none';
-    })
+    .withSuccessHandler(trips => { dbg('getTrips OK (' + (trips||[]).length + ')'); _trips = trips || []; _onBothLoaded(); })
+    .withFailureHandler(err  => { dbg('getTrips FAIL: ' + err.message); _trips = []; _loadErr = err.message; _onBothLoaded(); })
     .getTrips();
+
+  dbg('calling getExpenseTypes…');
+  google.script.run
+    .withSuccessHandler(types => { dbg('getExpenseTypes OK'); _types = types || []; _onBothLoaded(); })
+    .withFailureHandler(err  => { dbg('getExpenseTypes FAIL: ' + err.message); _types = defaultTypes(); _onBothLoaded(); })
+    .getExpenseTypes();
 }
 
 function defaultTypes() {
@@ -597,10 +782,25 @@ function navigate(view, params = {}) {
   } else if (view === 'trip') {
     hTitle.textContent = S.currentTrip.title;
     hBack.classList.remove('hide');
-    hActs.innerHTML = `<button class="hbtn" onclick="navigate('report')" title="Report">&#128202; Report</button>`;
+    hActs.innerHTML = `
+      <button class="hbtn" onclick="editTripTitle()" title="Edit trip">&#9998;</button>
+      <button class="hbtn" onclick="navigate('tracker')" title="Tracker">📍 Track</button>
+      <button class="hbtn" onclick="navigate('report')" title="Report">&#128202; Report</button>`;
     fab.classList.remove('hide');
     S.filter = 'All';
     loadExpenses();
+
+  } else if (view === 'tracker') {
+    hTitle.textContent = S.currentTrip.title + ' — Tracker';
+    hBack.classList.remove('hide');
+    hActs.innerHTML = `<button class="hbtn" onclick="showCheckinForm()">+ Check-in</button>`;
+    S.trackerTab = 'list';
+    ['list','cal','map'].forEach(t => {
+      document.getElementById('tab-' + t).classList.toggle('on', t === 'list');
+      document.getElementById('panel-' + t).style.display = t === 'list' ? 'block' : 'none';
+    });
+    document.getElementById('ci-form-wrap').style.display = 'none';
+    loadCheckins();
 
   } else if (view === 'expense') {
     hTitle.textContent = S.currentExpenseId ? 'Edit Expense' : 'Add Expense';
@@ -617,8 +817,9 @@ function navigate(view, params = {}) {
 }
 
 function goBack() {
-  const current = document.querySelector('.view.active')?.id?.replace('view-', '');
-  if (current === 'expense' || current === 'report') {
+  const activeEl = document.querySelector('.view.active');
+  const current = activeEl ? activeEl.id.replace('view-', '') : '';
+  if (current === 'expense' || current === 'report' || current === 'tracker') {
     navigate('trip');
   } else {
     navigate('trips');
@@ -664,6 +865,54 @@ function openTrip(id) {
   S.currentTrip = S.trips.find(t => t.id === id);
   S.defaultRates = {};  // Reset rates only when switching trips
   navigate('trip');
+}
+
+function editTripTitle() {
+  showModal('Edit Trip', `
+    <div class="fg">
+      <label>Title <span class="req">*</span></label>
+      <input class="fc" id="fEditTitle" type="text" value="${esc(S.currentTrip.title)}">
+    </div>
+    <div class="frow">
+      <div class="fg">
+        <label>From Date</label>
+        <input class="fc" id="fEditStart" type="date" value="${S.currentTrip.startDate || ''}">
+      </div>
+      <div class="fg">
+        <label>To Date</label>
+        <input class="fc" id="fEditEnd" type="date" value="${S.currentTrip.endDate || ''}">
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveTripEdits()">&#10003; Save</button>
+    </div>`);
+  setTimeout(() => { var el = document.getElementById('fEditTitle'); if (el) { el.focus(); el.select(); } }, 150);
+}
+
+function saveTripEdits() {
+  const title = (document.getElementById('fEditTitle').value || '').trim();
+  if (!title) { toast('Title is required', 'err'); return; }
+  const data = {
+    id:        S.currentTrip.id,
+    title,
+    startDate: document.getElementById('fEditStart').value,
+    endDate:   document.getElementById('fEditEnd').value
+  };
+  closeModal();
+  google.script.run
+    .withSuccessHandler(() => {
+      S.currentTrip.title     = data.title;
+      S.currentTrip.startDate = data.startDate;
+      S.currentTrip.endDate   = data.endDate;
+      const t = S.trips.find(x => x.id === data.id);
+      if (t) { t.title = data.title; t.startDate = data.startDate; t.endDate = data.endDate; }
+      document.getElementById('hTitle').textContent = data.title;
+      renderExpenses();
+      toast('Trip updated!', 'ok');
+    })
+    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .updateTrip(data);
 }
 
 function tripDays(t) {
@@ -864,7 +1113,7 @@ function clearExpForm() {
   document.getElementById('rateRow').style.display = 'none';
 
   // Default currency from trip
-  const cur = S.currentTrip?.currency || 'EUR';
+  const cur = (S.currentTrip && S.currentTrip.currency) || 'EUR';
   const sel = document.getElementById('fCurrency');
   sel.value = CURRENCIES.includes(cur) ? cur : 'EUR';
 
@@ -879,7 +1128,7 @@ function fillExpForm(e) {
   document.getElementById('fNotes').value  = e.info3  || '';
   document.getElementById('fAmount').value = e.amount || '';
   document.getElementById('fILS').value    = e.amountILS || '';
-  document.getElementById('fCurrency').value = e.currency || S.currentTrip?.currency || 'EUR';
+  document.getElementById('fCurrency').value = e.currency || (S.currentTrip && S.currentTrip.currency) || 'EUR';
 
   // Set type (may be custom)
   const typeSel = document.getElementById('fType');
@@ -1098,6 +1347,8 @@ function saveExpense() {
     .getExchangeRate(cur, 'ILS', date);
 }
 
+</script>
+<script>
 function _doSaveExpense(date, name, type, amtNum, cur, ilsNum, rate, rateSrc, rateDate) {
   const info2El = document.getElementById('fInfo2');
   const info2   = info2El ? info2El.value : '';
@@ -1138,7 +1389,7 @@ function _doSaveExpense(date, name, type, amtNum, cur, ilsNum, rate, rateSrc, ra
 function confirmDeleteExpense() {
   showModal('Delete Expense', `
     <p style="color:var(--muted);margin-bottom:16px">
-      Delete "<strong>${esc(S.expenses.find(e=>e.id===S.currentExpenseId)?.expense || '')}</strong>"?
+      Delete "<strong>${esc((S.expenses.find(e=>e.id===S.currentExpenseId) || {}).expense || '')}</strong>"?
       This cannot be undone.
     </p>
     <div class="btn-row">
@@ -1166,7 +1417,7 @@ function confirmDelTrip(id) {
   const t = S.trips.find(x => x.id === id);
   showModal('Delete Trip', `
     <p style="color:var(--muted);margin-bottom:8px">
-      Delete trip "<strong>${esc(t?.title)}</strong>" and all its expenses?
+      Delete trip "<strong>${esc(t ? t.title : '')}</strong>" and all its expenses?
     </p>
     <p style="color:var(--danger);font-size:13px;margin-bottom:16px">This cannot be undone.</p>
     <div class="btn-row">
@@ -1219,7 +1470,7 @@ function showAddType() {
       <button class="btn btn-outline" onclick="closeModal()">Close</button>
       <button class="btn btn-primary" onclick="saveNewType()">&#10003; Add Type</button>
     </div>`);
-  setTimeout(() => document.getElementById('newTypeName')?.focus(), 300);
+  setTimeout(() => { var el = document.getElementById('newTypeName'); if (el) el.focus(); }, 300);
 }
 
 function deleteType(name) {
@@ -1235,7 +1486,7 @@ function deleteType(name) {
 }
 
 function saveNewType() {
-  const name = (document.getElementById('newTypeName')?.value || '').trim();
+  const name = ((document.getElementById('newTypeName') || {value: ''}).value || '').trim();
   if (!name) { toast('Enter a type name', 'err'); return; }
   closeModal();
   google.script.run
@@ -1343,11 +1594,11 @@ function renderReport(r) {
       </div>
     </div>`;
 
-  // Draw pie chart
-  setTimeout(() => {
+  // Draw pie chart — load Chart.js lazily (not in <head>)
+  loadChartJs(() => {
     if (S.pieChart) { S.pieChart.destroy(); S.pieChart = null; }
     const ctx = document.getElementById('pieCanvas');
-    if (!ctx || !r.categories.length) return;
+    if (!ctx || !r.categories.length || !window.Chart) return;
     S.pieChart = new Chart(ctx, {
       type: 'pie',
       data: {
@@ -1376,7 +1627,7 @@ function renderReport(r) {
         }
       }
     });
-  }, 120);
+  });
 }
 
 // =======================================================
@@ -1455,9 +1706,432 @@ function dateRange(s, e) {
 }
 
 // =======================================================
+// TRACKER
+// =======================================================
+
+function showCheckinForm() {
+  S.editingCheckinId = null;
+  S.gpsCoords = null;
+  S.gpsSource = 'none';
+  document.getElementById('ciName').value = '';
+  document.getElementById('ciDate').value = today();
+  document.getElementById('ciType').value = 'place';
+  document.getElementById('ciSaveBtn').textContent = '📍 Check In';
+  hideSuggestions();
+  document.getElementById('ci-form-wrap').style.display = 'block';
+  acquireGPS();
+  setTimeout(() => document.getElementById('ciName').focus(), 100);
+}
+
+function cancelCheckin() {
+  S.editingCheckinId = null;
+  document.getElementById('ci-form-wrap').style.display = 'none';
+  hideSuggestions();
+}
+
+</script>
+<script>
+function acquireGPS() {
+  setGpsStatus('spin', 'Acquiring GPS…');
+  if (!navigator.geolocation) { setGpsStatus('err', 'GPS not available'); return; }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      S.gpsCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      S.gpsSource = 'gps';
+      setGpsStatus('ok', 'GPS: ' + S.gpsCoords.lat.toFixed(5) + ', ' + S.gpsCoords.lng.toFixed(5));
+      if (!document.getElementById('ciName').value.trim()) fetchNearbySuggestions();
+    },
+    () => {
+      S.gpsCoords = null;
+      S.gpsSource = 'none';
+      setGpsStatus('err', 'GPS unavailable — type a place name');
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
+function setGpsStatus(state, text) {
+  const dot = document.getElementById('gpsDot');
+  const txt = document.getElementById('gpsText');
+  if (!dot || !txt) return;
+  dot.className = 'gps-dot' + (state === 'ok' ? ' ok' : state === 'spin' ? ' spin-dot' : state === 'err' ? ' err' : '');
+  txt.textContent = text;
+}
+
+function onCiNameFocus() {
+  const q = (document.getElementById('ciName').value || '').trim();
+  if (!q && S.gpsCoords) fetchNearbySuggestions();
+}
+
+function onCiNameInput() {
+  const q = (document.getElementById('ciName').value || '').trim();
+  clearTimeout(S.suggestTimer);
+  if (!q) {
+    if (S.gpsCoords) fetchNearbySuggestions();
+    else hideSuggestions();
+    return;
+  }
+  S.suggestTimer = setTimeout(() => searchByName(q), 600);
+}
+
+function fetchNearbySuggestions() {
+  if (!S.gpsCoords) return;
+  const { lat, lng } = S.gpsCoords;
+  const query = `[out:json][timeout:8];(node["name"](around:300,${lat},${lng});way["name"](around:300,${lat},${lng});)->.a;.a out tags 8;`;
+  fetch('https://overpass-api.de/api/interpreter', {
+    method: 'POST', body: 'data=' + encodeURIComponent(query)
+  })
+  .then(r => r.json())
+  .then(data => {
+    const items = (data.elements || [])
+      .filter(el => el.tags && el.tags.name)
+      .slice(0, 8)
+      .map(el => ({
+        name: el.tags.name,
+        sub:  el.tags.amenity || el.tags.tourism || el.tags.place || el.tags.shop || '',
+        lat:  el.lat || (el.center && el.center.lat) || null,
+        lng:  el.lon || (el.center && el.center.lon) || null
+      }));
+    if (items.length) showSuggestions(items);
+  })
+  .catch(() => {});
+}
+
+function searchByName(q) {
+  let url = 'https://nominatim.openstreetmap.org/search?format=json&limit=6&q=' + encodeURIComponent(q);
+  if (S.gpsCoords) url += '&viewbox=' + (S.gpsCoords.lng - 0.5) + ',' + (S.gpsCoords.lat + 0.5) + ',' +
+                                         (S.gpsCoords.lng + 0.5) + ',' + (S.gpsCoords.lat - 0.5) + '&bounded=0';
+  fetch(url, { headers: { 'Accept-Language': 'en' } })
+  .then(r => r.json())
+  .then(data => {
+    const items = (data || []).slice(0, 6).map(p => ({
+      name: p.display_name.split(',')[0],
+      sub:  p.display_name.split(',').slice(1, 3).join(',').trim(),
+      lat:  parseFloat(p.lat),
+      lng:  parseFloat(p.lon)
+    }));
+    if (items.length) showSuggestions(items);
+    else hideSuggestions();
+  })
+  .catch(() => hideSuggestions());
+}
+
+function showSuggestions(items) {
+  const list = document.getElementById('ciSuggest');
+  if (!list) return;
+  list.innerHTML = items.map(item => `
+    <div class="suggest-item"
+         data-name="${esc(item.name)}"
+         data-lat="${item.lat || ''}"
+         data-lng="${item.lng || ''}"
+         onclick="selectSuggestion(this)">
+      <div class="si-name">${esc(item.name)}</div>
+      ${item.sub ? `<div class="si-sub">${esc(item.sub)}</div>` : ''}
+    </div>`).join('');
+  list.style.display = 'block';
+}
+
+function hideSuggestions() {
+  const list = document.getElementById('ciSuggest');
+  if (list) list.style.display = 'none';
+}
+
+function selectSuggestion(el) {
+  const name = el.getAttribute('data-name');
+  const lat  = parseFloat(el.getAttribute('data-lat')) || null;
+  const lng  = parseFloat(el.getAttribute('data-lng')) || null;
+  document.getElementById('ciName').value = name;
+  if (lat && lng) {
+    S.gpsCoords = { lat, lng };
+    S.gpsSource = 'nominatim';
+    setGpsStatus('ok', 'Location: ' + lat.toFixed(5) + ', ' + lng.toFixed(5));
+  }
+  hideSuggestions();
+}
+
+function saveCheckinUI() {
+  const name = (document.getElementById('ciName').value || '').trim();
+  if (!name) { toast('Enter a place name', 'err'); return; }
+  const type = document.getElementById('ciType').value;
+  const btn  = document.getElementById('ciSaveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  const dateVal = document.getElementById('ciDate').value;
+  const nowTs   = new Date().toISOString();
+  const todayUtc = nowTs.split('T')[0];
+  let timestamp;
+  if (S.editingCheckinId) {
+    const origTs = (S.checkins.find(c => c.id === S.editingCheckinId) || {}).timestamp || nowTs;
+    // Replace just the date part, preserving the original time in UTC
+    timestamp = dateVal ? (dateVal + origTs.slice(10)) : origTs;
+  } else {
+    // New check-in: if user picked today use current time; otherwise use noon UTC of chosen date
+    timestamp = (dateVal && dateVal !== todayUtc) ? (dateVal + 'T12:00:00.000Z') : nowTs;
+  }
+
+  const data = {
+    tripId:    S.currentTrip.id,
+    timestamp,
+    name, type,
+    lat:       S.gpsCoords ? S.gpsCoords.lat : null,
+    lng:       S.gpsCoords ? S.gpsCoords.lng : null,
+    gpsSource: S.gpsSource || 'none'
+  };
+
+  const onDone = msg => res => {
+    btn.disabled = false; btn.textContent = S.editingCheckinId ? '✓ Update' : '📍 Check In';
+    if (res && res.success) { cancelCheckin(); loadCheckins(); toast(msg, 'ok'); }
+    else toast('Save failed', 'err');
+  };
+  const onErr = err => {
+    btn.disabled = false; btn.textContent = S.editingCheckinId ? '✓ Update' : '📍 Check In';
+    toast('Error: ' + err.message, 'err');
+  };
+
+  if (S.editingCheckinId) {
+    data.id = S.editingCheckinId;
+    google.script.run.withSuccessHandler(onDone('Check-in updated!')).withFailureHandler(onErr).updateCheckin(data);
+  } else {
+    google.script.run.withSuccessHandler(onDone('Checked in!')).withFailureHandler(onErr).saveCheckin(data);
+  }
+}
+
+function loadCheckins() {
+  const el = document.getElementById('ciList');
+  if (el) el.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted)">Loading…</div>';
+  google.script.run
+    .withSuccessHandler(cis => {
+      S.checkins = cis || [];
+      if (S.trackerTab === 'list') renderCheckinList();
+      if (S.trackerTab === 'cal')  buildCalendar();
+      if (S.trackerTab === 'map')  setTimeout(initTrackerMap, 50);
+    })
+    .withFailureHandler(() => {
+      if (el) el.innerHTML = '<div style="color:var(--danger);padding:20px">Failed to load check-ins</div>';
+    })
+    .loadCheckins(S.currentTrip.id);
+}
+
+function renderCheckinList() {
+  const el = document.getElementById('ciList');
+  if (!el) return;
+  if (!S.checkins.length) {
+    el.innerHTML = `
+      <div class="empty">
+        <div class="empty-icon">📍</div>
+        <div class="empty-title">No check-ins yet</div>
+        <div class="empty-sub">Tap "+ Check-in" to record your first location</div>
+      </div>`;
+    return;
+  }
+  const groups = {};
+  [...S.checkins].forEach(c => {
+    const d = localDateStr(c.timestamp);
+    if (!groups[d]) groups[d] = [];
+    groups[d].push(c);
+  });
+  el.innerHTML = Object.keys(groups).sort().map(d => `
+    <div class="dg-label">${fmtDate(d)}</div>
+    ${groups[d].map(c => checkinCard(c)).join('')}
+  `).join('');
+}
+
+function checkinCard(c) {
+  const col  = CI_COLORS[c.type]  || '#9E9E9E';
+  const icon = CI_ICONS[c.type]   || '📌';
+  const gpsInfo = (c.lat && c.lng) ? '📡 ' + parseFloat(c.lat).toFixed(4) + ', ' + parseFloat(c.lng).toFixed(4) : '';
+  return `
+    <div class="ci-card" onclick="editCheckinUI('${c.id}')">
+      <div class="ci-icon" style="background:${col}22;color:${col}">${icon}</div>
+      <div class="ci-body">
+        <div class="ci-name">${esc(c.name)}</div>
+        <div class="ci-time">${fmtCheckinTime(c.timestamp)}</div>
+        ${gpsInfo ? `<div class="ci-gps">${gpsInfo}</div>` : ''}
+      </div>
+      <button class="btn btn-danger btn-sm" style="width:auto;flex-shrink:0"
+              onclick="event.stopPropagation();confirmDeleteCheckin('${c.id}')">🗑</button>
+    </div>`;
+}
+
+function editCheckinUI(id) {
+  const c = S.checkins.find(x => x.id === id);
+  if (!c) return;
+  S.editingCheckinId = id;
+  S.gpsCoords = (c.lat && c.lng) ? { lat: parseFloat(c.lat), lng: parseFloat(c.lng) } : null;
+  S.gpsSource = c.gpsSource || 'none';
+  document.getElementById('ciName').value = c.name || '';
+  document.getElementById('ciDate').value = localDateStr(c.timestamp);
+  document.getElementById('ciType').value = c.type || 'place';
+  document.getElementById('ciSaveBtn').textContent = '✓ Update';
+  hideSuggestions();
+  if (S.gpsCoords) {
+    setGpsStatus('ok', 'Location: ' + S.gpsCoords.lat.toFixed(5) + ', ' + S.gpsCoords.lng.toFixed(5));
+  } else {
+    setGpsStatus('err', 'No GPS — type to search');
+  }
+  document.getElementById('ci-form-wrap').style.display = 'block';
+  setTimeout(() => document.getElementById('ciName').focus(), 100);
+}
+
+function confirmDeleteCheckin(id) {
+  const c = S.checkins.find(x => x.id === id);
+  showModal('Delete Check-in', `
+    <p style="color:var(--muted);margin-bottom:16px">
+      Delete "<strong>${esc(c ? c.name : '')}</strong>"? This cannot be undone.
+    </p>
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="doDeleteCheckin('${id}')">Delete</button>
+    </div>`);
+}
+
+function doDeleteCheckin(id) {
+  closeModal();
+  google.script.run
+    .withSuccessHandler(() => {
+      S.checkins = S.checkins.filter(c => c.id !== id);
+      renderCheckinList();
+      if (S.trackerTab === 'cal') buildCalendar();
+      if (S.trackerTab === 'map') initTrackerMap();
+      toast('Check-in deleted', 'ok');
+    })
+    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .deleteCheckin(id, S.currentTrip.id);
+}
+
+function switchTrackerTab(tab) {
+  S.trackerTab = tab;
+  ['list','cal','map'].forEach(t => {
+    document.getElementById('tab-' + t).classList.toggle('on', t === tab);
+    document.getElementById('panel-' + t).style.display = t === tab ? 'block' : 'none';
+  });
+  if (tab === 'cal') buildCalendar();
+  if (tab === 'map') setTimeout(initTrackerMap, 50);
+}
+
+function buildCalendar() {
+  const el = document.getElementById('calContent');
+  if (!el) return;
+  if (!S.checkins.length) {
+    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:32px">No check-ins yet</div>';
+    return;
+  }
+  const groups = {};
+  [...S.checkins].forEach(c => {
+    const d = localDateStr(c.timestamp);
+    if (!groups[d]) groups[d] = [];
+    groups[d].push(c);
+  });
+  const rows = Object.keys(groups).sort().map(d => {
+    const pills = groups[d].map(c => {
+      const col = CI_COLORS[c.type] || '#9E9E9E';
+      return `<span class="cal-ci-pill" style="background:${col}22;color:${col}">${CI_ICONS[c.type] || '📌'} ${esc(c.name)}</span>`;
+    }).join('');
+    return `<tr><td class="cal-date-cell">${fmtDate(d)}</td><td>${pills}</td></tr>`;
+  }).join('');
+  el.innerHTML = `
+    <div class="sec-label" style="margin-top:0">Check-ins by Day</div>
+    <div style="overflow-x:auto">
+      <table class="cal-table">
+        <thead><tr><th>Date</th><th>Check-ins</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function loadChartJs(cb) {
+  if (window.Chart) { cb(); return; }
+  const script = document.createElement('script');
+  script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+  script.onload = cb;
+  script.onerror = () => cb(); // fail silently — chart just won't render
+  document.head.appendChild(script);
+}
+
+function loadLeaflet(cb) {
+  if (window.L) { cb(); return; }
+  if (!document.getElementById('leaflet-css')) {
+    const link = document.createElement('link');
+    link.id = 'leaflet-css';
+    link.rel = 'stylesheet';
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(link);
+  }
+  const script = document.createElement('script');
+  script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  script.onload = cb;
+  script.onerror = () => {
+    const c = document.getElementById('tracker-map');
+    if (c) c.innerHTML = '<div style="padding:20px;color:var(--danger)">Could not load map library</div>';
+  };
+  document.head.appendChild(script);
+}
+
+function initTrackerMap() {
+  const container = document.getElementById('tracker-map');
+  if (!container) return;
+  const withGPS = S.checkins.filter(c => c.lat && c.lng);
+  if (!withGPS.length) {
+    if (S.leafletMap) { S.leafletMap.remove(); S.leafletMap = null; S.leafletMarkers = []; }
+    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:14px;padding:20px">No GPS data yet</div>';
+    return;
+  }
+  container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:13px">Loading map…</div>';
+  loadLeaflet(() => _renderLeafletMap());
+}
+
+function _renderLeafletMap() {
+  const container = document.getElementById('tracker-map');
+  if (!container) return;
+  const withGPS = S.checkins.filter(c => c.lat && c.lng);
+  if (S.leafletMap) {
+    S.leafletMarkers.forEach(m => m.remove());
+    S.leafletMarkers = [];
+    S.leafletMap.invalidateSize();
+  } else {
+    container.innerHTML = '';
+    S.leafletMap = L.map('tracker-map');
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(S.leafletMap);
+  }
+  const bounds = [];
+  withGPS.forEach(c => {
+    const col  = CI_COLORS[c.type] || '#9E9E9E';
+    const icon = L.divIcon({
+      html: `<div style="background:${col};color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3)">${CI_ICONS[c.type] || '📌'}</div>`,
+      className: '', iconSize: [32,32], iconAnchor: [16,16]
+    });
+    const marker = L.marker([c.lat, c.lng], { icon })
+      .addTo(S.leafletMap)
+      .bindPopup(`<strong>${c.name}</strong><br><small>${fmtCheckinTime(c.timestamp)}</small>`);
+    S.leafletMarkers.push(marker);
+    bounds.push([c.lat, c.lng]);
+  });
+  S.leafletMap.fitBounds(bounds, { padding: [24, 24] });
+}
+
+function localDateStr(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0');
+}
+
+function fmtCheckinTime(ts) {
+  if (!ts) return '';
+  try {
+    return new Date(ts).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+  } catch(e) { return ts; }
+}
+
+// =======================================================
 // START
 // =======================================================
-window.addEventListener('load', init);
+init();
 </script>
 </body>
 </html>
