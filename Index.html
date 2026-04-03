@@ -313,6 +313,9 @@ tbody tr:last-child td { border-bottom: none; }
 .cal-table td { padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
 .cal-table tr:last-child td { border-bottom: none; }
 .cal-date-cell { font-weight: 700; white-space: nowrap; color: var(--text); }
+.cal-dow-header { cursor: pointer; user-select: none; }
+.cal-dow-header:hover { color: var(--primary); }
+.cal-dow-cell { font-weight: 700; white-space: nowrap; color: var(--primary); width: 32px; min-width: 32px; text-align: left; }
 .cal-ci-pill { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; margin: 2px 3px 2px 0; }
 #tracker-map { height: 320px; border-radius: var(--radius); overflow: hidden; }
 </style>
@@ -486,9 +489,15 @@ tbody tr:last-child td { border-bottom: none; }
           <span id="gpsText">Acquiring GPS…</span>
         </div>
       </div>
-      <div class="fg" style="margin-bottom:10px">
-        <label>Date</label>
-        <input class="fc" id="ciDate" type="date">
+      <div class="frow" style="margin-bottom:10px">
+        <div class="fg" style="margin-bottom:0">
+          <label>Date</label>
+          <input class="fc" id="ciDate" type="date">
+        </div>
+        <div class="fg" style="margin-bottom:0">
+          <label>Time</label>
+          <input class="fc" id="ciTime" type="time">
+        </div>
       </div>
       <div class="fg" style="margin-bottom:12px">
         <label>Type</label>
@@ -498,6 +507,10 @@ tbody tr:last-child td { border-bottom: none; }
           <option value="restaurant">🍽 Restaurant</option>
           <option value="attraction">🎡 Attraction</option>
           <option value="transport">🚗 Transport</option>
+          <option value="flight-in">🛬 Flight In</option>
+          <option value="flight-out">🛫 Flight Out</option>
+          <option value="hike">🥾 Hike</option>
+          <option value="groceries">🛒 Groceries</option>
           <option value="other">🗂 Other</option>
         </select>
       </div>
@@ -558,11 +571,15 @@ const CAT_ICONS = {
 
 const CI_COLORS = {
   'place':'#1565C0','hotel':'#9C27B0','restaurant':'#4CAF50',
-  'attraction':'#FF9800','transport':'#F44336','other':'#9E9E9E'
+  'attraction':'#FF9800','transport':'#F44336','other':'#9E9E9E',
+  'flight-in':'#0288D1','flight-out':'#1565C0',
+  'hike':'#2E7D32','groceries':'#F57C00'
 };
 const CI_ICONS = {
   'place':'📌','hotel':'🏨','restaurant':'🍽️',
-  'attraction':'🎡','transport':'🚗','other':'🗂️'
+  'attraction':'🎡','transport':'🚗','other':'🗂️',
+  'flight-in':'🛬','flight-out':'🛫',
+  'hike':'🥾','groceries':'🛒'
 };
 
 const CURRENCIES = [
@@ -631,7 +648,8 @@ const S = {
   gpsSource: 'none',
   leafletMap: null,
   leafletMarkers: [],
-  suggestTimer: null
+  suggestTimer: null,
+  calLang: 'en'
 };
 
 // History stack for back navigation
@@ -855,6 +873,8 @@ function renderTrips() {
           <div class="trip-card-sub">📍 ${esc(t.country)} &nbsp;·&nbsp; ${t.currency}</div>
           <div class="trip-card-dates">📅 ${dateRange(t.startDate, t.endDate)}${days ? ` &nbsp;·&nbsp; ${days} days` : ''}</div>
         </div>
+        <button class="trip-del-btn" title="Edit trip"
+                onclick="event.stopPropagation();editTripTitle('${t.id}')">&#9998;</button>
         <button class="trip-del-btn" title="Delete trip"
                 onclick="event.stopPropagation();confirmDelTrip('${t.id}')">🗑</button>
       </div>`;
@@ -867,20 +887,24 @@ function openTrip(id) {
   navigate('trip');
 }
 
-function editTripTitle() {
+function editTripTitle(id) {
+  const tripId = id || (S.currentTrip && S.currentTrip.id);
+  const t = S.trips.find(x => x.id === tripId);
+  if (!t) return;
+  S._editingTripId = tripId;
   showModal('Edit Trip', `
     <div class="fg">
       <label>Title <span class="req">*</span></label>
-      <input class="fc" id="fEditTitle" type="text" value="${esc(S.currentTrip.title)}">
+      <input class="fc" id="fEditTitle" type="text" value="${esc(t.title)}">
     </div>
     <div class="frow">
       <div class="fg">
         <label>From Date</label>
-        <input class="fc" id="fEditStart" type="date" value="${S.currentTrip.startDate || ''}">
+        <input class="fc" id="fEditStart" type="date" value="${t.startDate || ''}">
       </div>
       <div class="fg">
         <label>To Date</label>
-        <input class="fc" id="fEditEnd" type="date" value="${S.currentTrip.endDate || ''}">
+        <input class="fc" id="fEditEnd" type="date" value="${t.endDate || ''}">
       </div>
     </div>
     <div class="btn-row">
@@ -894,7 +918,7 @@ function saveTripEdits() {
   const title = (document.getElementById('fEditTitle').value || '').trim();
   if (!title) { toast('Title is required', 'err'); return; }
   const data = {
-    id:        S.currentTrip.id,
+    id:        S._editingTripId,
     title,
     startDate: document.getElementById('fEditStart').value,
     endDate:   document.getElementById('fEditEnd').value
@@ -902,13 +926,17 @@ function saveTripEdits() {
   closeModal();
   google.script.run
     .withSuccessHandler(() => {
-      S.currentTrip.title     = data.title;
-      S.currentTrip.startDate = data.startDate;
-      S.currentTrip.endDate   = data.endDate;
       const t = S.trips.find(x => x.id === data.id);
       if (t) { t.title = data.title; t.startDate = data.startDate; t.endDate = data.endDate; }
-      document.getElementById('hTitle').textContent = data.title;
-      renderExpenses();
+      if (S.currentTrip && S.currentTrip.id === data.id) {
+        S.currentTrip.title     = data.title;
+        S.currentTrip.startDate = data.startDate;
+        S.currentTrip.endDate   = data.endDate;
+        document.getElementById('hTitle').textContent = data.title;
+        renderExpenses();
+      } else {
+        renderTrips();
+      }
       toast('Trip updated!', 'ok');
     })
     .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
@@ -1713,8 +1741,10 @@ function showCheckinForm() {
   S.editingCheckinId = null;
   S.gpsCoords = null;
   S.gpsSource = 'none';
+  const _now = new Date();
   document.getElementById('ciName').value = '';
   document.getElementById('ciDate').value = today();
+  document.getElementById('ciTime').value = String(_now.getHours()).padStart(2,'0') + ':' + String(_now.getMinutes()).padStart(2,'0');
   document.getElementById('ciType').value = 'place';
   document.getElementById('ciSaveBtn').textContent = '📍 Check In';
   hideSuggestions();
@@ -1857,17 +1887,10 @@ function saveCheckinUI() {
   btn.disabled = true; btn.textContent = 'Saving…';
 
   const dateVal = document.getElementById('ciDate').value;
-  const nowTs   = new Date().toISOString();
-  const todayUtc = nowTs.split('T')[0];
-  let timestamp;
-  if (S.editingCheckinId) {
-    const origTs = (S.checkins.find(c => c.id === S.editingCheckinId) || {}).timestamp || nowTs;
-    // Replace just the date part, preserving the original time in UTC
-    timestamp = dateVal ? (dateVal + origTs.slice(10)) : origTs;
-  } else {
-    // New check-in: if user picked today use current time; otherwise use noon UTC of chosen date
-    timestamp = (dateVal && dateVal !== todayUtc) ? (dateVal + 'T12:00:00.000Z') : nowTs;
-  }
+  const timeVal = document.getElementById('ciTime').value;
+  const timestamp = (dateVal && timeVal)
+    ? new Date(dateVal + 'T' + timeVal + ':00').toISOString()
+    : new Date().toISOString();
 
   const data = {
     tripId:    S.currentTrip.id,
@@ -1930,10 +1953,14 @@ function renderCheckinList() {
     if (!groups[d]) groups[d] = [];
     groups[d].push(c);
   });
-  el.innerHTML = Object.keys(groups).sort().map(d => `
-    <div class="dg-label">${fmtDate(d)}</div>
-    ${groups[d].map(c => checkinCard(c)).join('')}
-  `).join('');
+  el.innerHTML = Object.keys(groups).sort().map(d => {
+    const _di = new Date(d + 'T12:00:00Z').getDay();
+    const _dowLabel = CAL_DOW_EN[_di] + ' (יום ' + CAL_DOW_HE[_di] + ')';
+    return `
+      <div class="dg-label">${fmtDate(d)} · ${_dowLabel}</div>
+      ${groups[d].map(c => checkinCard(c)).join('')}
+    `;
+  }).join('');
 }
 
 function checkinCard(c) {
@@ -1948,6 +1975,8 @@ function checkinCard(c) {
         <div class="ci-time">${fmtCheckinTime(c.timestamp)}</div>
         ${gpsInfo ? `<div class="ci-gps">${gpsInfo}</div>` : ''}
       </div>
+      <button class="btn btn-outline btn-sm" style="width:auto;flex-shrink:0;margin-right:4px"
+              onclick="event.stopPropagation();editCheckinUI('${c.id}')">&#9998;</button>
       <button class="btn btn-danger btn-sm" style="width:auto;flex-shrink:0"
               onclick="event.stopPropagation();confirmDeleteCheckin('${c.id}')">🗑</button>
     </div>`;
@@ -1959,8 +1988,10 @@ function editCheckinUI(id) {
   S.editingCheckinId = id;
   S.gpsCoords = (c.lat && c.lng) ? { lat: parseFloat(c.lat), lng: parseFloat(c.lng) } : null;
   S.gpsSource = c.gpsSource || 'none';
+  const _d = new Date(c.timestamp);
   document.getElementById('ciName').value = c.name || '';
   document.getElementById('ciDate').value = localDateStr(c.timestamp);
+  document.getElementById('ciTime').value = String(_d.getHours()).padStart(2,'0') + ':' + String(_d.getMinutes()).padStart(2,'0');
   document.getElementById('ciType').value = c.type || 'place';
   document.getElementById('ciSaveBtn').textContent = '✓ Update';
   hideSuggestions();
@@ -1970,7 +2001,10 @@ function editCheckinUI(id) {
     setGpsStatus('err', 'No GPS — type to search');
   }
   document.getElementById('ci-form-wrap').style.display = 'block';
-  setTimeout(() => document.getElementById('ciName').focus(), 100);
+  setTimeout(() => {
+    document.getElementById('ci-form-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('ciName').focus();
+  }, 100);
 }
 
 function confirmDeleteCheckin(id) {
@@ -2000,13 +2034,28 @@ function doDeleteCheckin(id) {
 }
 
 function switchTrackerTab(tab) {
+  const formWrap = document.getElementById('ci-form-wrap');
+  // Save form visibility before leaving list tab
+  if (S.trackerTab === 'list') {
+    S._listFormVisible = formWrap.style.display !== 'none';
+  }
   S.trackerTab = tab;
   ['list','cal','map'].forEach(t => {
     document.getElementById('tab-' + t).classList.toggle('on', t === tab);
     document.getElementById('panel-' + t).style.display = t === tab ? 'block' : 'none';
   });
+  // Show/hide form: only on list tab, restore previous state
+  formWrap.style.display = (tab === 'list' && S._listFormVisible) ? 'block' : 'none';
   if (tab === 'cal') buildCalendar();
   if (tab === 'map') setTimeout(initTrackerMap, 50);
+}
+
+const CAL_DOW_EN = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const CAL_DOW_HE = ['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','ש׳'];
+
+function toggleCalLang() {
+  S.calLang = S.calLang === 'he' ? 'en' : 'he';
+  buildCalendar();
 }
 
 function buildCalendar() {
@@ -2016,6 +2065,8 @@ function buildCalendar() {
     el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:32px">No check-ins yet</div>';
     return;
   }
+  const dayNames = S.calLang === 'he' ? CAL_DOW_HE : CAL_DOW_EN;
+  const dowHeader = S.calLang === 'he' ? 'יום ⇄' : 'Day ⇄';
   const groups = {};
   [...S.checkins].forEach(c => {
     const d = localDateStr(c.timestamp);
@@ -2023,17 +2074,26 @@ function buildCalendar() {
     groups[d].push(c);
   });
   const rows = Object.keys(groups).sort().map(d => {
+    const dayIdx = new Date(d + 'T12:00:00Z').getDay();
+    const dow = dayNames[dayIdx];
     const pills = groups[d].map(c => {
       const col = CI_COLORS[c.type] || '#9E9E9E';
       return `<span class="cal-ci-pill" style="background:${col}22;color:${col}">${CI_ICONS[c.type] || '📌'} ${esc(c.name)}</span>`;
     }).join('');
-    return `<tr><td class="cal-date-cell">${fmtDate(d)}</td><td>${pills}</td></tr>`;
+    return `<tr>
+      <td class="cal-dow-cell">${dow}</td>
+      <td class="cal-date-cell">${fmtDate(d)}</td>
+      <td>${pills}</td>
+    </tr>`;
   }).join('');
   el.innerHTML = `
-    <div class="sec-label" style="margin-top:0">Check-ins by Day</div>
     <div style="overflow-x:auto">
       <table class="cal-table">
-        <thead><tr><th>Date</th><th>Check-ins</th></tr></thead>
+        <thead><tr>
+          <th class="cal-dow-header" onclick="toggleCalLang()" title="Toggle EN / Hebrew">${dowHeader}</th>
+          <th>Date</th>
+          <th>Check-ins</th>
+        </tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
