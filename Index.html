@@ -317,7 +317,12 @@ tbody tr:last-child td { border-bottom: none; }
 .cal-dow-header:hover { color: var(--primary); }
 .cal-dow-cell { font-weight: 700; white-space: nowrap; color: var(--primary); width: 32px; min-width: 32px; text-align: left; }
 .cal-ci-pill { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; margin: 2px 3px 2px 0; }
-#tracker-map { height: 320px; border-radius: var(--radius); overflow: hidden; }
+#tracker-map { height: 420px; border-radius: var(--radius); overflow: hidden; }
+.leaflet-popup-content-wrapper { border-radius: 10px !important; box-shadow: 0 4px 16px rgba(0,0,0,0.15) !important; font-family: inherit !important; }
+.leaflet-popup-content { margin: 10px 14px !important; font-size: 13px !important; }
+.leaflet-popup-tip { box-shadow: none !important; }
+.leaflet-control-attribution { font-size: 10px !important; }
+.leaflet-control-zoom a { border-radius: 8px !important; }
 </style>
 </head>
 <body>
@@ -531,7 +536,7 @@ tbody tr:last-child td { border-bottom: none; }
     </div>
 
     <div id="panel-map" style="display:none">
-      <div class="card" style="padding:0;overflow:hidden">
+      <div style="border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);margin-bottom:14px">
         <div id="tracker-map"></div>
       </div>
       <div style="height:30px"></div>
@@ -648,6 +653,7 @@ const S = {
   gpsSource: 'none',
   leafletMap: null,
   leafletMarkers: [],
+  _routeLine: null,
   suggestTimer: null,
   calLang: 'en'
 };
@@ -2132,43 +2138,59 @@ function initTrackerMap() {
   if (!container) return;
   const withGPS = S.checkins.filter(c => c.lat && c.lng);
   if (!withGPS.length) {
-    if (S.leafletMap) { S.leafletMap.remove(); S.leafletMap = null; S.leafletMarkers = []; }
+    if (S.leafletMap) { S.leafletMap.remove(); S.leafletMap = null; S.leafletMarkers = []; S._routeLine = null; }
     container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:14px;padding:20px">No GPS data yet</div>';
     return;
   }
-  container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:13px">Loading map…</div>';
+  if (!S.leafletMap) {
+    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:13px">Loading map…</div>';
+  }
   loadLeaflet(() => _renderLeafletMap());
 }
 
 function _renderLeafletMap() {
   const container = document.getElementById('tracker-map');
   if (!container) return;
-  const withGPS = S.checkins.filter(c => c.lat && c.lng);
+  // Sort check-ins by timestamp for route line
+  const withGPS = [...S.checkins].filter(c => c.lat && c.lng).sort((a, b) => a.timestamp < b.timestamp ? -1 : 1);
   if (S.leafletMap) {
     S.leafletMarkers.forEach(m => m.remove());
     S.leafletMarkers = [];
+    if (S._routeLine) { S._routeLine.remove(); S._routeLine = null; }
     S.leafletMap.invalidateSize();
   } else {
     container.innerHTML = '';
-    S.leafletMap = L.map('tracker-map');
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors'
+    S.leafletMap = L.map('tracker-map', { zoomControl: true });
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      attribution: '© OpenStreetMap © CARTO',
+      subdomains: 'abcd', maxZoom: 19
     }).addTo(S.leafletMap);
   }
+
+  // Route polyline connecting check-ins in chronological order
+  if (withGPS.length > 1) {
+    S._routeLine = L.polyline(withGPS.map(c => [c.lat, c.lng]), {
+      color: '#1565C0', weight: 2.5, opacity: 0.55, dashArray: '6 5'
+    }).addTo(S.leafletMap);
+  }
+
   const bounds = [];
-  withGPS.forEach(c => {
+  withGPS.forEach((c, i) => {
     const col  = CI_COLORS[c.type] || '#9E9E9E';
+    const seq  = i + 1;
     const icon = L.divIcon({
-      html: `<div style="background:${col};color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3)">${CI_ICONS[c.type] || '📌'}</div>`,
-      className: '', iconSize: [32,32], iconAnchor: [16,16]
+      html: `<div style="background:${col};color:#fff;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;border:2.5px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.22);position:relative">${CI_ICONS[c.type] || '📌'}<span style="position:absolute;top:-5px;right:-5px;background:#fff;color:${col};font-size:10px;font-weight:800;border-radius:50%;width:16px;height:16px;display:flex;align-items:center;justify-content:center;line-height:1">${seq}</span></div>`,
+      className: '', iconSize: [34, 34], iconAnchor: [17, 17]
     });
-    const marker = L.marker([c.lat, c.lng], { icon })
-      .addTo(S.leafletMap)
-      .bindPopup(`<strong>${c.name}</strong><br><small>${fmtCheckinTime(c.timestamp)}</small>`);
+    const popup = L.popup({ offset: [0, -14], closeButton: false }).setContent(
+      '<div style="font-weight:700;font-size:13px;margin-bottom:3px">' + esc(c.name) + '</div>' +
+      '<div style="font-size:11px;color:#6B7280">' + (CI_ICONS[c.type] || '') + ' ' + c.type + ' \u00b7 ' + fmtCheckinTime(c.timestamp) + '</div>'
+    );
+    const marker = L.marker([c.lat, c.lng], { icon }).addTo(S.leafletMap).bindPopup(popup);
     S.leafletMarkers.push(marker);
     bounds.push([c.lat, c.lng]);
   });
-  S.leafletMap.fitBounds(bounds, { padding: [24, 24] });
+  S.leafletMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
 }
 
 function localDateStr(ts) {
