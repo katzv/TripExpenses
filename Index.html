@@ -323,6 +323,27 @@ tbody tr:last-child td { border-bottom: none; }
 .leaflet-popup-tip { box-shadow: none !important; }
 .leaflet-control-attribution { font-size: 10px !important; }
 .leaflet-control-zoom a { border-radius: 8px !important; }
+
+/* ===== 7-COLUMN CALENDAR ===== */
+.cal7-dow-sticky { position: sticky; top: 58px; z-index: 10; overflow: hidden; background: #F8F9FB; }
+.cal7-dow-table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 3px 0; min-width: 560px; }
+.cal7-wrap { overflow-x: auto; }
+.cal7-table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 3px; min-width: 560px; }
+.cal7-th { background: #F8F9FB; font-size: 11px; font-weight: 700; color: var(--muted); padding: 4px 3px; text-align: center; border-radius: 4px; }
+.cal7-cell { vertical-align: top; border-radius: 7px; background: #fff; border: 1px solid #E8EBF2; padding: 0; overflow: hidden; height: 1px; }
+.cal7-cell.vacant { background: #F4F5F8; border-color: transparent; }
+.cal7-inner { display: flex; flex-direction: column; height: 100%; }
+.cal7-hdr { font-size: 10px; font-weight: 700; background: #DBEAFE; color: #1E40AF; padding: 3px 5px; line-height: 1.5; white-space: nowrap; }
+.cal7-cell.vacant .cal7-hdr { background: #ECEEF3; color: #B0B8C8; font-weight: 400; }
+.cal7-body { flex: 1; padding: 3px 4px 2px; min-height: 24px; }
+.cal7-pill { font-size: 10px; font-weight: 600; padding: 1px 4px; border-radius: 4px; margin-bottom: 2px; display: block; line-height: 1.5; word-break: break-word; }
+.cal7-foot { font-size: 9px; font-weight: 600; background: #DCFCE7; color: #166534; padding: 2px 5px; word-break: break-word; }
+#view-tracker { width: 100vw; margin-left: calc(50% - 50vw); }
+#view-tracker .tracker-tabs,
+#view-tracker #ci-form-wrap,
+#view-tracker #panel-list { max-width: 620px; margin-left: auto; margin-right: auto; padding: 0 14px; }
+#view-tracker #panel-cal,
+#view-tracker #panel-map { padding: 0 14px; }
 </style>
 </head>
 <body>
@@ -531,7 +552,7 @@ tbody tr:last-child td { border-bottom: none; }
     </div>
 
     <div id="panel-cal" style="display:none">
-      <div class="card" id="calContent"></div>
+      <div id="calContent" style="background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:10px 8px;margin-bottom:14px"></div>
       <div style="height:30px"></div>
     </div>
 
@@ -655,7 +676,9 @@ const S = {
   leafletMarkers: [],
   _routeLine: null,
   suggestTimer: null,
-  calLang: 'en'
+  calLang: 'en',
+  calFilterFrom: null,
+  calFilterTo:   null
 };
 
 // History stack for back navigation
@@ -2071,38 +2094,97 @@ function buildCalendar() {
     el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:32px">No check-ins yet</div>';
     return;
   }
-  const dayNames = S.calLang === 'he' ? CAL_DOW_HE : CAL_DOW_EN;
-  const dowHeader = S.calLang === 'he' ? 'יום ⇄' : 'Day ⇄';
+
+  // Group check-ins by local date
   const groups = {};
   [...S.checkins].forEach(c => {
     const d = localDateStr(c.timestamp);
     if (!groups[d]) groups[d] = [];
     groups[d].push(c);
   });
-  const rows = Object.keys(groups).sort().map(d => {
-    const dayIdx = new Date(d + 'T12:00:00Z').getDay();
-    const dow = dayNames[dayIdx];
-    const pills = groups[d].map(c => {
-      const col = CI_COLORS[c.type] || '#9E9E9E';
-      return `<span class="cal-ci-pill" style="background:${col}22;color:${col}">${CI_ICONS[c.type] || '📌'} ${esc(c.name)}</span>`;
+
+  const allDates = Object.keys(groups).sort();
+  const dataFirst = allDates[0];
+  const dataLast  = allDates[allDates.length - 1];
+
+  // Apply filter (swap if inverted)
+  let fFrom = S.calFilterFrom || dataFirst;
+  let fTo   = S.calFilterTo   || dataLast;
+  if (fFrom > fTo) { const tmp = fFrom; fFrom = fTo; fTo = tmp; }
+
+  // Grid starts on Sunday on or before fFrom
+  const fd = new Date(fFrom + 'T12:00:00Z');
+  const gStart = new Date(fd); gStart.setUTCDate(fd.getUTCDate() - fd.getUTCDay());
+
+  // Grid ends on Saturday on or after fTo
+  const ld = new Date(fTo + 'T12:00:00Z');
+  const gEnd = new Date(ld); gEnd.setUTCDate(ld.getUTCDate() + (6 - ld.getUTCDay()));
+
+  const DOW_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  // Build week rows
+  const weeks = [];
+  const cur = new Date(gStart);
+  while (cur <= gEnd) {
+    const week = [];
+    for (let i = 0; i < 7; i++) {
+      const ds    = cur.toISOString().split('T')[0];
+      const cis   = groups[ds] || [];
+      const hotel = [...cis].reverse().find(c => c.type === 'hotel') || null;
+      const dd    = String(cur.getUTCDate()).padStart(2, '0');
+      const mm    = String(cur.getUTCMonth() + 1).padStart(2, '0');
+      const dow   = DOW_SHORT[cur.getUTCDay()];
+      week.push({ ds, dd, mm, dow, inRange: ds >= fFrom && ds <= fTo, cis, hotel });
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    weeks.push(week);
+  }
+
+  const dowRow = '<div class="cal7-dow-sticky"><table class="cal7-dow-table"><thead><tr>' +
+    DOW_SHORT.map(d => '<th class="cal7-th">' + d + '</th>').join('') +
+    '</tr></thead></table></div>';
+
+  const bodyRows = weeks.map(week => {
+    const tds = week.map(day => {
+      const cls   = 'cal7-cell' + (day.inRange ? '' : ' vacant');
+      const pills = day.cis.map(c => {
+        const col = CI_COLORS[c.type] || '#9E9E9E';
+        return '<span class="cal7-pill" style="background:' + col + '18;color:' + col + '">' + (CI_ICONS[c.type] || '') + ' ' + esc(c.name) + '</span>';
+      }).join('');
+      const foot = (day.hotel && day.inRange) ? '<div class="cal7-foot">🏨 ' + esc(day.hotel.name) + '</div>' : '';
+      return '<td class="' + cls + '"><div class="cal7-inner">' +
+             '<div class="cal7-hdr">' + day.dd + '/' + day.mm + '</div>' +
+             '<div class="cal7-body">' + pills + '</div>' +
+             foot + '</div></td>';
     }).join('');
-    return `<tr>
-      <td class="cal-dow-cell">${dow}</td>
-      <td class="cal-date-cell">${fmtDate(d)}</td>
-      <td>${pills}</td>
-    </tr>`;
+    return '<tr>' + tds + '</tr>';
   }).join('');
-  el.innerHTML = `
-    <div style="overflow-x:auto">
-      <table class="cal-table">
-        <thead><tr>
-          <th class="cal-dow-header" onclick="toggleCalLang()" title="Toggle EN / Hebrew">${dowHeader}</th>
-          <th>Date</th>
-          <th>Check-ins</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
+
+  // Filter bar
+  const fv = S.calFilterFrom || '';
+  const tv = S.calFilterTo   || '';
+  const hasFilter = fv || tv;
+  let filterBar = '<div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">' +
+    '<span style="font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap">From</span>' +
+    '<input type="date" class="fc" style="width:132px;padding:5px 8px;font-size:12px;min-height:32px" value="' + fv + '" onblur="S.calFilterFrom=this.value||null;buildCalendar()">' +
+    '<span style="font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap">To</span>' +
+    '<input type="date" class="fc" style="width:132px;padding:5px 8px;font-size:12px;min-height:32px" value="' + tv + '" onblur="S.calFilterTo=this.value||null;buildCalendar()">';
+  if (hasFilter) {
+    filterBar += '<button class="btn btn-outline btn-sm" style="padding:5px 10px;min-height:32px;font-size:11px;white-space:nowrap" onclick="S.calFilterFrom=null;S.calFilterTo=null;buildCalendar()">&#10005; Clear</button>';
+  }
+  filterBar += '</div>';
+
+  el.innerHTML = filterBar + dowRow +
+    '<div class="cal7-wrap"><table class="cal7-table"><tbody>' + bodyRows + '</tbody></table></div>';
+
+  // Sync DOW row horizontal position with table scroll
+  const calWrap = el.querySelector('.cal7-wrap');
+  const dowTable = el.querySelector('.cal7-dow-table');
+  if (calWrap && dowTable) {
+    calWrap.addEventListener('scroll', function() {
+      dowTable.style.transform = 'translateX(-' + calWrap.scrollLeft + 'px)';
+    });
+  }
 }
 
 function loadChartJs(cb) {
