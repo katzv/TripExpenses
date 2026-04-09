@@ -77,6 +77,26 @@ function deleteTrip(id) {
   save('trips', trips);
   props.deleteProperty('exp_' + id);
   deleteCheckinFile(id);
+  props.deleteProperty('caldesc_' + id);
+  return { success: true };
+}
+
+// ---- CALENDAR DAY DESCRIPTIONS ----
+// Stored as: props['caldesc_{tripId}'] = JSON object keyed by date string (YYYY-MM-DD)
+
+function getCalDescs(tripId) {
+  return load('caldesc_' + tripId, {});
+}
+
+function saveCalDesc(tripId, date, text) {
+  var descs = getCalDescs(tripId);
+  var trimmed = (text || '').replace(/^\s+|\s+$/g, '');
+  if (trimmed) {
+    descs[date] = trimmed;
+  } else {
+    delete descs[date];
+  }
+  save('caldesc_' + tripId, descs);
   return { success: true };
 }
 

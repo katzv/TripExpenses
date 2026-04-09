@@ -330,14 +330,17 @@ tbody tr:last-child td { border-bottom: none; }
 .cal7-wrap { overflow-x: auto; }
 .cal7-table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 3px; min-width: 560px; }
 .cal7-th { background: #F8F9FB; font-size: 11px; font-weight: 700; color: var(--muted); padding: 4px 3px; text-align: center; border-radius: 4px; }
-.cal7-cell { vertical-align: top; border-radius: 7px; background: #fff; border: 1px solid #E8EBF2; padding: 0; overflow: hidden; height: 1px; }
+.cal7-cell { vertical-align: top; border-radius: 7px; background: #fff; border: 1px solid #E8EBF2; padding: 0; overflow: hidden; height: 1px; min-height: 90px; }
 .cal7-cell.vacant { background: #F4F5F8; border-color: transparent; }
-.cal7-inner { display: flex; flex-direction: column; height: 100%; }
-.cal7-hdr { font-size: 10px; font-weight: 700; background: #DBEAFE; color: #1E40AF; padding: 3px 5px; line-height: 1.5; white-space: nowrap; }
+.cal7-inner { display: flex; flex-direction: column; height: 100%; min-height: 90px; }
+.cal7-hdr { font-size: 11px; font-weight: 700; background: #DBEAFE; color: #1E40AF; padding: 3px 5px; line-height: 1.5; word-break: break-word; }
 .cal7-cell.vacant .cal7-hdr { background: #ECEEF3; color: #B0B8C8; font-weight: 400; }
-.cal7-body { flex: 1; padding: 3px 4px 2px; min-height: 24px; }
-.cal7-pill { font-size: 10px; font-weight: 600; padding: 1px 4px; border-radius: 4px; margin-bottom: 2px; display: block; line-height: 1.5; word-break: break-word; }
-.cal7-foot { font-size: 9px; font-weight: 600; background: #DCFCE7; color: #166534; padding: 2px 5px; word-break: break-word; }
+.cal7-hdr-desc { font-weight: 400; font-style: italic; opacity: 0.85; }
+.cal7-body { flex: 1; padding: 3px 4px 2px; min-height: 46px; }
+.cal7-pill { font-size: 11px; font-weight: 600; padding: 1px 4px; border-radius: 4px; margin-bottom: 2px; display: block; line-height: 1.5; word-break: break-word; }
+.cal7-foot { font-size: 11px; font-weight: 600; background: #DCFCE7; color: #166534; padding: 2px 5px; word-break: break-word; }
+.cal7-hdr-edit { cursor: pointer; }
+.cal7-hdr-edit:hover { background: #BFDBFE; }
 #view-tracker { width: 100vw; margin-left: calc(50% - 50vw); }
 #view-tracker .tracker-tabs,
 #view-tracker #ci-form-wrap,
@@ -678,7 +681,8 @@ const S = {
   suggestTimer: null,
   calLang: 'en',
   calFilterFrom: null,
-  calFilterTo:   null
+  calFilterTo:   null,
+  calDescs: {}
 };
 
 // History stack for back navigation
@@ -953,22 +957,21 @@ function saveTripEdits() {
     endDate:   document.getElementById('fEditEnd').value
   };
   closeModal();
+  // Optimistic update — reflect immediately without waiting for server
+  const t = S.trips.find(x => x.id === data.id);
+  if (t) { t.title = data.title; t.startDate = data.startDate; t.endDate = data.endDate; }
+  if (S.currentTrip && S.currentTrip.id === data.id) {
+    S.currentTrip.title     = data.title;
+    S.currentTrip.startDate = data.startDate;
+    S.currentTrip.endDate   = data.endDate;
+    document.getElementById('hTitle').textContent = data.title;
+    renderExpenses();
+  } else {
+    renderTrips();
+  }
+  toast('Trip updated!', 'ok');
   google.script.run
-    .withSuccessHandler(() => {
-      const t = S.trips.find(x => x.id === data.id);
-      if (t) { t.title = data.title; t.startDate = data.startDate; t.endDate = data.endDate; }
-      if (S.currentTrip && S.currentTrip.id === data.id) {
-        S.currentTrip.title     = data.title;
-        S.currentTrip.startDate = data.startDate;
-        S.currentTrip.endDate   = data.endDate;
-        document.getElementById('hTitle').textContent = data.title;
-        renderExpenses();
-      } else {
-        renderTrips();
-      }
-      toast('Trip updated!', 'ok');
-    })
-    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .withFailureHandler(err => toast('Error saving trip: ' + err.message, 'err'))
     .updateTrip(data);
 }
 
@@ -1531,14 +1534,13 @@ function showAddType() {
 }
 
 function deleteType(name) {
+  // Optimistic update
+  S.expenseTypes = S.expenseTypes.filter(t => t !== name);
+  populateTypeSelect();
+  toast('Type "' + name + '" deleted', 'ok');
+  showAddType();
   google.script.run
-    .withSuccessHandler(types => {
-      S.expenseTypes = types;
-      populateTypeSelect();
-      toast('Type "' + name + '" deleted', 'ok');
-      showAddType();
-    })
-    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .withFailureHandler(err => toast('Error deleting type: ' + err.message, 'err'))
     .deleteExpenseType(name);
 }
 
@@ -1546,15 +1548,14 @@ function saveNewType() {
   const name = ((document.getElementById('newTypeName') || {value: ''}).value || '').trim();
   if (!name) { toast('Enter a type name', 'err'); return; }
   closeModal();
+  // Optimistic update
+  if (!S.expenseTypes.includes(name)) S.expenseTypes.push(name);
+  populateTypeSelect();
+  document.getElementById('fType').value = name;
+  onTypeChange();
+  toast('Type "' + name + '" added', 'ok');
   google.script.run
-    .withSuccessHandler(types => {
-      S.expenseTypes = types;
-      populateTypeSelect();
-      document.getElementById('fType').value = name;
-      onTypeChange();
-      toast('Type "' + name + '" added', 'ok');
-    })
-    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .withFailureHandler(err => toast('Error adding type: ' + err.message, 'err'))
     .addExpenseType(name);
 }
 
@@ -1930,11 +1931,6 @@ function saveCheckinUI() {
     gpsSource: S.gpsSource || 'none'
   };
 
-  const onDone = msg => res => {
-    btn.disabled = false; btn.textContent = S.editingCheckinId ? '✓ Update' : '📍 Check In';
-    if (res && res.success) { cancelCheckin(); loadCheckins(); toast(msg, 'ok'); }
-    else toast('Save failed', 'err');
-  };
   const onErr = err => {
     btn.disabled = false; btn.textContent = S.editingCheckinId ? '✓ Update' : '📍 Check In';
     toast('Error: ' + err.message, 'err');
@@ -1942,26 +1938,56 @@ function saveCheckinUI() {
 
   if (S.editingCheckinId) {
     data.id = S.editingCheckinId;
-    google.script.run.withSuccessHandler(onDone('Check-in updated!')).withFailureHandler(onErr).updateCheckin(data);
+    // Optimistic update — reflect immediately, save in background
+    btn.disabled = false; btn.textContent = '✓ Update';
+    const idx = S.checkins.findIndex(c => c.id === S.editingCheckinId);
+    if (idx !== -1) S.checkins[idx] = Object.assign({}, S.checkins[idx], data);
+    cancelCheckin();
+    if (S.trackerTab === 'list') renderCheckinList();
+    if (S.trackerTab === 'cal')  buildCalendar();
+    toast('Check-in updated!', 'ok');
+    google.script.run.withFailureHandler(onErr).updateCheckin(data);
   } else {
-    google.script.run.withSuccessHandler(onDone('Checked in!')).withFailureHandler(onErr).saveCheckin(data);
+    // New check-in: need server-assigned ID before we can add to local state
+    google.script.run
+      .withSuccessHandler(res => {
+        btn.disabled = false; btn.textContent = '📍 Check In';
+        if (res && res.success) {
+          S.checkins.push(Object.assign({ id: res.id, createdAt: new Date().toISOString() }, data));
+          cancelCheckin();
+          if (S.trackerTab === 'list') renderCheckinList();
+          if (S.trackerTab === 'cal')  buildCalendar();
+          if (S.trackerTab === 'map')  setTimeout(initTrackerMap, 50);
+          toast('Checked in!', 'ok');
+        } else toast('Save failed', 'err');
+      })
+      .withFailureHandler(onErr)
+      .saveCheckin(data);
   }
 }
 
 function loadCheckins() {
   const el = document.getElementById('ciList');
   if (el) el.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted)">Loading…</div>';
+  let _cis = null, _descs = null;
+  function _onBoth() {
+    if (_cis === null || _descs === null) return;
+    S.checkins = _cis;
+    S.calDescs = _descs;
+    if (S.trackerTab === 'list') renderCheckinList();
+    if (S.trackerTab === 'cal')  buildCalendar();
+    if (S.trackerTab === 'map')  setTimeout(initTrackerMap, 50);
+  }
   google.script.run
-    .withSuccessHandler(cis => {
-      S.checkins = cis || [];
-      if (S.trackerTab === 'list') renderCheckinList();
-      if (S.trackerTab === 'cal')  buildCalendar();
-      if (S.trackerTab === 'map')  setTimeout(initTrackerMap, 50);
-    })
+    .withSuccessHandler(cis => { _cis = cis || []; _onBoth(); })
     .withFailureHandler(() => {
       if (el) el.innerHTML = '<div style="color:var(--danger);padding:20px">Failed to load check-ins</div>';
     })
     .loadCheckins(S.currentTrip.id);
+  google.script.run
+    .withSuccessHandler(descs => { _descs = descs || {}; _onBoth(); })
+    .withFailureHandler(() => { _descs = {}; _onBoth(); })
+    .getCalDescs(S.currentTrip.id);
 }
 
 function renderCheckinList() {
@@ -2050,15 +2076,14 @@ function confirmDeleteCheckin(id) {
 
 function doDeleteCheckin(id) {
   closeModal();
+  // Optimistic update
+  S.checkins = S.checkins.filter(c => c.id !== id);
+  renderCheckinList();
+  if (S.trackerTab === 'cal') buildCalendar();
+  if (S.trackerTab === 'map') initTrackerMap();
+  toast('Check-in deleted', 'ok');
   google.script.run
-    .withSuccessHandler(() => {
-      S.checkins = S.checkins.filter(c => c.id !== id);
-      renderCheckinList();
-      if (S.trackerTab === 'cal') buildCalendar();
-      if (S.trackerTab === 'map') initTrackerMap();
-      toast('Check-in deleted', 'ok');
-    })
-    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .withFailureHandler(err => toast('Error deleting check-in: ' + err.message, 'err'))
     .deleteCheckin(id, S.currentTrip.id);
 }
 
@@ -2075,6 +2100,7 @@ function switchTrackerTab(tab) {
   });
   // Show/hide form: only on list tab, restore previous state
   formWrap.style.display = (tab === 'list' && S._listFormVisible) ? 'block' : 'none';
+  if (tab === 'list') renderCheckinList();
   if (tab === 'cal') buildCalendar();
   if (tab === 'map') setTimeout(initTrackerMap, 50);
 }
@@ -2152,8 +2178,12 @@ function buildCalendar() {
         return '<span class="cal7-pill" style="background:' + col + '18;color:' + col + '">' + (CI_ICONS[c.type] || '') + ' ' + esc(c.name) + '</span>';
       }).join('');
       const foot = (day.hotel && day.inRange) ? '<div class="cal7-foot">🏨 ' + esc(day.hotel.name) + '</div>' : '';
+      const descText = (S.calDescs && S.calDescs[day.ds]) || '';
+      const hdrCls = day.inRange ? ' cal7-hdr-edit' : '';
+      const hdrClick = day.inRange ? ' onclick="editCalDesc(\'' + day.ds + '\')"' : '';
+      const descSpan = (descText && day.inRange) ? ' <span class="cal7-hdr-desc">' + esc(descText) + '</span>' : '';
       return '<td class="' + cls + '"><div class="cal7-inner">' +
-             '<div class="cal7-hdr">' + day.dd + '/' + day.mm + '</div>' +
+             '<div class="cal7-hdr' + hdrCls + '"' + hdrClick + '>' + day.dd + '/' + day.mm + descSpan + '</div>' +
              '<div class="cal7-body">' + pills + '</div>' +
              foot + '</div></td>';
     }).join('');
@@ -2185,6 +2215,32 @@ function buildCalendar() {
       dowTable.style.transform = 'translateX(-' + calWrap.scrollLeft + 'px)';
     });
   }
+}
+
+function editCalDesc(dateStr) {
+  const current = S.calDescs[dateStr] || '';
+  const label = new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  showModal('Note — ' + label,
+    '<div class="fg"><textarea class="fc" id="calDescText" rows="4" placeholder="Add a note for this day…" style="resize:vertical;font-size:14px">' + esc(current) + '</textarea></div>' +
+    '<div class="btn-row">' +
+    (current ? '<button class="btn btn-danger btn-sm" style="flex:0;white-space:nowrap" onclick="_doSaveCalDesc(\'' + dateStr + '\',\'\')">Clear</button>' : '') +
+    '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="_doSaveCalDesc(\'' + dateStr + '\',document.getElementById(\'calDescText\').value)">Save</button>' +
+    '</div>');
+  setTimeout(() => { const t = document.getElementById('calDescText'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 150);
+}
+
+function _doSaveCalDesc(dateStr, text) {
+  const trimmed = (text || '').trim();
+  closeModal();
+  // Optimistic update — reflect change instantly without waiting for server
+  if (trimmed) S.calDescs[dateStr] = trimmed;
+  else delete S.calDescs[dateStr];
+  buildCalendar();
+  google.script.run
+    .withSuccessHandler(() => toast(trimmed ? 'Note saved' : 'Note cleared', 'ok'))
+    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .saveCalDesc(S.currentTrip.id, dateStr, trimmed);
 }
 
 function loadChartJs(cb) {
