@@ -2165,6 +2165,7 @@ function buildCalendar() {
     }
     weeks.push(week);
   }
+  S.calWeeks = weeks; // store for export
 
   const dowRow = '<div class="cal7-dow-sticky"><table class="cal7-dow-table"><thead><tr>' +
     DOW_SHORT.map(d => '<th class="cal7-th">' + d + '</th>').join('') +
@@ -2202,6 +2203,7 @@ function buildCalendar() {
   if (hasFilter) {
     filterBar += '<button class="btn btn-outline btn-sm" style="padding:5px 10px;min-height:32px;font-size:11px;white-space:nowrap" onclick="S.calFilterFrom=null;S.calFilterTo=null;buildCalendar()">&#10005; Clear</button>';
   }
+  filterBar += '<button class="btn btn-outline btn-sm" style="padding:5px 10px;min-height:32px;font-size:11px;white-space:nowrap;margin-left:auto" onclick="exportCalendar()">&#128229; Export</button>';
   filterBar += '</div>';
 
   el.innerHTML = filterBar + dowRow +
@@ -2241,6 +2243,33 @@ function _doSaveCalDesc(dateStr, text) {
     .withSuccessHandler(() => toast(trimmed ? 'Note saved' : 'Note cleared', 'ok'))
     .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
     .saveCalDesc(S.currentTrip.id, dateStr, trimmed);
+}
+
+function exportCalendar() {
+  if (!S.calWeeks || !S.calWeeks.length) { toast('Build the calendar first', 'err'); return; }
+  toast('Creating Google Sheet…', '');
+  const params = {
+    tripTitle: S.currentTrip.title,
+    weeks: S.calWeeks.map(week => week.map(day => ({
+      dd:       day.dd,
+      mm:       day.mm,
+      inRange:  day.inRange,
+      desc:     (S.calDescs && S.calDescs[day.ds]) || '',
+      cis:      day.cis.map(c => ({ name: c.name, type: c.type })),
+      hasHotel: !!day.hotel
+    })))
+  };
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success) {
+        window.open(res.url, '_blank');
+        toast('Sheet created!', 'ok');
+      } else {
+        toast('Export failed: ' + (res && res.error || 'unknown'), 'err');
+      }
+    })
+    .withFailureHandler(err => toast('Export error: ' + err.message, 'err'))
+    .exportCalendarToSheet(params);
 }
 
 function loadChartJs(cb) {

@@ -427,6 +427,116 @@ function getReport(tripId) {
   };
 }
 
+// ---- CALENDAR EXPORT TO GOOGLE SHEETS ----
+// params: { tripTitle, weeks: [[{dd,mm,inRange,desc,cis:[{name,type}],hasHotel}]] }
+
+function exportCalendarToSheet(params) {
+  var tripTitle = params.tripTitle || 'Trip';
+  var weeks     = params.weeks     || [];
+  if (!weeks.length) return { success: false, error: 'No data' };
+
+  var CI_ICONS = {
+    'place':'📌','hotel':'🏨','restaurant':'🍽️','attraction':'🎡',
+    'transport':'🚗','other':'🗂️','flight-in':'🛬','flight-out':'🛫',
+    'hike':'🥾','groceries':'🛒'
+  };
+
+  var ss    = SpreadsheetApp.create(tripTitle + ' - Trip Schedule');
+  var sheet = ss.getActiveSheet();
+  sheet.setName('Calendar');
+
+  // Column widths (50% wider than original 115)
+  for (var c = 1; c <= 7; c++) sheet.setColumnWidth(c, 172);
+
+  // ---- DOW header row ----
+  var DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var hdr = sheet.getRange(1, 1, 1, 7);
+  hdr.setValues([DOW]);
+  hdr.setBackground('#F0F4FA');
+  hdr.setFontWeight('bold');
+  hdr.setFontSize(11);
+  hdr.setHorizontalAlignment('center');
+  hdr.setFontColor('#6B7280');
+  hdr.setBorder(false, false, true, false, false, false, '#D1D5DB',
+                SpreadsheetApp.BorderStyle.SOLID);
+
+  // ---- Week rows: 3 rows per week (header / body / footer) ----
+  var rowIdx = 2;
+  weeks.forEach(function(week) {
+    var hdrVals = [], hdrBgs = [], hdrFCs = [];
+    var bodyVals = [], bodyBgs = [], bodyFCs = [];
+    var footVals = [], footBgs = [], footFCs = [];
+
+    week.forEach(function(day) {
+      var inRange = !!day.inRange;
+
+      // --- Header row: DD/MM [– description] ---
+      var dateStr = day.dd + '/' + day.mm;
+      // Prefix with apostrophe forces Sheets to treat as text, preventing date auto-conversion
+      hdrVals.push("'" + dateStr + (day.desc ? '  \u2013  ' + day.desc : ''));
+      hdrBgs.push(inRange ? '#DBEAFE' : '#ECEEF3');
+      hdrFCs.push(inRange ? '#1E40AF' : '#B0B8C8');
+
+      // --- Body row: non-hotel check-ins ---
+      var bodyLines = [];
+      day.cis.forEach(function(ci) {
+        if (ci.type !== 'hotel') {
+          bodyLines.push((CI_ICONS[ci.type] || '\u2022') + ' ' + ci.name);
+        }
+      });
+      bodyVals.push(bodyLines.join('\n'));
+      bodyBgs.push(inRange ? '#FFFFFF' : '#F4F5F8');
+      bodyFCs.push(inRange ? '#1A1A2E' : '#B0B8C8');
+
+      // --- Footer row: hotel check-in ---
+      var hotelCi = null;
+      day.cis.forEach(function(ci) { if (ci.type === 'hotel') hotelCi = ci; });
+      footVals.push(hotelCi ? (CI_ICONS['hotel'] + ' ' + hotelCi.name) : '');
+      footBgs.push(!inRange ? '#F4F5F8' : (hotelCi ? '#DCFCE7' : '#FFFFFF'));
+      footFCs.push(inRange ? '#166534' : '#B0B8C8');
+    });
+
+    // Write header row — number format '@' ensures text even after apostrophe trick
+    var rowHdr = sheet.getRange(rowIdx, 1, 1, 7);
+    rowHdr.setNumberFormat('@');
+    rowHdr.setValues([hdrVals]);
+    rowHdr.setBackgrounds([hdrBgs]);
+    rowHdr.setFontColors([hdrFCs]);
+    rowHdr.setFontWeight('bold');
+    rowHdr.setFontSize(10);
+    rowHdr.setVerticalAlignment('middle');
+    rowHdr.setWrap(true);
+    sheet.setRowHeight(rowIdx, 26);
+
+    // Write body row
+    var rowBody = sheet.getRange(rowIdx + 1, 1, 1, 7);
+    rowBody.setValues([bodyVals]);
+    rowBody.setBackgrounds([bodyBgs]);
+    rowBody.setFontColors([bodyFCs]);
+    rowBody.setFontWeight('normal');
+    rowBody.setFontSize(10);
+    rowBody.setVerticalAlignment('top');
+    rowBody.setWrap(true);
+    sheet.setRowHeight(rowIdx + 1, 80);
+
+    // Write footer row
+    var rowFoot = sheet.getRange(rowIdx + 2, 1, 1, 7);
+    rowFoot.setValues([footVals]);
+    rowFoot.setBackgrounds([footBgs]);
+    rowFoot.setFontColors([footFCs]);
+    rowFoot.setFontWeight('normal');
+    rowFoot.setFontSize(10);
+    rowFoot.setVerticalAlignment('middle');
+    rowFoot.setWrap(true);
+    sheet.setRowHeight(rowIdx + 2, 26);
+
+    rowIdx += 3;
+  });
+
+  sheet.setFrozenRows(1);
+  return { success: true, url: ss.getUrl() };
+}
+
 // ---- COUNTRY → CURRENCY ----
 
 function getCountryCurrency(country) {
