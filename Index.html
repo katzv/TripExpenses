@@ -109,7 +109,7 @@ body {
 
 /* ===== MODAL ===== */
 .modal-bg {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.48); z-index: 200;
+  position: fixed; inset: 0; background: rgba(0,0,0,0.48); z-index: 1000;
   display: flex; align-items: flex-end; justify-content: center;
   opacity: 0; pointer-events: none; transition: opacity 0.2s;
 }
@@ -333,12 +333,12 @@ tbody tr:last-child td { border-bottom: none; }
 .cal7-cell { vertical-align: top; border-radius: 7px; background: #fff; border: 1px solid #E8EBF2; padding: 0; overflow: hidden; height: 1px; min-height: 90px; }
 .cal7-cell.vacant { background: #F4F5F8; border-color: transparent; }
 .cal7-inner { display: flex; flex-direction: column; height: 100%; min-height: 90px; }
-.cal7-hdr { font-size: 11px; font-weight: 700; background: #DBEAFE; color: #1E40AF; padding: 3px 5px; line-height: 1.5; word-break: break-word; }
+.cal7-hdr { font-size: 12px; font-weight: 700; background: #DBEAFE; color: #1E40AF; padding: 3px 5px; line-height: 1.5; word-break: break-word; }
 .cal7-cell.vacant .cal7-hdr { background: #ECEEF3; color: #B0B8C8; font-weight: 400; }
 .cal7-hdr-desc { font-weight: 400; font-style: italic; opacity: 0.85; }
 .cal7-body { flex: 1; padding: 3px 4px 2px; min-height: 46px; }
-.cal7-pill { font-size: 11px; font-weight: 600; padding: 1px 4px; border-radius: 4px; margin-bottom: 2px; display: block; line-height: 1.5; word-break: break-word; }
-.cal7-foot { font-size: 11px; font-weight: 600; background: #DCFCE7; color: #166534; padding: 2px 5px; word-break: break-word; }
+.cal7-pill { font-size: 13px; font-weight: 600; padding: 1px 4px; border-radius: 4px; margin-bottom: 2px; display: block; line-height: 1.5; word-break: break-word; }
+.cal7-foot { font-size: 13px; font-weight: 600; background: #DCFCE7; color: #166534; padding: 2px 5px; word-break: break-word; }
 .cal7-hdr-edit { cursor: pointer; }
 .cal7-hdr-edit:hover { background: #BFDBFE; }
 #view-tracker { width: 100vw; margin-left: calc(50% - 50vw); }
@@ -347,6 +347,27 @@ tbody tr:last-child td { border-bottom: none; }
 #view-tracker #panel-list { max-width: 620px; margin-left: auto; margin-right: auto; padding: 0 14px; }
 #view-tracker #panel-cal,
 #view-tracker #panel-map { padding: 0 14px; }
+
+/* ===== PLANNER ===== */
+#view-planner { width: 100vw; margin-left: calc(50% - 50vw); }
+#view-planner .tracker-tabs,
+#view-planner #plan-form-wrap,
+#view-planner #panel-plan-bank { max-width: 620px; margin-left: auto; margin-right: auto; padding: 0 14px; }
+#view-planner #panel-plan-cal,
+#view-planner #panel-plan-map { padding: 0 14px; }
+#planner-map { height: calc(100svh - 130px); min-height: 300px; border-radius: var(--radius); overflow: hidden; }
+.plan-suggest-wrap { position: relative; }
+.plan-pill { display: flex !important; align-items: center; gap: 3px; justify-content: space-between; }
+.plan-pill-del { flex-shrink: 0; padding: 0 3px; cursor: pointer; font-weight: 800; opacity: 0.55; border: none; background: none; color: inherit; font-size: 13px; line-height: 1; }
+.plan-pill-del:hover { opacity: 1; }
+.plan-add-btn { width: 100%; background: none; border: 1px dashed var(--border); color: var(--muted); border-radius: 6px; padding: 3px 6px; font-size: 11px; cursor: pointer; margin-top: 2px; text-align: center; }
+.plan-add-btn:hover { border-color: var(--primary); color: var(--primary); }
+.plan-bank-chips { display: flex; flex-wrap: wrap; gap: 7px; padding: 10px 0 6px; }
+.plan-bank-chip { display: inline-flex; align-items: center; gap: 5px; background: var(--card); border: 1.5px solid var(--border); border-radius: 20px; padding: 5px 9px; font-size: 13px; font-weight: 600; cursor: pointer; transition: border-color 0.13s; }
+.plan-bank-chip:hover { border-color: var(--primary); }
+.plan-bank-chip-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+.plan-bank-chip-del { flex-shrink: 0; padding: 0; margin-left: 3px; cursor: pointer; font-weight: 800; opacity: 0.4; border: none; background: none; color: inherit; font-size: 15px; line-height: 1; }
+.plan-bank-chip-del:hover { opacity: 1; color: var(--danger); }
 </style>
 </head>
 <body>
@@ -571,6 +592,74 @@ tbody tr:last-child td { border-bottom: none; }
     </div>
   </div>
 
+
+  <!-- VIEW: PLANNER -->
+  <div class="view" id="view-planner">
+    <div class="tracker-tabs">
+      <button class="tracker-tab on" id="tab-plan-bank" onclick="switchPlannerTab('bank')">🏦 Bank</button>
+      <button class="tracker-tab"    id="tab-plan-cal"  onclick="switchPlannerTab('cal')">📅 Calendar</button>
+      <button class="tracker-tab"    id="tab-plan-map"  onclick="switchPlannerTab('map')">🗺 Map</button>
+    </div>
+
+    <!-- Add / Edit place form -->
+    <div class="ci-form" id="plan-form-wrap" style="display:none">
+      <div class="ci-form-title">📍 Place Details</div>
+      <div class="fg" style="margin-bottom:10px">
+        <label>Place Name <span class="req">*</span></label>
+        <div class="plan-suggest-wrap">
+          <input class="fc" id="planName" type="text" placeholder="Search or type a place name…"
+                 autocomplete="off" oninput="onPlanNameInput()" onfocus="onPlanNameFocus()">
+          <div class="suggest-list" id="planSuggest" style="display:none"></div>
+        </div>
+        <div class="gps-status" id="planGpsStatus">
+          <div class="gps-dot err" id="planGpsDot"></div>
+          <span id="planGpsText" style="flex:1">No location set</span>
+          <button onclick="openMapPicker('planner')" style="background:none;border:1.5px solid var(--primary);color:var(--primary);border-radius:7px;padding:3px 9px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0">&#128205; Pick on Map</button>
+        </div>
+      </div>
+      <div class="fg" style="margin-bottom:10px">
+        <label>Type</label>
+        <select class="fc" id="planType"></select>
+      </div>
+      <div class="fg" style="margin-bottom:12px">
+        <label>Description / Notes</label>
+        <textarea class="fc" id="planDesc" rows="4"
+                  placeholder="Opening hours, tips, notes… Hebrew supported"
+                  dir="auto"
+                  style="resize:vertical;font-size:15px;min-height:90px;max-height:320px;overflow-y:auto"></textarea>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-outline btn-sm" onclick="cancelPlannerForm()">Cancel</button>
+        <button class="btn btn-accent btn-sm" id="planSaveBtn" onclick="savePlanPlaceUI()">+ Add to Bank</button>
+      </div>
+      <div id="planDelWrap" style="display:none;margin-top:12px">
+        <hr style="border:none;border-top:1px solid var(--border);margin-bottom:12px">
+        <button class="btn btn-danger btn-sm" style="width:auto"
+                onclick="confirmDeletePlanPlace(S.editingPlaceId)">&#128465; Remove from Bank</button>
+      </div>
+    </div>
+
+    <!-- Bank panel -->
+    <div id="panel-plan-bank">
+      <div id="planBankList"></div>
+      <div style="height:80px"></div>
+    </div>
+
+    <!-- Calendar panel -->
+    <div id="panel-plan-cal" style="display:none">
+      <div id="planCalContent" style="background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:10px 8px;margin-bottom:14px"></div>
+      <div style="height:30px"></div>
+    </div>
+
+    <!-- Map panel -->
+    <div id="panel-plan-map" style="display:none">
+      <div style="border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);margin-bottom:14px">
+        <div id="planner-map"></div>
+      </div>
+      <div style="height:30px"></div>
+    </div>
+  </div>
+
 </main>
 
 <!-- Map Picker Overlay -->
@@ -614,6 +703,31 @@ const CAT_ICONS = {
   'Insurance': '🛡️', 'Petrol': '⛽', 'Toll Roads': '🛣️',
   'Parking': '🅿️', 'Public Transport': '🚌', 'Meals': '🍽️',
   'Souvenirs': '🎁', 'Attractions': '🎡', 'Other': '📌'
+};
+
+const PLAN_TYPES = {
+  'nature-hike': { icon: '🥾', color: '#2E7D32', label: 'Nature Hike' },
+  'lake-river':  { icon: '🏞️', color: '#0288D1', label: 'Lake/River' },
+  'cablecar':    { icon: '🚡', color: '#7B1FA2', label: 'Cablecar' },
+  'restaurant':  { icon: '🍽️', color: '#4CAF50', label: 'Restaurant' },
+  'coffee':      { icon: '☕', color: '#795548', label: 'Coffee' },
+  'sweet':       { icon: '🍦', color: '#E91E63', label: 'Sweet' },
+  'beer':        { icon: '🍺', color: '#F57F17', label: 'Beer' },
+  'market':      { icon: '🏪', color: '#FF6D00', label: 'Market' },
+  'supermarket': { icon: '🛒', color: '#F57C00', label: 'Supermarket' },
+  'shop':        { icon: '🛍️', color: '#9C27B0', label: 'Shop' },
+  'petrol':      { icon: '⛽', color: '#616161', label: 'Petrol Station' },
+  'hotel':       { icon: '🏨', color: '#9C27B0', label: 'Hotel' },
+  'attraction':  { icon: '🎡', color: '#FF9800', label: 'Attraction' },
+  'cave':        { icon: '🦇', color: '#4E342E', label: 'Cave' },
+  'fortress':    { icon: '🏰', color: '#8D6E63', label: 'Fortress/Temple' },
+  'museum':      { icon: '🏛️', color: '#5D4037', label: 'Museum' },
+  'viewpoint':   { icon: '👁️', color: '#00BCD4', label: 'Viewpoint' },
+  'airport':     { icon: '✈️', color: '#0288D1', label: 'Airport' },
+  'car-rental':  { icon: '🚗', color: '#F44336', label: 'Car Rental' },
+  'city-walk':   { icon: '🚶', color: '#1565C0', label: 'City Walk' },
+  'village':     { icon: '🏘️', color: '#558B2F', label: 'Village' },
+  'parking':     { icon: '🅿️', color: '#37474F', label: 'Parking' }
 };
 
 const CI_COLORS = {
@@ -700,7 +814,20 @@ const S = {
   calLang: 'en',
   calFilterFrom: null,
   calFilterTo:   null,
-  calDescs: {}
+  calDescs: {},
+  // Planner
+  planBank: [],
+  planAssignments: {},
+  plannerTab: 'bank',
+  plannerMap: null,
+  plannerMarkers: [],
+  planGpsCoords: null,
+  planGpsSource: 'none',
+  planSuggestTimer: null,
+  editingPlaceId: null,
+  _planFormVisible: false,
+  planCalFilterFrom: null,
+  planCalFilterTo: null
 };
 
 // History stack for back navigation
@@ -765,6 +892,16 @@ function init() {
   });
   // Populate currency dropdowns
   populateCurrSel('fCurrency');
+  // Populate planner type select
+  const planSel = document.getElementById('planType');
+  if (planSel) {
+    Object.keys(PLAN_TYPES).forEach(k => {
+      const o = document.createElement('option');
+      o.value = k;
+      o.textContent = PLAN_TYPES[k].icon + ' ' + PLAN_TYPES[k].label;
+      planSel.appendChild(o);
+    });
+  }
 
   // Escape key closes any open modal
   document.addEventListener('keydown', e => {
@@ -773,10 +910,12 @@ function init() {
     }
   });
 
-  // Click outside suggestion list closes it
+  // Click outside suggestion lists closes them
   document.addEventListener('click', e => {
     const wrap = document.querySelector('.suggest-wrap');
     if (wrap && !wrap.contains(e.target)) hideSuggestions();
+    const pw = document.querySelector('.plan-suggest-wrap');
+    if (pw && !pw.contains(e.target)) hidePlanSuggestions();
   });
 
   setLoadProgress(25, 'Connecting to server…');
@@ -853,6 +992,7 @@ function navigate(view, params = {}) {
     hBack.classList.remove('hide');
     hActs.innerHTML = `
       <button class="hbtn" onclick="editTripTitle()" title="Edit trip">&#9998;</button>
+      <button class="hbtn" onclick="navigate('planner')" title="Plan">📋 Plan</button>
       <button class="hbtn" onclick="navigate('tracker')" title="Tracker">📍 Track</button>
       <button class="hbtn" onclick="navigate('report')" title="Report">&#128202; Report</button>`;
     fab.classList.remove('hide');
@@ -871,6 +1011,19 @@ function navigate(view, params = {}) {
     document.getElementById('ci-form-wrap').style.display = 'none';
     loadCheckins();
 
+  } else if (view === 'planner') {
+    hTitle.textContent = S.currentTrip.title + ' — Plan';
+    hBack.classList.remove('hide');
+    hActs.innerHTML = `<button class="hbtn" onclick="showPlannerForm()">+ Add Place</button>`;
+    S.plannerTab = 'bank';
+    ['bank','cal','map'].forEach(t => {
+      document.getElementById('tab-plan-' + t).classList.toggle('on', t === 'bank');
+      document.getElementById('panel-plan-' + t).style.display = t === 'bank' ? 'block' : 'none';
+    });
+    document.getElementById('plan-form-wrap').style.display = 'none';
+    S._planFormVisible = false;
+    loadPlan();
+
   } else if (view === 'expense') {
     hTitle.textContent = S.currentExpenseId ? 'Edit Expense' : 'Add Expense';
     hBack.classList.remove('hide');
@@ -888,7 +1041,7 @@ function navigate(view, params = {}) {
 function goBack() {
   const activeEl = document.querySelector('.view.active');
   const current = activeEl ? activeEl.id.replace('view-', '') : '';
-  if (current === 'expense' || current === 'report' || current === 'tracker') {
+  if (current === 'expense' || current === 'report' || current === 'tracker' || current === 'planner') {
     navigate('trip');
   } else {
     navigate('trips');
@@ -1855,7 +2008,7 @@ function onCiNameInput() {
 function fetchNearbySuggestions() {
   if (!S.gpsCoords) return;
   const { lat, lng } = S.gpsCoords;
-  const query = `[out:json][timeout:8];(node["name"](around:300,${lat},${lng});way["name"](around:300,${lat},${lng});)->.a;.a out tags 8;`;
+  const query = `[out:json][timeout:10];(node["name"](around:600,${lat},${lng});way["name"](around:600,${lat},${lng});)->.a;.a out center tags 15;`;
   fetch('https://overpass-api.de/api/interpreter', {
     method: 'POST', body: 'data=' + encodeURIComponent(query)
   })
@@ -1876,13 +2029,11 @@ function fetchNearbySuggestions() {
 }
 
 function searchByName(q) {
-  let url = 'https://nominatim.openstreetmap.org/search?format=json&limit=6&q=' + encodeURIComponent(q);
-  if (S.gpsCoords) url += '&viewbox=' + (S.gpsCoords.lng - 0.5) + ',' + (S.gpsCoords.lat + 0.5) + ',' +
-                                         (S.gpsCoords.lng + 0.5) + ',' + (S.gpsCoords.lat - 0.5) + '&bounded=0';
+  let url = 'https://nominatim.openstreetmap.org/search?format=json&limit=8&q=' + encodeURIComponent(q);
   fetch(url, { headers: { 'Accept-Language': 'en' } })
   .then(r => r.json())
   .then(data => {
-    const items = (data || []).slice(0, 6).map(p => ({
+    const items = (data || []).slice(0, 8).map(p => ({
       name: p.display_name.split(',')[0],
       sub:  p.display_name.split(',').slice(1, 3).join(',').trim(),
       lat:  parseFloat(p.lat),
@@ -2477,9 +2628,10 @@ function _renderLeafletMap() {
 // MAP PICKER
 // =======================================================
 
-var _mpMap = null, _mpMarker = null, _mpCoords = null;
+var _mpMap = null, _mpMarker = null, _mpCoords = null, _mpContext = 'checkin';
 
-function openMapPicker() {
+function openMapPicker(context) {
+  _mpContext = context || 'checkin';
   _mpCoords = null;
   var ov = document.getElementById('mapPickerOverlay');
   ov.style.display = 'flex';
@@ -2508,8 +2660,9 @@ function openMapPicker() {
       } else {
         if (_mpMarker) { _mpMarker.remove(); _mpMarker = null; }
       }
-      var center = S.gpsCoords || { lat: 30, lng: 20 };
-      _mpMap.setView([center.lat, center.lng], S.gpsCoords ? 13 : 2);
+      var _ctxCoords = (_mpContext === 'planner') ? S.planGpsCoords : S.gpsCoords;
+      var center = _ctxCoords || { lat: 30, lng: 20 };
+      _mpMap.setView([center.lat, center.lng], _ctxCoords ? 13 : 2);
       _mpMap.invalidateSize();
     });
   }, 120);
@@ -2528,9 +2681,15 @@ function closeMapPicker() {
 
 function confirmMapPin() {
   if (!_mpCoords) return;
-  S.gpsCoords = { lat: _mpCoords.lat, lng: _mpCoords.lng };
-  S.gpsSource = 'manual';
-  setGpsStatus('ok', 'Pinned: ' + S.gpsCoords.lat.toFixed(5) + ', ' + S.gpsCoords.lng.toFixed(5));
+  if (_mpContext === 'planner') {
+    S.planGpsCoords = { lat: _mpCoords.lat, lng: _mpCoords.lng };
+    S.planGpsSource = 'manual';
+    setPlanGpsStatus('ok', 'Pinned: ' + S.planGpsCoords.lat.toFixed(5) + ', ' + S.planGpsCoords.lng.toFixed(5));
+  } else {
+    S.gpsCoords = { lat: _mpCoords.lat, lng: _mpCoords.lng };
+    S.gpsSource = 'manual';
+    setGpsStatus('ok', 'Pinned: ' + S.gpsCoords.lat.toFixed(5) + ', ' + S.gpsCoords.lng.toFixed(5));
+  }
   closeMapPicker();
 }
 
@@ -2580,6 +2739,580 @@ function fmtCheckinTime(ts) {
       month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
     });
   } catch(e) { return ts; }
+}
+
+// =======================================================
+// PLANNER
+// =======================================================
+
+function loadPlan() {
+  const el = document.getElementById('planBankList');
+  if (el) el.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted)">Loading…</div>';
+  google.script.run
+    .withSuccessHandler(plan => {
+      S.planBank        = (plan && plan.bank)        || [];
+      S.planAssignments = (plan && plan.assignments) || {};
+      renderPlanBank();
+    })
+    .withFailureHandler(err => {
+      if (el) el.innerHTML = '<div style="color:var(--danger);padding:20px">Failed to load plan</div>';
+    })
+    .getPlan(S.currentTrip.id);
+}
+
+function showPlannerForm() {
+  if (S.plannerTab !== 'bank') switchPlannerTab('bank');
+  S.editingPlaceId = null;
+  S.planGpsCoords = null;
+  S.planGpsSource = 'none';
+  document.getElementById('planName').value = '';
+  document.getElementById('planType').selectedIndex = 0;
+  document.getElementById('planDesc').value = '';
+  setPlanGpsStatus('spin', 'Acquiring GPS…');
+  document.getElementById('planSaveBtn').textContent = '+ Add to Bank';
+  document.getElementById('planDelWrap').style.display = 'none';
+  document.getElementById('plan-form-wrap').style.display = 'block';
+  S._planFormVisible = true;
+  acquirePlanGPS();
+  setTimeout(() => document.getElementById('planName').focus(), 100);
+}
+
+function cancelPlannerForm() {
+  S.editingPlaceId = null;
+  document.getElementById('plan-form-wrap').style.display = 'none';
+  S._planFormVisible = false;
+  hidePlanSuggestions();
+}
+
+function acquirePlanGPS() {
+  if (!navigator.geolocation) { setPlanGpsStatus('err', 'GPS not available'); return; }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      S.planGpsCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      S.planGpsSource = 'gps';
+      setPlanGpsStatus('ok', 'GPS: ' + S.planGpsCoords.lat.toFixed(5) + ', ' + S.planGpsCoords.lng.toFixed(5));
+    },
+    () => { setPlanGpsStatus('err', 'GPS unavailable — pick on map or skip'); },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
+function setPlanGpsStatus(state, text) {
+  const dot = document.getElementById('planGpsDot');
+  const txt = document.getElementById('planGpsText');
+  if (!dot || !txt) return;
+  dot.className = 'gps-dot' + (state === 'ok' ? ' ok' : state === 'spin' ? ' spin-dot' : ' err');
+  txt.textContent = text;
+}
+
+function renderPlanBank() {
+  const el = document.getElementById('planBankList');
+  if (!el) return;
+  if (!S.planBank.length) {
+    el.innerHTML = `
+      <div class="empty">
+        <div class="empty-icon">🗺️</div>
+        <div class="empty-title">Bank is empty</div>
+        <div class="empty-sub">Add places you'd like to visit on this trip</div>
+        <button class="btn btn-primary" style="width:auto;padding:13px 36px" onclick="showPlannerForm()">+ Add Place</button>
+      </div>`;
+    return;
+  }
+  el.innerHTML = '<div class="plan-bank-chips">' +
+    S.planBank.map(p => {
+      const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E', label: p.type };
+      return '<span class="plan-bank-chip" onclick="editPlanPlace(\'' + p.id + '\')" title="' + esc(p.name) + (p.description ? ' — ' + esc(p.description.substring(0, 60)) : '') + '">' +
+        '<span style="font-size:15px">' + t.icon + '</span>' +
+        '<span class="plan-bank-chip-name">' + esc(p.name) + '</span>' +
+        '<button class="plan-bank-chip-del" onclick="event.stopPropagation();confirmDeletePlanPlace(\'' + p.id + '\')">×</button>' +
+        '</span>';
+    }).join('') +
+    '</div>';
+}
+
+function editPlanPlace(id) {
+  const p = S.planBank.find(x => x.id === id);
+  if (!p) return;
+  S.editingPlaceId = id;
+  S.planGpsCoords = (p.lat && p.lng) ? { lat: parseFloat(p.lat), lng: parseFloat(p.lng) } : null;
+  S.planGpsSource = S.planGpsCoords ? 'saved' : 'none';
+  document.getElementById('planName').value = p.name || '';
+  document.getElementById('planType').value = p.type || Object.keys(PLAN_TYPES)[0];
+  document.getElementById('planDesc').value = p.description || '';
+  if (S.planGpsCoords) {
+    setPlanGpsStatus('ok', 'Location: ' + S.planGpsCoords.lat.toFixed(5) + ', ' + S.planGpsCoords.lng.toFixed(5));
+  } else {
+    setPlanGpsStatus('err', 'No location — pick on map or skip');
+  }
+  document.getElementById('planSaveBtn').textContent = '✓ Save Changes';
+  document.getElementById('planDelWrap').style.display = 'block';
+  document.getElementById('plan-form-wrap').style.display = 'block';
+  S._planFormVisible = true;
+  setTimeout(() => {
+    document.getElementById('plan-form-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('planName').focus();
+  }, 100);
+}
+
+function savePlanPlaceUI() {
+  const name = (document.getElementById('planName').value || '').trim();
+  if (!name) { toast('Enter a place name', 'err'); return; }
+  const type = document.getElementById('planType').value;
+  const desc = (document.getElementById('planDesc').value || '').trim();
+  const isEdit = !!S.editingPlaceId;
+  const data = {
+    tripId:      S.currentTrip.id,
+    name, type,
+    lat:         S.planGpsCoords ? S.planGpsCoords.lat : null,
+    lng:         S.planGpsCoords ? S.planGpsCoords.lng : null,
+    description: desc
+  };
+  if (isEdit) data.id = S.editingPlaceId;
+  const btn = document.getElementById('planSaveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  google.script.run
+    .withSuccessHandler(() => {
+      btn.disabled = false;
+      cancelPlannerForm();
+      loadPlan();
+      toast(isEdit ? 'Place updated!' : 'Place added to bank!', 'ok');
+    })
+    .withFailureHandler(err => {
+      btn.disabled = false;
+      btn.textContent = isEdit ? '✓ Save Changes' : '+ Add to Bank';
+      toast('Error: ' + err.message, 'err');
+    })
+    .savePlanPlace(data);
+}
+
+function confirmDeletePlanPlace(id) {
+  const p = S.planBank.find(x => x.id === id);
+  showModal('Remove from Bank', `
+    <p style="color:var(--muted);margin-bottom:8px">
+      Remove "<strong>${esc(p ? p.name : '')}</strong>" from the bank?
+    </p>
+    <p style="color:var(--danger);font-size:13px;margin-bottom:16px">Also removed from all assigned days.</p>
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="doDeletePlanPlace('${id}')">Remove</button>
+    </div>`);
+}
+
+function doDeletePlanPlace(id) {
+  closeModal();
+  S.planBank = S.planBank.filter(p => p.id !== id);
+  Object.keys(S.planAssignments).forEach(d => {
+    S.planAssignments[d] = S.planAssignments[d].filter(pid => pid !== id);
+    if (!S.planAssignments[d].length) delete S.planAssignments[d];
+  });
+  cancelPlannerForm();
+  renderPlanBank();
+  if (S.plannerTab === 'cal') buildPlannerCalendar();
+  toast('Place removed', 'ok');
+  google.script.run
+    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .deletePlanPlace(id, S.currentTrip.id);
+}
+
+function switchPlannerTab(tab) {
+  const formWrap = document.getElementById('plan-form-wrap');
+  if (S.plannerTab === 'bank') S._planFormVisible = formWrap.style.display !== 'none';
+  S.plannerTab = tab;
+  ['bank','cal','map'].forEach(t => {
+    document.getElementById('tab-plan-' + t).classList.toggle('on', t === tab);
+    document.getElementById('panel-plan-' + t).style.display = t === tab ? 'block' : 'none';
+  });
+  formWrap.style.display = (tab === 'bank' && S._planFormVisible) ? 'block' : 'none';
+  if (tab === 'bank') renderPlanBank();
+  if (tab === 'cal')  buildPlannerCalendar();
+  if (tab === 'map')  setTimeout(initPlannerMap, 50);
+}
+
+// ---- Planner calendar ----
+
+function buildPlannerCalendar() {
+  const el = document.getElementById('planCalContent');
+  if (!el) return;
+
+  const allAssigned = Object.keys(S.planAssignments).filter(d => S.planAssignments[d] && S.planAssignments[d].length);
+  let rangeFirst = S.currentTrip.startDate || null;
+  let rangeLast  = S.currentTrip.endDate   || null;
+  if (!rangeFirst && allAssigned.length) rangeFirst = allAssigned.sort()[0];
+  if (!rangeLast  && allAssigned.length) rangeLast  = allAssigned.sort()[allAssigned.length - 1];
+
+  if (!rangeFirst) {
+    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:32px">Set trip dates or assign places to days to see the calendar</div>';
+    return;
+  }
+
+  let fFrom = S.planCalFilterFrom || rangeFirst;
+  let fTo   = S.planCalFilterTo   || rangeLast || rangeFirst;
+  if (fFrom > fTo) { const tmp = fFrom; fFrom = fTo; fTo = tmp; }
+
+  const fd = new Date(fFrom + 'T12:00:00Z');
+  const gStart = new Date(fd); gStart.setUTCDate(fd.getUTCDate() - fd.getUTCDay());
+  const ld = new Date(fTo + 'T12:00:00Z');
+  const gEnd = new Date(ld); gEnd.setUTCDate(ld.getUTCDate() + (6 - ld.getUTCDay()));
+
+  const DOW_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const byId = {};
+  S.planBank.forEach(p => { byId[p.id] = p; });
+
+  const weeks = [];
+  const cur = new Date(gStart);
+  while (cur <= gEnd) {
+    const week = [];
+    for (let i = 0; i < 7; i++) {
+      const ds = cur.toISOString().split('T')[0];
+      const ids = S.planAssignments[ds] || [];
+      const places = ids.map(id => byId[id]).filter(Boolean);
+      const hotels    = places.filter(p => p.type === 'hotel');
+      const nonHotels = places.filter(p => p.type !== 'hotel');
+      const dd = String(cur.getUTCDate()).padStart(2, '0');
+      const mm = String(cur.getUTCMonth() + 1).padStart(2, '0');
+      week.push({ ds, dd, mm, inRange: ds >= fFrom && ds <= fTo, hotels, nonHotels });
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    weeks.push(week);
+  }
+
+  const dowRow = '<div class="cal7-dow-sticky"><table class="cal7-dow-table"><thead><tr>' +
+    DOW_SHORT.map(d => '<th class="cal7-th">' + d + '</th>').join('') +
+    '</tr></thead></table></div>';
+
+  const bodyRows = weeks.map(week => {
+    const tds = week.map(day => {
+      const cls = 'cal7-cell' + (day.inRange ? '' : ' vacant');
+
+      const pills = day.nonHotels.map(p => {
+        const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E' };
+        const del = day.inRange
+          ? '<button class="plan-pill-del" onclick="event.stopPropagation();removePlaceFromDayUI(\'' + day.ds + '\',\'' + p.id + '\')">×</button>'
+          : '';
+        return '<span class="cal7-pill plan-pill" style="background:' + t.color + '18;color:' + t.color + '">' +
+          '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">' + t.icon + ' ' + esc(p.name) + '</span>' + del +
+          '</span>';
+      }).join('');
+
+      const hotelText = day.hotels.length && day.inRange
+        ? '<div class="cal7-foot" style="display:flex;flex-wrap:wrap;gap:2px;align-items:center">' +
+          day.hotels.map(p =>
+            '<span style="display:inline-flex;align-items:center;gap:2px">🏨 ' + esc(p.name) +
+            '<button class="plan-pill-del" onclick="event.stopPropagation();removePlaceFromDayUI(\'' + day.ds + '\',\'' + p.id + '\')">×</button></span>'
+          ).join('<span style="opacity:0.5"> / </span>') +
+          '</div>'
+        : '';
+
+      const addBtn = day.inRange
+        ? '<button class="plan-add-btn" onclick="openAssignModal(\'' + day.ds + '\')">+ add</button>'
+        : '';
+
+      return '<td class="' + cls + '"><div class="cal7-inner">' +
+        '<div class="cal7-hdr">' + day.dd + '/' + day.mm + '</div>' +
+        '<div class="cal7-body">' + pills + addBtn + '</div>' +
+        hotelText + '</div></td>';
+    }).join('');
+    return '<tr>' + tds + '</tr>';
+  }).join('');
+
+  const fv = S.planCalFilterFrom || '';
+  const tv = S.planCalFilterTo   || '';
+  const hasFilter = fv || tv;
+  let filterBar = '<div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">' +
+    '<span style="font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap">From</span>' +
+    '<input type="date" class="fc" style="width:132px;padding:5px 8px;font-size:12px;min-height:32px" value="' + fv + '" onblur="S.planCalFilterFrom=this.value||null;buildPlannerCalendar()">' +
+    '<span style="font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap">To</span>' +
+    '<input type="date" class="fc" style="width:132px;padding:5px 8px;font-size:12px;min-height:32px" value="' + tv + '" onblur="S.planCalFilterTo=this.value||null;buildPlannerCalendar()">';
+  if (hasFilter) {
+    filterBar += '<button class="btn btn-outline btn-sm" style="padding:5px 10px;min-height:32px;font-size:11px;white-space:nowrap" onclick="S.planCalFilterFrom=null;S.planCalFilterTo=null;buildPlannerCalendar()">&#10005; Clear</button>';
+  }
+  filterBar += '</div>';
+
+  el.innerHTML = filterBar + dowRow +
+    '<div class="cal7-wrap"><table class="cal7-table"><tbody>' + bodyRows + '</tbody></table></div>';
+
+  const calWrap = el.querySelector('.cal7-wrap');
+  const dowTable = el.querySelector('.cal7-dow-table');
+  if (calWrap && dowTable) {
+    calWrap.addEventListener('scroll', function() {
+      dowTable.style.transform = 'translateX(-' + calWrap.scrollLeft + 'px)';
+    });
+  }
+}
+
+function openAssignModal(dateStr) {
+  if (!S.planBank.length) { toast('Add places to the bank first', 'err'); return; }
+  const assigned = S.planAssignments[dateStr] || [];
+  const label = new Date(dateStr + 'T12:00:00Z')
+    .toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+  const rows = S.planBank.map(p => {
+    const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E', label: p.type };
+    const checked = assigned.indexOf(p.id) !== -1;
+    return '<label data-name="' + esc(p.name).toLowerCase() + '" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer">' +
+      '<input type="checkbox" value="' + p.id + '"' + (checked ? ' checked' : '') + ' style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0">' +
+      '<span style="background:' + t.color + '22;color:' + t.color + ';width:32px;height:32px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">' + t.icon + '</span>' +
+      '<span style="font-size:14px;font-weight:600">' + esc(p.name) + '</span>' +
+      '</label>';
+  }).join('');
+
+  showModal('Assign to ' + label,
+    '<input id="assignSearch" type="search" placeholder="Search places…" oninput="filterAssignList(this.value)" autocomplete="off" ' +
+    'style="width:100%;box-sizing:border-box;padding:8px 11px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;margin-bottom:8px;outline:none">' +
+    '<div id="assignList" style="max-height:50vh;overflow-y:auto;margin-bottom:14px">' + rows + '</div>' +
+    '<div class="btn-row">' +
+    '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="applyAssignment(\'' + dateStr + '\')">&#10003; Done</button>' +
+    '</div>');
+  setTimeout(() => { const el = document.getElementById('assignSearch'); if (el) el.focus(); }, 80);
+}
+
+function filterAssignList(q) {
+  const term = q.trim().toLowerCase();
+  document.querySelectorAll('#assignList [data-name]').forEach(row => {
+    row.style.display = (!term || row.dataset.name.includes(term)) ? '' : 'none';
+  });
+}
+
+function applyAssignment(dateStr) {
+  const cbs = document.querySelectorAll('#modalBody input[type=checkbox]');
+  const selected = [];
+  cbs.forEach(cb => { if (cb.checked) selected.push(cb.value); });
+  closeModal();
+  if (selected.length) S.planAssignments[dateStr] = selected;
+  else delete S.planAssignments[dateStr];
+  buildPlannerCalendar();
+  google.script.run
+    .withFailureHandler(err => { toast('Sync error: ' + err.message, 'err'); loadPlan(); })
+    .setPlanDayAssignment(S.currentTrip.id, dateStr, selected);
+}
+
+function removePlaceFromDayUI(dateStr, placeId) {
+  if (S.planAssignments[dateStr]) {
+    S.planAssignments[dateStr] = S.planAssignments[dateStr].filter(id => id !== placeId);
+    if (!S.planAssignments[dateStr].length) delete S.planAssignments[dateStr];
+  }
+  buildPlannerCalendar();
+  google.script.run
+    .withFailureHandler(err => { toast('Error: ' + err.message, 'err'); loadPlan(); })
+    .removePlaceFromDay(S.currentTrip.id, dateStr, placeId);
+}
+
+function openDayPickerForPlace(placeId) {
+  const p = S.planBank.find(x => x.id === placeId);
+  if (!p) return;
+  if (S.plannerMap) S.plannerMap.closePopup();
+
+  const start = S.currentTrip.startDate;
+  const end   = S.currentTrip.endDate;
+  if (!start) { toast('Set trip dates first to assign by day', 'err'); return; }
+
+  const dates = [];
+  const cur = new Date(start + 'T12:00:00Z');
+  const last = new Date(end   + 'T12:00:00Z');
+  while (cur <= last) {
+    dates.push(cur.toISOString().split('T')[0]);
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+
+  const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E', label: p.type };
+  const rows = dates.map(ds => {
+    const assigned = (S.planAssignments[ds] || []).indexOf(placeId) !== -1;
+    const dl = new Date(ds + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    return '<label style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer">' +
+      '<input type="checkbox" value="' + ds + '"' + (assigned ? ' checked' : '') + ' style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0">' +
+      '<span style="font-size:14px;font-weight:600">' + dl + '</span>' +
+      '</label>';
+  }).join('');
+
+  const t_ = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E' };
+  showModal(t_.icon + ' ' + esc(p.name),
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Select days to assign this place:</div>' +
+    '<div style="max-height:52vh;overflow-y:auto;margin-bottom:14px">' + rows + '</div>' +
+    '<div class="btn-row">' +
+    '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="applyDayPickerForPlace(\'' + placeId + '\')">&#10003; Done</button>' +
+    '</div>');
+}
+
+function applyDayPickerForPlace(placeId) {
+  const cbs = document.querySelectorAll('#modalBody input[type=checkbox]');
+  closeModal();
+  cbs.forEach(cb => {
+    const ds = cb.value;
+    const cur = (S.planAssignments[ds] || []);
+    const alreadyIn = cur.indexOf(placeId) !== -1;
+    if (cb.checked && !alreadyIn) {
+      S.planAssignments[ds] = cur.concat(placeId);
+      google.script.run
+        .withFailureHandler(err => { toast('Sync error: ' + err.message, 'err'); loadPlan(); })
+        .setPlanDayAssignment(S.currentTrip.id, ds, S.planAssignments[ds]);
+    } else if (!cb.checked && alreadyIn) {
+      S.planAssignments[ds] = cur.filter(id => id !== placeId);
+      if (!S.planAssignments[ds].length) delete S.planAssignments[ds];
+      google.script.run
+        .withFailureHandler(err => { toast('Sync error: ' + err.message, 'err'); loadPlan(); })
+        .removePlaceFromDay(S.currentTrip.id, ds, placeId);
+    }
+  });
+  if (S.plannerTab === 'cal') buildPlannerCalendar();
+  toast('Days updated', 'ok');
+}
+
+// ---- Planner map ----
+
+function initPlannerMap() {
+  const container = document.getElementById('planner-map');
+  if (!container) return;
+  const withGPS = S.planBank.filter(p => p.lat && p.lng);
+  if (!withGPS.length) {
+    if (S.plannerMap) { S.plannerMap.remove(); S.plannerMap = null; S.plannerMarkers = []; }
+    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:14px;padding:20px">No places with GPS data yet</div>';
+    return;
+  }
+  if (!S.plannerMap) {
+    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:13px">Loading map…</div>';
+  }
+  loadLeaflet(() => _renderPlannerLeaflet());
+}
+
+function _renderPlannerLeaflet() {
+  const container = document.getElementById('planner-map');
+  if (!container) return;
+  const withGPS = S.planBank.filter(p => p.lat && p.lng);
+  if (S.plannerMap) {
+    S.plannerMarkers.forEach(m => m.remove());
+    S.plannerMarkers = [];
+    S.plannerMap.invalidateSize();
+  } else {
+    container.innerHTML = '';
+    S.plannerMap = L.map('planner-map', { zoomControl: true });
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      attribution: '© OpenStreetMap © CARTO',
+      subdomains: 'abcd', maxZoom: 19
+    }).addTo(S.plannerMap);
+  }
+  const bounds = [];
+  withGPS.forEach(p => {
+    const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E', label: p.type };
+    const icon = L.divIcon({
+      html: '<div style="background:' + t.color + ';color:#fff;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;border:2.5px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.22)">' + t.icon + '</div>',
+      className: '', iconSize: [34, 34], iconAnchor: [17, 17]
+    });
+    const descSnippet = p.description
+      ? '<div style="font-size:11px;color:#1A1A2E;margin-top:4px;max-width:200px;word-break:break-word" dir="auto">' + esc(p.description.substring(0, 120)) + (p.description.length > 120 ? '…' : '') + '</div>'
+      : '';
+    const buildPopupContent = () => {
+      const curAssigned = Object.keys(S.planAssignments)
+        .filter(ds => (S.planAssignments[ds] || []).indexOf(p.id) !== -1)
+        .sort();
+      const shown = curAssigned.slice(0, 5);
+      const rest  = curAssigned.length - shown.length;
+      const assignedHtml = curAssigned.length
+        ? '<div style="margin-top:6px;font-size:11px;color:#166534;background:#DCFCE7;border-radius:5px;padding:3px 7px;line-height:1.8">📅 ' +
+          shown.map(ds => new Date(ds + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })).join(' · ') +
+          (rest ? ' <span style="opacity:0.7">+' + rest + ' more</span>' : '') + '</div>'
+        : '<div style="margin-top:5px;font-size:11px;color:var(--muted)">Not assigned to any day yet</div>';
+      return '<div style="font-weight:700;font-size:13px;margin-bottom:2px">' + esc(p.name) + '</div>' +
+        '<div style="font-size:11px;color:#6B7280">' + t.icon + ' ' + esc(t.label || p.type) + '</div>' +
+        descSnippet + assignedHtml +
+        '<button onclick="openDayPickerForPlace(\'' + p.id + '\')" style="margin-top:8px;width:100%;padding:5px 8px;background:var(--primary);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">📅 Assign to Day</button>';
+    };
+    const popup = L.popup({ offset: [0, -14], closeButton: false, minWidth: 210 }).setContent(buildPopupContent());
+    const marker = L.marker([p.lat, p.lng], { icon }).addTo(S.plannerMap).bindPopup(popup);
+    marker.on('popupopen', function() { marker.getPopup().setContent(buildPopupContent()); });
+    S.plannerMarkers.push(marker);
+    bounds.push([p.lat, p.lng]);
+  });
+  S.plannerMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+}
+
+// ---- Planner place name suggestions ----
+
+function onPlanNameFocus() {
+  const q = (document.getElementById('planName').value || '').trim();
+  if (!q && S.planGpsCoords) fetchPlanNearbySuggestions();
+}
+
+function onPlanNameInput() {
+  const q = (document.getElementById('planName').value || '').trim();
+  clearTimeout(S.planSuggestTimer);
+  if (!q) {
+    if (S.planGpsCoords) fetchPlanNearbySuggestions();
+    else hidePlanSuggestions();
+    return;
+  }
+  S.planSuggestTimer = setTimeout(() => searchPlanByName(q), 600);
+}
+
+function fetchPlanNearbySuggestions() {
+  if (!S.planGpsCoords) return;
+  const { lat, lng } = S.planGpsCoords;
+  const query = '[out:json][timeout:10];(node["name"](around:600,' + lat + ',' + lng + ');way["name"](around:600,' + lat + ',' + lng + ');)->.a;.a out center tags 15;';
+  fetch('https://overpass-api.de/api/interpreter', {
+    method: 'POST', body: 'data=' + encodeURIComponent(query)
+  })
+  .then(r => r.json())
+  .then(data => {
+    const items = (data.elements || [])
+      .filter(el => el.tags && el.tags.name)
+      .slice(0, 8)
+      .map(el => ({
+        name: el.tags.name,
+        sub:  el.tags.amenity || el.tags.tourism || el.tags.place || el.tags.shop || '',
+        lat:  el.lat || (el.center && el.center.lat) || null,
+        lng:  el.lon || (el.center && el.center.lon) || null
+      }));
+    if (items.length) showPlanSuggestions(items);
+  })
+  .catch(() => {});
+}
+
+function searchPlanByName(q) {
+  let url = 'https://nominatim.openstreetmap.org/search?format=json&limit=8&q=' + encodeURIComponent(q);
+  fetch(url, { headers: { 'Accept-Language': 'en' } })
+  .then(r => r.json())
+  .then(data => {
+    const items = (data || []).slice(0, 8).map(p => ({
+      name: p.display_name.split(',')[0],
+      sub:  p.display_name.split(',').slice(1, 3).join(',').trim(),
+      lat:  parseFloat(p.lat),
+      lng:  parseFloat(p.lon)
+    }));
+    if (items.length) showPlanSuggestions(items);
+    else hidePlanSuggestions();
+  })
+  .catch(() => hidePlanSuggestions());
+}
+
+function showPlanSuggestions(items) {
+  const list = document.getElementById('planSuggest');
+  if (!list) return;
+  list.innerHTML = items.map(item =>
+    '<div class="suggest-item" data-name="' + esc(item.name) + '" data-lat="' + (item.lat || '') + '" data-lng="' + (item.lng || '') + '" onclick="selectPlanSuggestion(this)">' +
+    '<div class="si-name">' + esc(item.name) + '</div>' +
+    (item.sub ? '<div class="si-sub">' + esc(item.sub) + '</div>' : '') +
+    '</div>'
+  ).join('');
+  list.style.display = 'block';
+}
+
+function hidePlanSuggestions() {
+  const list = document.getElementById('planSuggest');
+  if (list) list.style.display = 'none';
+}
+
+function selectPlanSuggestion(el) {
+  const name = el.getAttribute('data-name');
+  const lat  = parseFloat(el.getAttribute('data-lat')) || null;
+  const lng  = parseFloat(el.getAttribute('data-lng')) || null;
+  document.getElementById('planName').value = name;
+  if (lat && lng) {
+    S.planGpsCoords = { lat, lng };
+    S.planGpsSource = 'nominatim';
+    setPlanGpsStatus('ok', 'Location: ' + lat.toFixed(5) + ', ' + lng.toFixed(5));
+  }
+  hidePlanSuggestions();
 }
 
 // =======================================================

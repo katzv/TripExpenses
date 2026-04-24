@@ -78,6 +78,7 @@ function deleteTrip(id) {
   props.deleteProperty('exp_' + id);
   deleteCheckinFile(id);
   props.deleteProperty('caldesc_' + id);
+  props.deleteProperty('plan_' + id);
   return { success: true };
 }
 
@@ -535,6 +536,74 @@ function exportCalendarToSheet(params) {
 
   sheet.setFrozenRows(1);
   return { success: true, url: ss.getUrl() };
+}
+
+// ---- TRIP PLANNER ----
+// Stored as: props['plan_{tripId}'] = { bank: [...places], assignments: { "YYYY-MM-DD": [...placeIds] } }
+
+function getPlan(tripId) {
+  return load('plan_' + tripId, { bank: [], assignments: {} });
+}
+
+function savePlanPlace(d) {
+  var plan = load('plan_' + d.tripId, { bank: [], assignments: {} });
+  if (d.id) {
+    for (var i = 0; i < plan.bank.length; i++) {
+      if (plan.bank[i].id === d.id) {
+        plan.bank[i].name        = d.name;
+        plan.bank[i].type        = d.type;
+        plan.bank[i].lat         = d.lat  || null;
+        plan.bank[i].lng         = d.lng  || null;
+        plan.bank[i].description = d.description || '';
+        break;
+      }
+    }
+  } else {
+    plan.bank.push({
+      id:          uuid(),
+      tripId:      d.tripId,
+      name:        d.name,
+      type:        d.type,
+      lat:         d.lat  || null,
+      lng:         d.lng  || null,
+      description: d.description || '',
+      createdAt:   nowISO()
+    });
+  }
+  save('plan_' + d.tripId, plan);
+  return { success: true };
+}
+
+function deletePlanPlace(placeId, tripId) {
+  var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+  plan.bank = plan.bank.filter(function(p) { return p.id !== placeId; });
+  Object.keys(plan.assignments).forEach(function(date) {
+    plan.assignments[date] = plan.assignments[date].filter(function(id) { return id !== placeId; });
+    if (!plan.assignments[date].length) delete plan.assignments[date];
+  });
+  save('plan_' + tripId, plan);
+  return { success: true };
+}
+
+function removePlaceFromDay(tripId, date, placeId) {
+  var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+  if (plan.assignments[date]) {
+    plan.assignments[date] = plan.assignments[date].filter(function(id) { return id !== placeId; });
+    if (!plan.assignments[date].length) delete plan.assignments[date];
+  }
+  save('plan_' + tripId, plan);
+  return { success: true };
+}
+
+function setPlanDayAssignment(tripId, date, placeIds) {
+  var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+  if (placeIds && placeIds.length) {
+    plan.assignments[date] = placeIds;
+  } else {
+    delete plan.assignments[date];
+  }
+  save('plan_' + tripId, plan);
+  return { success: true };
 }
 
 // ---- COUNTRY → CURRENCY ----

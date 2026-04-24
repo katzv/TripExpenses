@@ -52,6 +52,7 @@ All data is stored in Google Apps Script `PropertiesService` (script properties,
 | `exp_{tripId}` | JSON array | Array of expense objects for that trip |
 | `checkins_{tripId}` | JSON object | Keyed map `{id: checkinObject}` — NOT an array |
 | `caldesc_{tripId}` | JSON object | Keyed by date string `YYYY-MM-DD`, value = description text |
+| `plan_{tripId}` | JSON object | `{ bank: [...], assignments: { "YYYY-MM-DD": [...placeIds] } }` |
 | `settings` | JSON object | `{ customTypes: [...] }` |
 | `ratecache` | JSON object | Keyed by `"FROM_TO"`, value = `{ rate, date }` |
 
@@ -72,7 +73,7 @@ Stored as `{id → entry}` object (not array) to give O(1) lookup/update/delete 
 - `getTrips()` — returns array of trip objects
 - `createTrip(d)` — creates trip with `{id, title, country, currency, startDate, endDate, createdAt}`, returns `{success, id}`
 - `updateTrip(d)` — updates `title`, `startDate`, `endDate` for trip by id
-- `deleteTrip(id)` — deletes trip, its expenses (`exp_{id}`), its check-ins (`checkins_{id}`), and its calendar descriptions (`caldesc_{id}`)
+- `deleteTrip(id)` — deletes trip, its expenses (`exp_{id}`), its check-ins (`checkins_{id}`), its calendar descriptions (`caldesc_{id}`), and its plan data (`plan_{id}`)
 
 ### Calendar Day Descriptions
 - `getCalDescs(tripId)` — returns `{dateStr: text}` object
@@ -106,6 +107,13 @@ Stored as `{id → entry}` object (not array) to give O(1) lookup/update/delete 
 
 ### Report
 - `getReport(tripId)` — returns `{trip, days, expenseCount, categories, totalILS, totalUSD, totalEUR, ratesDate}`. Categories sorted alphabetically, each with `{type, count, totalILS, totalUSD, totalEUR}`.
+
+### Trip Planner
+- `getPlan(tripId)` — returns `{ bank: [...], assignments: {...} }` or `{ bank: [], assignments: {} }` if none
+- `savePlanPlace(d)` — creates (no `d.id`) or updates (with `d.id`) a place in the bank. Fields: `{tripId, id?, name, type, lat, lng, description}`. New places get a uuid. Returns `{success}`
+- `deletePlanPlace(placeId, tripId)` — removes place from bank AND from all day assignments in `plan_{tripId}`
+- `removePlaceFromDay(tripId, date, placeId)` — removes a single placeId from `assignments[date]`; cleans up empty date keys
+- `setPlanDayAssignment(tripId, date, placeIds)` — bulk-sets the full list for one day; deletes the date key if `placeIds` is empty
 
 ### Calendar Sheet Export
 - `exportCalendarToSheet(params)` — creates a new Google Sheet named `"{tripTitle} - Trip Schedule"`, sheet named "Calendar"
@@ -150,7 +158,20 @@ const S = {
   calFilterFrom, calFilterTo, calDescs,
   calWeeks,           // stored for export
   _listFormVisible,   // persists form state across tab switches
-  _editingTripId      // used by trip edit modal
+  _editingTripId,     // used by trip edit modal
+  // Planner:
+  planBank,           // array of place objects
+  planAssignments,    // { "YYYY-MM-DD": [...placeIds] }
+  plannerTab,         // 'bank' | 'cal' | 'map'
+  plannerMap,         // Leaflet instance for planner map (separate from leafletMap)
+  plannerMarkers,     // array of Leaflet markers for planner
+  planGpsCoords,      // { lat, lng } — separate from tracker gpsCoords
+  planGpsSource,      // 'gps' | 'nominatim' | 'manual' | 'saved' | 'none'
+  planSuggestTimer,
+  editingPlaceId,     // null = adding new, string = editing existing
+  _planFormVisible,   // persists form state across tab switches
+  planCalFilterFrom,
+  planCalFilterTo
 }
 ```
 
@@ -162,13 +183,14 @@ const S = {
 - Parallel init: fires `getTrips` and `getExpenseTypes` simultaneously; `navigate('trips')` only after both return
 
 ### Views
-Six views, only one active at a time (CSS `display:none`/`display:block` + `fadeIn` animation):
+Seven views, only one active at a time (CSS `display:none`/`display:block` + `fadeIn` animation):
 1. `view-trips` — trip list
 2. `view-new-trip` — create new trip
 3. `view-trip` — expense list for current trip
 4. `view-expense` — add/edit expense form
 5. `view-report` — expense report
 6. `view-tracker` — tracker (list/calendar/map tabs)
+7. `view-planner` — trip planner (bank/calendar/map tabs)
 
 ### Header
 - Fixed top, 58px height, blue gradient background
@@ -176,13 +198,14 @@ Six views, only one active at a time (CSS `display:none`/`display:block` + `fade
 - Title (`htitle`) — ellipsis overflow
 - Action buttons (`hActions`) — injected per view:
   - trips: "+ New Trip"
-  - trip: "✎ Edit", "📍 Track", "📊 Report"
+  - trip: "✎ Edit", "📋 Plan", "📍 Track", "📊 Report"
   - tracker: "+ Check-in"
+  - planner: "+ Add Place"
   - expense/report/new-trip: none (back button only)
 
 ### Navigation
 - `navigate(view)` — sets active view, updates header, triggers data loads
-- `goBack()` — deterministic: `expense/report/tracker → trip`; everything else → `trips`
+- `goBack()` — deterministic: `expense/report/tracker/planner → trip`; everything else → `trips`
 - **Back button does NOT use a navigation stack** — reads current active view from DOM
 
 ### FAB
@@ -329,13 +352,16 @@ Three tabs: **List**, **Calendar**, **Map**
 - Form persists visibility state when switching tabs (`S._listFormVisible`)
 
 ### Place Name Autocomplete
-- **Nearby suggestions** (when GPS available, no text typed): Overpass API, 300m radius, max 8 results
-  - Query: `node["name"](around:300,lat,lng)` + `way["name"](around:300,lat,lng)`
+- **Nearby suggestions** (when GPS available, no text typed): Overpass API, 600m radius, max 8 displayed (15 requested)
+  - Query: `node["name"](around:600,lat,lng)` + `way["name"](around:600,lat,lng)`, output: `out center tags 15`
+  - `out center` required to return centroid coordinates for `way` elements (buildings/areas)
   - Shows name + amenity/tourism/place/shop tag as subtitle
-- **Name search** (when user types): Nominatim search, max 6 results, biased toward GPS viewport (±0.5°)
+- **Name search** (when user types): Nominatim, `limit=8`, **no viewbox bias** — global relevance ranking
+  - No `viewbox` or `bounded` parameters; returns globally relevant results regardless of GPS position
   - First part of display_name as name, next 2 parts as subtitle
 - Selecting a suggestion: fills name field, updates `S.gpsCoords` and GPS status to "ok"
 - Click outside suggestion list closes it
+- **OSM coverage note**: Nominatim/Overpass only find places indexed in OpenStreetMap. Hotels/apartments not in OSM will not appear in suggestions. Workflow for unlisted places: type name manually, use "📍 Pick on Map" to set coordinates by tapping on the building.
 
 ### List Tab
 - Check-ins grouped by local date, sorted ascending
@@ -352,6 +378,7 @@ Three tabs: **List**, **Calendar**, **Map**
 - Default range: first to last check-in date
 - Grid starts on Sunday on/before `fFrom`, ends on Saturday on/after `fTo`
 - Out-of-range days: grey "vacant" style
+- Cell font sizes: header 12px, pills 13px, hotel footer 12px
 - Each cell:
   - Header: DD/MM + italic day description (if any) — clickable to edit note on in-range days
   - Body: check-in pills (colored bg, type icon + name), excluding hotels
@@ -377,12 +404,14 @@ Three tabs: **List**, **Calendar**, **Map**
 - **Header bar** (blue gradient): back button (←), "Pick Location" title, **"🌍 My Location" button**
 - **Map area** (`#mapPicker`): `flex:1; min-height:0` — Leaflet map
 - **Bottom bar**: coords display + "✓ Use This Location" confirm button
-- Opening: centers on `S.gpsCoords` (zoom 13) if available, else world view (zoom 2)
+- **Context-aware**: `openMapPicker(context)` where context is `'checkin'` (default) or `'planner'`
+  - Module-level var `_mpContext` tracks which context opened the picker
+  - Opening centers on `S.planGpsCoords` (planner) or `S.gpsCoords` (checkin) at zoom 13; world view (zoom 2) if none
+  - `confirmMapPin()` routes to `S.planGpsCoords` + `setPlanGpsStatus()` or `S.gpsCoords` + `setGpsStatus()` based on `_mpContext`
 - Tap map → drops/moves marker, updates coords display, enables confirm button
 - Marker is draggable — `dragend` updates coords
 - **"My Location" button** (`id="myLocBtn"`): calls `navigator.geolocation.getCurrentPosition`, centers map at zoom 15, drops/moves marker. Shows "Locating…" while waiting. Placed in header (not bottom) to always be visible regardless of screen height.
-- Confirm → sets `S.gpsCoords`, `S.gpsSource = 'manual'`, updates GPS status in check-in form
-- `_mpMap`, `_mpMarker`, `_mpCoords` are module-level vars (separate from `S.leafletMap`)
+- `_mpMap`, `_mpMarker`, `_mpCoords`, `_mpContext` are module-level vars (separate from `S.leafletMap`)
 - `_mpMap.invalidateSize()` called after overlay displayed
 - On reopen: removes previous marker (resets to clean state)
 
@@ -419,6 +448,103 @@ Three tabs: **List**, **Calendar**, **Map**
 
 ---
 
+## Trip Planner Feature
+
+Accessed via "📋 Plan" button on the trip header. Separate from the Tracker — focuses on planning places to visit before/during a trip, not recording where you've been.
+
+Three tabs: **Bank**, **Calendar**, **Map**
+
+### Place Bank Object
+```javascript
+{
+  id,          // uuid
+  tripId,
+  name,        // display name
+  type,        // key from PLAN_TYPES
+  lat, lng,    // optional GPS coords
+  description  // optional text, supports Hebrew/RTL via dir="auto"
+}
+```
+
+### PLAN_TYPES (22 types)
+| Key | Icon | Color | Label |
+|---|---|---|---|
+| nature-hike | 🥾 | #2E7D32 | Nature Hike |
+| lake-river | 🏞️ | #0288D1 | Lake/River |
+| cablecar | 🚡 | #7B1FA2 | Cablecar |
+| restaurant | 🍽️ | #4CAF50 | Restaurant |
+| coffee | ☕ | #795548 | Coffee |
+| sweet | 🍦 | #E91E63 | Sweet |
+| beer | 🍺 | #F57F17 | Beer |
+| market | 🏪 | #FF6D00 | Market |
+| supermarket | 🛒 | #F57C00 | Supermarket |
+| shop | 🛍️ | #9C27B0 | Shop |
+| petrol | ⛽ | #616161 | Petrol Station |
+| hotel | 🏨 | #9C27B0 | Hotel |
+| attraction | 🎡 | #FF9800 | Attraction |
+| cave | 🦇 | #4E342E | Cave |
+| fortress | 🏰 | #8D6E63 | Fortress/Temple |
+| museum | 🏛️ | #5D4037 | Museum |
+| viewpoint | 👁️ | #00BCD4 | Viewpoint |
+| airport | ✈️ | #0288D1 | Airport |
+| car-rental | 🚗 | #F44336 | Car Rental |
+| city-walk | 🚶 | #1565C0 | City Walk |
+| village | 🏘️ | #558B2F | Village |
+| parking | 🅿️ | #37474F | Parking |
+
+### Bank Tab
+- Lists all places with icon, name, type label, GPS indicator (📡 if coords present)
+- Description preview (first 80 chars) shown below type label
+- Tap card → opens edit form pre-filled
+- Delete button (🗑) per card → confirms via modal (warns about day assignment removal)
+- Empty state with "+ Add Place" button
+
+### Add / Edit Place Form
+- Shown inline (not a new view) within the bank tab; `plan-form-wrap` div
+- Fields: Place Name (with suggestion dropdown), Type (select from PLAN_TYPES), Description (textarea, `dir="auto"`, resizable, Hebrew-compatible)
+- GPS status row: same pattern as check-in form (dot + text + "📍 Pick on Map" button)
+- GPS acquired automatically via `acquirePlanGPS()` when opening for a new place
+- "Pick on Map" calls `openMapPicker('planner')` — uses `S.planGpsCoords` context
+- Form title: "📍 Place Details"; save button: "+ Add to Bank" (new) or "✓ Save Changes" (edit)
+- Delete button (edit mode only, red, below separator)
+- `S._planFormVisible` persists form across tab switches (same pattern as check-in form)
+- After save: calls `loadPlan()` to refresh from server
+
+### Place Name Autocomplete (Planner)
+- Same mechanisms as Tracker: Overpass nearby (600m, 15 results, `out center`) + Nominatim name search (limit=8, no viewbox)
+- Separate suggestion element (`#planSuggest`), separate state (`S.planSuggestTimer`)
+- Selecting fills `#planName` and sets `S.planGpsCoords` + status if coords available
+
+### Calendar Tab (Planner)
+- Same 7-column weekly grid layout as Tracker calendar
+- Date range: defaults to trip `startDate`/`endDate`; falls back to assigned date range if no trip dates set
+- Date range filter bar (From/To inputs) — same pattern as Tracker calendar
+- Each in-range cell:
+  - Header: DD/MM (no clickable note; notes are a Tracker-only feature)
+  - Body: non-hotel places as colored pills (type color, icon + name); each pill has "×" remove button (`removePlaceFromDayUI`)
+  - Footer (green): hotel places each shown with "×" remove button (`removePlaceFromDayUI`); multiple hotels joined by " / " separator
+  - "+ add" button (dashed border) → opens assignment modal
+- Assignment modal: scrollable checklist of all bank places with checkboxes; pre-checks currently assigned
+  - On "Done": calls `setPlanDayAssignment` (bulk replace for that day)
+  - On "×" pill button: calls `removePlaceFromDay` (single remove)
+- Vacant (out-of-range) cells: grey, no add button
+
+### Map Tab (Planner)
+- Leaflet map showing all bank places that have GPS coords
+- Markers: colored circles (34×34px) with type emoji, same style as Tracker but no sequence number
+- Popup: place name (bold), type icon + label, description snippet (first 120 chars, `dir="auto"`)
+- `fitBounds` with 40px padding, maxZoom 14
+- Separate instance `S.plannerMap` (does not share with `S.leafletMap` or `_mpMap`)
+- No GPS data → "No places with GPS data yet" message
+
+### Planner Layout
+- Full viewport width (`width:100vw; margin-left:calc(50% - 50vw)`) — same as Tracker
+- Tabs/form/bank panel: max-width 620px, centered
+- Calendar/map panels: full width with 14px side padding
+- Map height: `calc(100svh - 130px)`, min 300px
+
+---
+
 ## External Libraries (Lazy-Loaded)
 
 ### Chart.js
@@ -431,7 +557,7 @@ Three tabs: **List**, **Calendar**, **Map**
 - JS: `https://unpkg.com/leaflet@1.9.4/dist/leaflet.js`
 - Loaded on first map/picker open
 - Single load check: `if (window.L) { cb(); return; }`
-- `S.leafletMap` for tracker map; `_mpMap` for picker (separate instances)
+- Three separate Leaflet instances: `S.leafletMap` (tracker map), `S.plannerMap` (planner map), `_mpMap` (map picker)
 
 ---
 
