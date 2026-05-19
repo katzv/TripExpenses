@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -216,14 +216,18 @@ select.fc { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w
 .sum-meta { font-size: 13px; opacity: 0.78; margin-top: 4px; }
 
 /* ===== FILTER CHIPS ===== */
-.chips { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 12px; scrollbar-width: none; }
+.chips-outer { position: relative; display: flex; align-items: center; gap: 4px; margin-bottom: 12px; }
+.chips { flex: 1; display: flex; gap: 7px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; -webkit-overflow-scrolling: touch; touch-action: pan-x; min-width: 0; }
 .chips::-webkit-scrollbar { display: none; }
 .chip {
-  padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600;
+  flex-shrink: 0; padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600;
   border: 2px solid var(--border); background: var(--card); color: var(--muted);
   cursor: pointer; white-space: nowrap; transition: all 0.14s;
 }
 .chip.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.chips-arrow { flex-shrink: 0; width: 28px; height: 34px; border: 1.5px solid var(--border); background: var(--card); border-radius: 8px; font-size: 18px; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow); padding: 0; transition: opacity 0.15s, color 0.15s; line-height: 1; }
+.chips-arrow:hover { color: var(--primary); border-color: var(--primary); }
+.chips-arrow.hide { opacity: 0; pointer-events: none; }
 
 /* ===== DATE GROUP ===== */
 .dg-label {
@@ -263,6 +267,7 @@ select.fc { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w
 .rep-tot-item { text-align: center; background: rgba(255,255,255,0.12); border-radius: 10px; padding: 10px 6px; }
 .rep-tot-lbl { font-size: 11px; opacity: 0.82; margin-bottom: 4px; }
 .rep-tot-val { font-size: 20px; font-weight: 900; }
+.rep-tot-avg { font-size: 11px; opacity: 0.72; margin-top: 3px; }
 .chart-wrap { position: relative; height: 280px; margin: 8px 0; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 thead th {
@@ -443,7 +448,11 @@ tbody tr:last-child td { border-bottom: none; }
   <!-- VIEW: TRIP DETAIL (Expense List) -->
   <div class="view" id="view-trip">
     <div id="tripSummary"></div>
-    <div class="chips" id="filterChips"></div>
+    <div class="chips-outer">
+      <button class="chips-arrow hide" id="chipsPrev" onclick="scrollChips(-140)" aria-label="Scroll left">&#8249;</button>
+      <div class="chips" id="filterChips"></div>
+      <button class="chips-arrow hide" id="chipsNext" onclick="scrollChips(140)" aria-label="Scroll right">&#8250;</button>
+    </div>
     <div id="expenseList"></div>
     <div style="height:80px"></div>
   </div>
@@ -691,19 +700,23 @@ const CAT_COLORS = {
   'Petrol':           '#F44336',
   'Toll Roads':       '#795548',
   'Parking':          '#FF5722',
-  'Public Transport': '#00BCD4',
+  'Transportation': '#00BCD4',
   'Meals':            '#4CAF50',
   'Souvenirs':        '#E91E63',
   'Attractions':      '#FFC107',
+  'Phone':            '#2196F3',
   'Other':            '#9E9E9E'
 };
 
 const CAT_ICONS = {
   'Flight': '✈️', 'Lodging': '🏨', 'Car Rental': '🚗',
   'Insurance': '🛡️', 'Petrol': '⛽', 'Toll Roads': '🛣️',
-  'Parking': '🅿️', 'Public Transport': '🚌', 'Meals': '🍽️',
-  'Souvenirs': '🎁', 'Attractions': '🎡', 'Other': '📌'
+  'Parking': '🅿️', 'Transportation': '🚌', 'Meals': '🍽️',
+  'Souvenirs': '🎁', 'Attractions': '🎡', 'Phone': '📱', 'Other': '📌'
 };
+
+const TYPE_LABELS = { 'Lodging': 'Lodging/Hotel' };
+function typeLabel(t) { return TYPE_LABELS[t] || t; }
 
 const PLAN_TYPES = {
   'nature-hike': { icon: '🥾', color: '#2E7D32', label: 'Nature Hike' },
@@ -934,7 +947,9 @@ function init() {
     if (_trips === null || _types === null) return; // still waiting for the other
     dbg('both calls returned OK');
     S.trips = _trips;
-    S.expenseTypes = _types.length ? _types : defaultTypes();
+    const _defaults = defaultTypes();
+    const _custom = _types.filter(t => !_defaults.includes(t));
+    S.expenseTypes = [..._defaults, ..._custom];
     populateTypeSelect();
     setLoadProgress(100, 'Ready!');
     navigate('trips');
@@ -956,7 +971,7 @@ function init() {
 
 function defaultTypes() {
   return ['Flight','Lodging','Car Rental','Insurance','Petrol','Toll Roads',
-          'Parking','Public Transport','Meals','Souvenirs','Attractions','Other'];
+          'Parking','Transportation','Meals','Souvenirs','Attractions','Phone','Other'];
 }
 
 // =======================================================
@@ -1249,10 +1264,14 @@ function renderExpenses() {
 
   // Filter chips
   const types = ['All', ...new Set(S.expenses.map(e => e.type))];
-  document.getElementById('filterChips').innerHTML = types.map(t => `
+  const chipsEl = document.getElementById('filterChips');
+  chipsEl.innerHTML = types.map(t => `
     <div class="chip${S.filter === t ? ' on' : ''}" onclick="setFilter('${t}')">
-      ${t === 'All' ? 'All' : ((CAT_ICONS[t] || '') + ' ' + t)}
+      ${t === 'All' ? 'All' : ((CAT_ICONS[t] || '') + ' ' + typeLabel(t))}
     </div>`).join('');
+  chipsEl.scrollLeft = 0;
+  updateChipArrows();
+  chipsEl.onscroll = updateChipArrows;
 
   // Filtered + sorted
   const filtered = S.filter === 'All' ? S.expenses : S.expenses.filter(e => e.type === S.filter);
@@ -1289,7 +1308,7 @@ function renderExpenses() {
 function expCard(e) {
   const col  = CAT_COLORS[e.type] || '#9E9E9E';
   const icon = CAT_ICONS[e.type]  || '📌';
-  const meta = [e.type, e.info2 ? e.info2 : null, e.info3 ? e.info3 : null]
+  const meta = [typeLabel(e.type), e.info2 ? e.info2 : null, e.info3 ? e.info3 : null]
                .filter(Boolean).join(' · ');
   return `
     <div class="exp-card" onclick="editExpense('${e.id}')" title="Tap to edit">
@@ -1309,6 +1328,20 @@ function expCard(e) {
 function setFilter(f) {
   S.filter = f;
   renderExpenses();
+}
+
+function scrollChips(dx) {
+  const el = document.getElementById('filterChips');
+  if (el) { el.scrollLeft += dx; updateChipArrows(); }
+}
+
+function updateChipArrows() {
+  const el   = document.getElementById('filterChips');
+  const prev = document.getElementById('chipsPrev');
+  const next = document.getElementById('chipsNext');
+  if (!el || !prev || !next) return;
+  prev.classList.toggle('hide', el.scrollLeft <= 2);
+  next.classList.toggle('hide', el.scrollLeft + el.clientWidth >= el.scrollWidth - 2);
 }
 
 // =======================================================
@@ -1388,13 +1421,18 @@ function onTypeChange(existingInfo2 = null) {
   if (type === 'Lodging') {
     wrap.style.display = 'block';
     lbl.textContent = 'Dates of Stay';
-    inp.innerHTML = `<input class="fc" id="fInfo2" type="text"
-      placeholder="e.g., Mar 5–7" value="${esc(existingInfo2 || '')}">`;
+    const parts = existingInfo2 ? existingInfo2.split(' to ') : [];
+    inp.innerHTML = `<div style="display:flex;gap:8px;align-items:center">
+      <input class="fc" id="fInfo2From" type="date" style="flex:1" value="${esc(parts[0]||'')}">
+      <span style="color:var(--muted);flex-shrink:0">to</span>
+      <input class="fc" id="fInfo2To" type="date" style="flex:1" value="${esc(parts[1]||'')}">
+      <input type="hidden" id="fInfo2">
+    </div>`;
 
   } else if (type === 'Meals') {
     wrap.style.display = 'block';
     lbl.textContent = 'Meal Type';
-    const opts = ['Breakfast','Lunch','Dinner','Supermarket','Snacks'];
+    const opts = ['Breakfast','Lunch','Dinner','Supermarket','Snack/Coffee'];
     inp.innerHTML = `<select class="fc" id="fInfo2">
       <option value="">— Select meal type —</option>
       ${opts.map(o => `<option value="${o}"${existingInfo2===o?' selected':''}>${o}</option>`).join('')}
@@ -1581,8 +1619,12 @@ function saveExpense() {
 </script>
 <script>
 function _doSaveExpense(date, name, type, amtNum, cur, ilsNum, rate, rateSrc, rateDate) {
+  const fromEl = document.getElementById('fInfo2From');
+  const toEl   = document.getElementById('fInfo2To');
   const info2El = document.getElementById('fInfo2');
-  const info2   = info2El ? info2El.value : '';
+  const info2 = fromEl && toEl
+    ? [fromEl.value, toEl.value].filter(Boolean).join(' to ')
+    : (info2El ? info2El.value : '');
   const info3   = document.getElementById('fNotes').value.trim();
 
   const data = {
@@ -1676,7 +1718,7 @@ function doDelTrip(id) {
 function populateTypeSelect() {
   const sel = document.getElementById('fType');
   sel.innerHTML = S.expenseTypes
-    .map(t => `<option value="${t}">${t}</option>`)
+    .map(t => `<option value="${t}">${typeLabel(t)}</option>`)
     .join('');
 }
 
@@ -1749,8 +1791,14 @@ function loadReport() {
 function renderReport(r) {
   if (!r) { document.getElementById('reportContent').innerHTML = '<p>No data</p>'; return; }
 
+  S._reportData = r;
+  if (!S.reportCurrency) S.reportCurrency = 'ILS';
+  const localCur = r.trip && r.trip.currency;
+  const extraCur = (localCur && !['ILS','USD','EUR'].includes(localCur)) ? localCur : null;
+
   const usd = r.totalUSD != null ? `$${fmt(r.totalUSD)}` : 'N/A';
   const eur = r.totalEUR != null ? `€${fmt(r.totalEUR)}` : 'N/A';
+  const avgPerDay = r.days > 0 ? fmt(r.totalILS / r.days) : null;
 
   document.getElementById('reportContent').innerHTML = `
     <div class="report-banner">
@@ -1764,21 +1812,33 @@ function renderReport(r) {
         <div class="rep-tot-item">
           <div class="rep-tot-lbl">ILS &#8362;</div>
           <div class="rep-tot-val">${fmt(r.totalILS)}</div>
+          ${r.days > 0 ? `<div class="rep-tot-avg">${fmt(r.totalILS / r.days)}/day</div>` : ''}
         </div>
         <div class="rep-tot-item">
           <div class="rep-tot-lbl">USD $</div>
           <div class="rep-tot-val">${usd}</div>
+          ${r.days > 0 && r.totalUSD != null ? `<div class="rep-tot-avg">${fmt(r.totalUSD / r.days)}/day</div>` : ''}
         </div>
         <div class="rep-tot-item">
           <div class="rep-tot-lbl">EUR €</div>
           <div class="rep-tot-val">${eur}</div>
+          ${r.days > 0 && r.totalEUR != null ? `<div class="rep-tot-avg">${fmt(r.totalEUR / r.days)}/day</div>` : ''}
         </div>
       </div>
     </div>
 
     <div class="card">
-      <div class="sec-label">Spending by Category</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div class="sec-label" style="margin:0">Spending by Category</div>
+        <select id="reportCurrSel" class="fc" style="width:auto;padding:5px 28px 5px 10px;font-size:13px;min-height:32px" onchange="S.reportCurrency=this.value;renderPieLegend()">
+          <option value="ILS"${(S.reportCurrency||'ILS')==='ILS'?' selected':''}>ILS ₪</option>
+          <option value="USD"${S.reportCurrency==='USD'?' selected':''}>USD $</option>
+          <option value="EUR"${S.reportCurrency==='EUR'?' selected':''}>EUR €</option>
+          ${extraCur ? `<option value="${extraCur}"${S.reportCurrency===extraCur?' selected':''}>${extraCur}</option>` : ''}
+        </select>
+      </div>
       <div class="chart-wrap"><canvas id="pieCanvas"></canvas></div>
+      <div id="pieLegend"></div>
     </div>
 
     <div class="card">
@@ -1800,7 +1860,7 @@ function renderReport(r) {
               return `<tr>
                 <td>
                   <span class="type-dot" style="background:${col}"></span>
-                  ${esc(cat.type)}
+                  ${esc(typeLabel(cat.type))}
                 </td>
                 <td style="text-align:center">${cat.count}</td>
                 <td>&#8362; ${fmt(cat.totalILS)}</td>
@@ -1841,22 +1901,72 @@ function renderReport(r) {
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: {
-          legend: {
-            position: 'bottom',
-            labels: { padding: 14, font: { size: 12 }, usePointStyle: true }
-          },
+          legend: { display: false },
           tooltip: {
             callbacks: {
-              label: ctx => {
+              label: function(ctx) {
                 const pct = ((ctx.raw / r.totalILS) * 100).toFixed(1);
-                return `  ₪${fmt(ctx.raw)}  (${pct}%)`;
+                const cur = S.reportCurrency || 'ILS';
+                const cat = r.categories[ctx.dataIndex];
+                let val, sym;
+                if (cur === 'ILS')      { val = cat.totalILS; sym = '₪'; }
+                else if (cur === 'USD') { val = cat.totalUSD; sym = '$'; }
+                else if (cur === 'EUR') { val = cat.totalEUR; sym = '€'; }
+                else { const dr = S.defaultRates[cur]; val = dr ? cat.totalILS / dr.rate : null; sym = cur + ' '; }
+                return val != null ? '  ' + sym + fmt(val) + '  (' + pct + '%)' : '  (' + pct + '%)';
               }
             }
           }
         }
       }
     });
+    renderPieLegend();
   });
+}
+
+function renderPieLegend() {
+  const r = S._reportData;
+  const el = document.getElementById('pieLegend');
+  if (!r || !el) return;
+  const cur = S.reportCurrency || 'ILS';
+  const days = r.days || 1;
+  const sel = document.getElementById('reportCurrSel');
+  if (sel && sel.value !== cur) sel.value = cur;
+
+  function catAmt(cat) {
+    if (cur === 'ILS') return cat.totalILS;
+    if (cur === 'USD') return cat.totalUSD;
+    if (cur === 'EUR') return cat.totalEUR;
+    const dr = S.defaultRates[cur];
+    return dr ? cat.totalILS / dr.rate : null;
+  }
+  function totalAmt() {
+    if (cur === 'ILS') return r.totalILS;
+    if (cur === 'USD') return r.totalUSD;
+    if (cur === 'EUR') return r.totalEUR;
+    const dr = S.defaultRates[cur];
+    return dr ? r.totalILS / dr.rate : null;
+  }
+  const sym = cur === 'ILS' ? '₪' : cur === 'USD' ? '$' : cur === 'EUR' ? '€' : cur + ' ';
+  const tot = totalAmt();
+
+  el.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:7px;padding:12px 0 4px">' +
+    r.categories.map(cat => {
+      const col  = CAT_COLORS[cat.type] || '#9E9E9E';
+      const icon = CAT_ICONS[cat.type]  || '📌';
+      const val  = catAmt(cat);
+      const pct  = r.totalILS ? ((cat.totalILS / r.totalILS) * 100).toFixed(1) : '0';
+      const totStr = val != null ? sym + fmt(val) : '–';
+      const avgStr = (val != null && days > 0) ? sym + fmt(val / days) : '–';
+      return '<div style="display:flex;align-items:flex-start;gap:8px;background:#F8F9FB;border-radius:9px;padding:8px 10px;flex:1;min-width:130px">' +
+        '<div style="width:10px;height:10px;border-radius:50%;background:' + col + ';margin-top:4px;flex-shrink:0"></div>' +
+        '<div style="min-width:0">' +
+        '<div style="font-size:12px;font-weight:700;color:' + col + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + icon + ' ' + esc(typeLabel(cat.type)) + '</div>' +
+        '<div style="font-size:14px;font-weight:800;color:var(--text)">' + totStr + ' <span style="font-size:11px;color:var(--muted);font-weight:600">(' + pct + '%)</span></div>' +
+        '<div style="font-size:11px;color:var(--muted)">' + avgStr + ' <span style="opacity:0.7">(avg/day)</span></div>' +
+        '</div></div>';
+    }).join('') +
+    '</div>';
 }
 
 // =======================================================

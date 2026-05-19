@@ -345,7 +345,7 @@ function getSettings() {
 function getExpenseTypes() {
   var defaults = [
     'Flight','Lodging','Car Rental','Insurance','Petrol',
-    'Toll Roads','Parking','Public Transport','Meals',
+    'Toll Roads','Parking','Transportation','Meals',
     'Souvenirs','Attractions','Other'
   ];
   var settings = getSettings();
