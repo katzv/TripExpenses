@@ -994,7 +994,7 @@ function navigate(view, params = {}) {
 
   if (view === 'trips') {
     hTitle.textContent = '✈ Trip Expenses';
-    hActs.innerHTML = `<button class="hbtn" onclick="navigate('new-trip')">+ New Trip</button>`;
+    hActs.innerHTML = `<button class="hbtn" onclick="showImportJson()" style="margin-right:6px">&#8595; Import</button><button class="hbtn" onclick="navigate('new-trip')">+ New Trip</button>`;
     renderTrips();
 
   } else if (view === 'new-trip') {
@@ -1146,7 +1146,8 @@ function saveTripEdits() {
   // Optimistic update — reflect immediately without waiting for server
   const t = S.trips.find(x => x.id === data.id);
   if (t) { t.title = data.title; t.startDate = data.startDate; t.endDate = data.endDate; }
-  if (S.currentTrip && S.currentTrip.id === data.id) {
+  const inTripView = document.getElementById('view-trip').classList.contains('active');
+  if (inTripView && S.currentTrip && S.currentTrip.id === data.id) {
     S.currentTrip.title     = data.title;
     S.currentTrip.startDate = data.startDate;
     S.currentTrip.endDate   = data.endDate;
@@ -1712,6 +1713,124 @@ function doDelTrip(id) {
 }
 
 // =======================================================
+// JSON IMPORT
+// =======================================================
+
+function showImportJson() {
+  showModal('Import Trip from File', `
+    <p style="color:var(--muted);font-size:13px;margin-bottom:14px">
+      Select a <strong>.json</strong> export file, or paste JSON below.
+      Use Claude to convert your existing trip data into
+      <a href="#" onclick="showImportFormat();return false" style="color:var(--primary)">this format</a>.
+    </p>
+    <div class="fg" style="margin-bottom:10px">
+      <label>Choose file</label>
+      <input type="file" id="fImportFile" accept=".json,application/json"
+             style="display:block;width:100%;font-size:14px;padding:6px 0"
+             onchange="_handleImportFile(this)">
+    </div>
+    <div style="text-align:center;color:var(--muted);font-size:12px;margin:4px 0 8px">— or paste JSON —</div>
+    <textarea id="fImportPaste" class="fc" rows="5" placeholder='{"title":"...","country":"...","expenses":[...]}'
+              style="font-size:12px;font-family:monospace;resize:vertical"
+              oninput="_handleImportPaste(this)"></textarea>
+    <div id="importPreview" style="margin-top:10px"></div>
+    <div class="btn-row" id="importBtnRow">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+
+function showImportFormat() {
+  const sample = JSON.stringify({
+    title: "Austria 2025",
+    country: "Austria",
+    currency: "EUR",
+    startDate: "2025-04-09",
+    endDate: "2025-04-16",
+    expenses: [
+      { date: "2025-04-09", description: "El Al TLV-VIE", type: "Flight", amount: 850, currency: "ILS", notes: "" },
+      { date: "2025-04-10", description: "Hotel Vienna", type: "Lodging", amount: 120, currency: "EUR", notes: "2 nights" }
+    ]
+  }, null, 2);
+  const types = ['Flight','Lodging','Car Rental','Insurance','Petrol','Toll Roads',
+                 'Parking','Transportation','Meals','Souvenirs','Attractions','Phone','Other'];
+  showModal('Import File Format', `
+    <p style="font-size:13px;color:var(--muted);margin-bottom:8px">
+      Valid <strong>type</strong> values: ${types.map(t => `<code style="font-size:11px;background:var(--bg);padding:1px 4px;border-radius:3px">${t}</code>`).join(' ')}
+    </p>
+    <pre style="background:var(--bg);border-radius:8px;padding:12px;font-size:11px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;margin:0">${esc(sample)}</pre>
+    <div style="margin-top:10px;font-size:12px;color:var(--muted)">
+      Prompt for Claude: <em>"Convert the table below into this JSON format for a trip expense app. Use exact type names from the list above."</em>
+    </div>
+    <div class="btn-row"><button class="btn btn-outline" onclick="closeModal()">Close</button></div>`);
+}
+
+function _handleImportFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => _parseAndPreviewImport(e.target.result);
+  reader.readAsText(file);
+}
+
+function _handleImportPaste(ta) {
+  const val = ta.value.trim();
+  if (val.startsWith('{') || val.startsWith('[')) _parseAndPreviewImport(val);
+  else document.getElementById('importPreview').innerHTML = '';
+}
+
+function _parseAndPreviewImport(text) {
+  const preview = document.getElementById('importPreview');
+  const btnRow  = document.getElementById('importBtnRow');
+  let parsed;
+  try { parsed = JSON.parse(text); } catch(e) {
+    preview.innerHTML = `<div style="color:var(--danger);font-size:13px">Invalid JSON: ${esc(e.message)}</div>`;
+    btnRow.innerHTML = '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>';
+    return;
+  }
+  if (!parsed.title || !parsed.country || !Array.isArray(parsed.expenses)) {
+    preview.innerHTML = `<div style="color:var(--danger);font-size:13px">Missing required fields: title, country, expenses[]</div>`;
+    btnRow.innerHTML = '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>';
+    return;
+  }
+  const valid   = parsed.expenses.filter(e => e.amount && e.date).length;
+  const skipped = parsed.expenses.length - valid;
+  const curs    = [...new Set(parsed.expenses.map(e => (e.currency||'ILS').toUpperCase()))].join(', ');
+  preview.innerHTML = `
+    <div style="background:var(--bg);border-radius:10px;padding:12px;border:1px solid var(--border)">
+      <div style="font-weight:700;font-size:14px;margin-bottom:6px">${esc(parsed.title)}</div>
+      <div style="font-size:13px;color:var(--muted)">📍 ${esc(parsed.country)} &nbsp;·&nbsp; ${esc(parsed.currency||'')}</div>
+      ${parsed.startDate ? `<div style="font-size:13px;color:var(--muted)">📅 ${esc(parsed.startDate)} → ${esc(parsed.endDate||'')}</div>` : ''}
+      <div style="font-size:13px;margin-top:6px"><strong>${valid}</strong> expenses &nbsp;·&nbsp; ${esc(curs)}${skipped ? ` &nbsp;·&nbsp; <span style="color:var(--danger)">${skipped} skipped (no amount/date)</span>` : ''}</div>
+    </div>`;
+  window._importParsed = parsed;
+  btnRow.innerHTML = `<button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" onclick="_doJsonImport()">&#8595; Import ${valid} Expenses</button>`;
+}
+
+function _doJsonImport() {
+  const parsed = window._importParsed;
+  if (!parsed) return;
+  const preview = document.getElementById('importPreview');
+  const btnRow  = document.getElementById('importBtnRow');
+  if (preview) preview.innerHTML = '<div style="text-align:center;padding:12px;color:var(--muted)">Importing & fetching exchange rates...</div>';
+  btnRow.innerHTML = '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>';
+  google.script.run
+    .withSuccessHandler(res => {
+      closeModal();
+      S.trips = res.trips;
+      renderTrips();
+      const msg = 'Imported ' + res.imported + ' expenses' + (res.skipped ? ' (' + res.skipped + ' skipped)' : '');
+      toast(msg, 'ok');
+    })
+    .withFailureHandler(err => {
+      if (preview) preview.innerHTML = `<div style="color:var(--danger);padding:8px">${esc(err.message)}</div>`;
+      btnRow.innerHTML = '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>';
+      toast('Import failed: ' + err.message, 'err');
+    })
+    .importFromJson(parsed);
+}
+
+// =======================================================
 // EXPENSE TYPES
 // =======================================================
 
@@ -1882,6 +2001,8 @@ function renderReport(r) {
         Conversion rates from frankfurter.app as of ${r.ratesDate} (ECB official rates)
       </div>
     </div>`;
+
+  r.categories.sort((a, b) => b.totalILS - a.totalILS);
 
   // Draw pie chart — load Chart.js lazily (not in <head>)
   loadChartJs(() => {

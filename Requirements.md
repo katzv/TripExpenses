@@ -103,10 +103,16 @@ Stored as `{id → entry}` object (not array) to give O(1) lookup/update/delete 
 - `getExpenseTypes()` — returns default types concatenated with custom types from settings
 - `addExpenseType(name)` — adds to `settings.customTypes`
 - `deleteExpenseType(name)` — removes from `settings.customTypes`
-- Default types: `['Flight','Lodging','Car Rental','Insurance','Petrol','Toll Roads','Parking','Public Transport','Meals','Souvenirs','Attractions','Other']`
+- Default types: `['Flight','Lodging','Car Rental','Insurance','Petrol','Toll Roads','Parking','Transportation','Meals','Souvenirs','Attractions','Phone','Other']`
+- **Type merge on load**: client always merges `defaultTypes()` + server custom types so new built-in types are never missing even for old accounts: `S.expenseTypes = [..._defaults, ..._custom]`
 
 ### Report
-- `getReport(tripId)` — returns `{trip, days, expenseCount, categories, totalILS, totalUSD, totalEUR, ratesDate}`. Categories sorted alphabetically, each with `{type, count, totalILS, totalUSD, totalEUR}`.
+- `getReport(tripId)` — returns `{trip, days, expenseCount, categories, totalILS, totalUSD, totalEUR, ratesDate}`. Each category has `{type, count, totalILS, totalUSD, totalEUR}`.
+
+### JSON Import (new)
+- `importFromJson(data)` — validates `{title, country, expenses[]}`, fetches today's exchange rate once per unique non-ILS currency (via `getExchangeRate`), creates a new trip and all expenses
+  - Each imported expense stored with the standard expense schema; `rateSource` set to `'import'`
+  - Returns `{ imported, skipped, trips }`
 
 ### Trip Planner
 - `getPlan(tripId)` — returns `{ bank: [...], assignments: {...} }` or `{ bank: [], assignments: {} }` if none
@@ -197,7 +203,7 @@ Seven views, only one active at a time (CSS `display:none`/`display:block` + `fa
 - Back button (circle, `hbtn back`) — hidden by default, shown contextually
 - Title (`htitle`) — ellipsis overflow
 - Action buttons (`hActions`) — injected per view:
-  - trips: "+ New Trip"
+  - trips: "↓ Import" + "+ New Trip"
   - trip: "✎ Edit", "📋 Plan", "📍 Track", "📊 Report"
   - tracker: "+ Check-in"
   - planner: "+ Add Place"
@@ -247,6 +253,125 @@ Seven views, only one active at a time (CSS `display:none`/`display:block` + `fa
 ### Edit Trip
 - Modal with Title, From Date, To Date
 - Optimistic update: reflects immediately in UI, then calls `updateTrip` in background
+- View-aware render: only calls `renderExpenses()` (and updates `hTitle`) if `view-trip` is the active DOM view; otherwise calls `renderTrips()`. This prevents a stale `S.currentTrip` (which persists after going back to the trips list) from routing the re-render to the wrong view.
+
+### Import Trip from JSON
+
+#### How to import (user steps)
+1. Open the app and go to the **Trips** screen (home screen).
+2. Tap **↓ Import** in the top-right header.
+3. In the modal, either:
+   - Tap **Choose file** and select a `.json` file from your device, **or**
+   - Paste the JSON text directly into the paste area below.
+4. The app parses the file immediately and shows a **preview card**: trip title, country, currency, date range, how many expenses will be imported, which currencies are present, and how many rows will be skipped (rows with no amount or no date).
+5. If the preview looks correct, tap **↓ Import N Expenses**.
+6. The app fetches today's exchange rate for each non-ILS currency, creates the trip, and imports all expenses. A toast confirms success.
+7. The new trip appears at the top of the Trips list. Tap it to open and review.
+
+> **Note on ILS amounts:** Exchange rates are fetched at import time (today's rate). If the original sheet used rates from the time of travel, the ILS totals may differ. The original `amount` and `currency` of every expense are preserved, so amounts are always correct.
+
+---
+
+#### How to convert a Google Sheet to JSON using Claude
+
+Use this when you have an existing trip expense table (e.g. a Google Sheet with Hebrew or English categories) and want to import it into the app.
+
+**Step 1 — Open Claude** (claude.ai or any Claude interface)
+
+**Step 2 — Paste this prompt, followed by your table data:**
+
+```
+Convert the expense table below into the Trip Expense Manager JSON import format.
+
+Rules:
+- Output valid JSON only (no explanation, no markdown fences).
+- Map each expense type to the closest match from this exact list (case-sensitive):
+  Flight, Lodging, Car Rental, Insurance, Petrol, Toll Roads, Parking,
+  Transportation, Meals, Souvenirs, Attractions, Phone, Other
+- Hebrew type names to use as reference:
+    טיסה → Flight
+    לינה / מלון → Lodging
+    השכרת רכב → Car Rental
+    ביטוח נסיעות → Insurance
+    דלק → Petrol
+    כביש אגרה / אגרת כביש → Toll Roads
+    חניה → Parking
+    תחבורה / הסעות → Transportation
+    אוכל / מסעדה / סופרמרקט → Meals
+    מזכרות / קניות → Souvenirs
+    אטרקציות / כניסות → Attractions
+    טלפון / סים → Phone
+    שונות / אחר → Other
+- date format: YYYY-MM-DD
+- Rows with no amount or no date: skip them.
+- Empty-date rows carry forward the last known date.
+- The "ILS" column in the sheet is a formula — ignore it; do not copy it as the amount.
+  Use the original amount and currency columns only.
+- notes: copy the content of the "notes / remarks" column if present; otherwise "".
+
+Required JSON structure:
+{
+  "title": "<trip name>",
+  "country": "<country>",
+  "currency": "<main trip currency, e.g. EUR>",
+  "startDate": "<YYYY-MM-DD>",
+  "endDate": "<YYYY-MM-DD>",
+  "expenses": [
+    { "date": "YYYY-MM-DD", "description": "...", "type": "...", "amount": 0.00, "currency": "EUR", "notes": "" }
+  ]
+}
+
+Table data:
+[PASTE YOUR TABLE HERE]
+```
+
+**Step 3 — Copy Claude's output** (the raw JSON text)
+
+**Step 4 — Import into the app:**
+- Tap **↓ Import** on the Trips screen
+- Paste the copied JSON into the paste area
+- Verify the preview, then tap **↓ Import N Expenses**
+
+---
+
+#### Import File Format (`.json`) — full specification
+
+```json
+{
+  "title": "Austria 2025",
+  "country": "Austria",
+  "currency": "EUR",
+  "startDate": "2025-04-09",
+  "endDate": "2025-04-16",
+  "expenses": [
+    { "date": "2024-12-30", "description": "Lufthansa flight", "type": "Flight",    "amount": 1411.84, "currency": "EUR", "notes": "" },
+    { "date": "2025-01-03", "description": "Travel insurance",  "type": "Insurance", "amount": 87.84,   "currency": "USD", "notes": "" },
+    { "date": "2025-04-09", "description": "Transfer to airport","type": "Transportation","amount": 500, "currency": "ILS", "notes": "" },
+    { "date": "2025-04-10", "description": "Lidl snacks",       "type": "Meals",     "amount": 74.29,   "currency": "EUR", "notes": "" }
+  ]
+}
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `title` | ✓ | Trip name shown in the app |
+| `country` | ✓ | Destination country |
+| `currency` | — | Main trip currency (e.g. `"EUR"`). Defaults to `"EUR"` if omitted |
+| `startDate` | — | `YYYY-MM-DD`. Used for avg/day calculation in the report |
+| `endDate` | — | `YYYY-MM-DD` |
+| `expenses[].date` | ✓ | `YYYY-MM-DD`. Row skipped if missing |
+| `expenses[].description` | — | Expense name / label |
+| `expenses[].type` | ✓ | Exact match from the 13 categories. Falls back to `"Other"` if unrecognised |
+| `expenses[].amount` | ✓ | Numeric, in the given `currency`. Row skipped if zero or missing |
+| `expenses[].currency` | — | ISO currency code (e.g. `"EUR"`, `"USD"`, `"ILS"`). Defaults to `"ILS"` |
+| `expenses[].notes` | — | Optional free text. Maps to `info3` in the expense object |
+
+**Valid type values (13, case-sensitive):**
+`Flight` · `Lodging` · `Car Rental` · `Insurance` · `Petrol` · `Toll Roads` · `Parking` · `Transportation` · `Meals` · `Souvenirs` · `Attractions` · `Phone` · `Other`
+
+**ILS conversion:** one `getExchangeRate(currency, 'ILS', '')` call per unique non-ILS currency at import time (today's live rate). The original `amount` + `currency` are always stored on the expense so future recalculation is possible.
+
+**Pre-trip expenses** (booked before `startDate`, e.g. flights, hotels, insurance) are fully supported — they appear in the expense list with their actual booking date.
 
 ---
 
@@ -259,7 +384,11 @@ Seven views, only one active at a time (CSS `display:none`/`display:block` + `fa
 
 ### Expense List
 - Summary banner: total ILS (formatted with commas), expense count, date range
-- Filter chips: "All" + one per type present in expenses (horizontal scroll)
+- Filter chips: "All" + one per type present in expenses
+  - Wrapped in `.chips-outer` (flex row): left arrow button + `.chips` scroll container + right arrow button
+  - Arrow buttons (`.chips-arrow`) auto-hide when scrolled to the respective end (`.hide` class, `opacity:0; pointer-events:none`)
+  - `scrollChips(dx)` — programmatically scrolls `.chips` by dx pixels; `updateChipArrows()` refreshes arrow visibility after each scroll or scroll event
+  - Chips container: `overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; touch-action:pan-x`
 - Expenses grouped by date, sorted descending
 - Each card: category icon + color, name, type/info2/info3 concatenated, original currency amount, ILS amount
 - Tap card → edit expense
@@ -273,8 +402,8 @@ Fields:
 - ILS Amount (auto-calculated, manual override allowed)
 - Rate indicator row: badge + text showing rate source/value
 - Info 2 (conditional, type-specific):
-  - **Lodging**: "Dates of Stay" (text input)
-  - **Meals**: "Meal Type" (select: Breakfast/Lunch/Dinner/Supermarket/Snacks)
+  - **Lodging**: "Dates of Stay" — two `<input type="date">` fields (from / to), stored as `"YYYY-MM-DD to YYYY-MM-DD"` in `info2`
+  - **Meals**: "Meal Type" (select: Breakfast/Lunch/Dinner/Supermarket/Snack/Coffee)
   - **Petrol**: "Liters" (number input)
 - Notes (optional text)
 - Save button, Cancel button
@@ -302,6 +431,28 @@ Fields:
 
 **Supported currencies (39):** ILS, EUR, USD, GBP, JPY, THB, CHF, NOK, SEK, DKK, PLN, CZK, HUF, RON, BGN, AUD, CAD, NZD, SGD, HKD, CNY, INR, KRW, MXN, BRL, TRY, ZAR, IDR, MYR, PHP, ISK, AED, QAR, SAR, KWD, BHD, OMR, JOD, EGP
 
+### Expense Categories
+13 built-in types with fixed colors and icons:
+
+| Type | Display Label | Icon | Color |
+|---|---|---|---|
+| Flight | Flight | ✈️ | #2196F3 |
+| Lodging | Lodging/Hotel | 🏨 | #9C27B0 |
+| Car Rental | Car Rental | 🚗 | #FF9800 |
+| Insurance | Insurance | 🛡️ | #607D8B |
+| Petrol | Petrol | ⛽ | #F44336 |
+| Toll Roads | Toll Roads | 🛣️ | #795548 |
+| Parking | Parking | 🅿️ | #FF5722 |
+| Transportation | Transportation | 🚌 | #00BCD4 |
+| Meals | Meals | 🍽️ | #4CAF50 |
+| Souvenirs | Souvenirs | 🎁 | #E91E63 |
+| Attractions | Attractions | 🎡 | #FFC107 |
+| Phone | Phone | 📱 | #2196F3 |
+| Other | Other | 📌 | #9E9E9E |
+
+- `TYPE_LABELS` map: `{ 'Lodging': 'Lodging/Hotel' }` — display-only rename; data key stays `'Lodging'` for backwards compatibility
+- `typeLabel(t)` helper: `TYPE_LABELS[t] || t` — used everywhere a type is displayed
+
 ### Custom Expense Types
 - "Manage Types" modal: lists custom types with delete, input for new type name
 - Optimistic update for add and delete
@@ -312,12 +463,23 @@ Fields:
 ## Report Feature
 
 - Requires `getReport(tripId)` — one server call, includes everything
-- Banner: trip title, country, planned days, expense count, date range
-- Three totals: ILS, USD, EUR
-- Pie chart (Chart.js, lazy-loaded from CDN) — spending by category, legend at bottom, tooltip shows ILS + %
-- Breakdown table: Category | Count | ILS | USD | EUR | TOTAL row
+- **Banner** (blue gradient header):
+  - Trip title, country, planned days, expense count, date range
+  - Three tiles in a 3-column grid: ILS ₪ / USD $ / EUR €
+  - Each tile shows: currency label, total amount (large bold), avg/day beneath in smaller font (hidden if `days = 0`)
+- **Pie chart** (Chart.js, lazy-loaded from CDN):
+  - Categories sorted by `totalILS` **descending** before chart and legend are built
+  - Chart.js default legend disabled; custom HTML legend rendered in `#pieLegend`
+  - **Currency selector** dropdown above chart (ILS / USD / EUR / local currency if not one of the above) — stored in `S.reportCurrency`; changing it calls `renderPieLegend()` without rebuilding the chart
+  - Tooltip: shows amount in selected currency + percentage of total ILS
+- **Custom pie legend** (`renderPieLegend()`):
+  - One card per category (flex-wrap grid, min-width 130px)
+  - Category label: colored dot + icon + name (category color applied to label text, not to numbers)
+  - Total value in selected currency: black, bold, large; with `(X%)` in small muted text
+  - Avg/day: `{value} (avg/day)` — left-aligned, muted; hidden if `days = 0` or value unavailable
+- **Breakdown table**: Category | Count | ILS | USD | EUR | TOTAL row
 - Rate note: date + "ECB official rates"
-- `S.pieChart` destroyed and recreated on each report load
+- `S.pieChart` destroyed and recreated on each report load; `S._reportData` caches report for `renderPieLegend` re-calls; `S.reportCurrency` persists across report re-opens
 
 ---
 
@@ -603,6 +765,14 @@ No template literals may contain `<?`, `<![CDATA[`, or `]]>`.
 ### Bug 7 — KML layers not toggleable as one group in Google My Maps
 **Problem:** Google My Maps does not support nested `<Folder>` elements — it creates one layer per `<Folder>` in the `<Document>` regardless of nesting depth. Per-type sub-folders created many layers that had to be toggled individually.
 **Fix:** All placemarks placed in a single `<Folder>` named after the trip. Icons/styles still differentiate types visually, but the entire trip is one toggleable layer.
+
+### Bug 9 — New built-in type (Phone) missing from type dropdown
+**Problem:** `getExpenseTypes()` returns server-saved custom types merged with defaults. If the user's saved types didn't include `Phone` (added after account creation), the new default was invisible.
+**Fix:** Client always rebuilds the full list as `S.expenseTypes = [...defaultTypes(), ...customOnly]` where `customOnly` = server types not already in `defaultTypes()`. Built-in types are always present regardless of what's stored.
+
+### Bug 10 — Edit trip title from trips list doesn't update immediately
+**Problem:** After editing a trip from the trips list, the updated title was not shown until the next full reload. Root cause: `S.currentTrip` persists after navigating back to the trips list. The condition `if (S.currentTrip && S.currentTrip.id === data.id)` matched (same trip), routing the re-render to `renderExpenses()` (trip view) instead of `renderTrips()`.
+**Fix:** Added active-view check: `const inTripView = document.getElementById('view-trip').classList.contains('active')`. Only calls `renderExpenses()` and updates `hTitle` when the trip view is actually the active DOM view; otherwise calls `renderTrips()`.
 
 ### Bug 8 — "My Location" button in map picker not visible on small screens
 **Problem:** Button was in the bottom bar below the confirm button. On small screens or with device safe-area insets, the bottom bar could be tall enough to push the button off-screen.

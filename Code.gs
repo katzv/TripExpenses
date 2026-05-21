@@ -606,6 +606,84 @@ function setPlanDayAssignment(tripId, date, placeIds) {
   return { success: true };
 }
 
+// ---- JSON IMPORT ----
+
+function importFromJson(data) {
+  if (!data || !data.expenses || !Array.isArray(data.expenses)) throw new Error('Invalid import file: missing expenses array');
+  if (!data.title || !data.country) throw new Error('Invalid import file: missing title or country');
+
+  var validTypes = ['Flight','Lodging','Car Rental','Insurance','Petrol','Toll Roads',
+                    'Parking','Transportation','Meals','Souvenirs','Attractions','Phone','Other'];
+
+  // Collect unique non-ILS currencies to fetch rates
+  var rateCache = {};
+  data.expenses.forEach(function(e) {
+    var cur = String(e.currency || 'ILS').trim().toUpperCase();
+    if (cur !== 'ILS' && !rateCache.hasOwnProperty(cur)) {
+      try {
+        var rr = getExchangeRate(cur, 'ILS', '');
+        rateCache[cur] = rr ? rr.rate : null;
+      } catch(ex) { rateCache[cur] = null; }
+    }
+  });
+
+  var tripId = 'trip_' + Date.now();
+  var trip = {
+    id: tripId,
+    title: String(data.title).trim(),
+    country: String(data.country).trim(),
+    currency: String(data.currency || 'EUR').trim().toUpperCase(),
+    startDate: data.startDate || '',
+    endDate: data.endDate || ''
+  };
+  var trips = load('trips', []);
+  trips.unshift(trip);
+  save('trips', trips);
+
+  var expenses = [];
+  var importedCount = 0;
+  var skipped = 0;
+
+  data.expenses.forEach(function(e, idx) {
+    var amount = parseFloat(e.amount);
+    if (!amount || isNaN(amount)) { skipped++; return; }
+    var dateVal = String(e.date || '').trim();
+    if (!dateVal) { skipped++; return; }
+    var expCur  = String(e.currency || 'ILS').trim().toUpperCase();
+    var expType = validTypes.indexOf(e.type) !== -1 ? e.type : 'Other';
+
+    var amountILS, rate;
+    if (expCur === 'ILS') {
+      amountILS = amount; rate = 1;
+    } else if (rateCache[expCur] != null) {
+      rate = rateCache[expCur]; amountILS = amount * rate;
+    } else {
+      amountILS = amount; rate = 1;
+    }
+
+    expenses.push({
+      id: 'e_' + Date.now() + '_' + idx,
+      tripId: tripId,
+      date: dateVal,
+      expense: String(e.description || '').trim(),
+      type: expType,
+      amount: Math.round(amount * 100) / 100,
+      currency: expCur,
+      amountILS: Math.round(amountILS * 100) / 100,
+      rate: rate,
+      rateDate: '',
+      rateSource: 'import',
+      info2: '',
+      info3: String(e.notes || '').trim(),
+      createdAt: new Date().toISOString()
+    });
+    importedCount++;
+  });
+
+  save('exp_' + tripId, expenses);
+  return { imported: importedCount, skipped: skipped, trips: trips };
+}
+
 // ---- COUNTRY → CURRENCY ----
 
 function getCountryCurrency(country) {
