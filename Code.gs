@@ -63,6 +63,7 @@ function updateTrip(d) {
   for (var i = 0; i < trips.length; i++) {
     if (trips[i].id === d.id) {
       trips[i].title     = d.title;
+      trips[i].country   = d.country   || trips[i].country || '';
       trips[i].startDate = d.startDate || '';
       trips[i].endDate   = d.endDate   || '';
       break;
@@ -606,7 +607,60 @@ function setPlanDayAssignment(tripId, date, placeIds) {
   return { success: true };
 }
 
-// ---- JSON IMPORT ----
+// ---- JSON IMPORT & RE-RATE ----
+
+// Builds a rate-lookup function for a set of currencies over a trip date range.
+// One range API call per currency covers all in-trip dates; individual calls handle
+// pre-trip bookings (flights, hotels booked months in advance).
+function _buildRateFetcher(currencies, startDate, endDate) {
+  var rangeMaps   = {};  // { 'EUR': { '2024-06-13': 3.821, ... } }
+  var outOfRange  = {};  // { 'EUR|2024-05-06': { rate, rateDate } }
+
+  if (startDate && endDate) {
+    currencies.forEach(function(cur) {
+      try {
+        var url = 'https://api.frankfurter.app/' + startDate + '..' + endDate +
+                  '?from=' + encodeURIComponent(cur) + '&to=ILS';
+        var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+        if (resp.getResponseCode() === 200) {
+          var parsed = JSON.parse(resp.getContentText());
+          if (parsed.rates) {
+            var map = {};
+            Object.keys(parsed.rates).forEach(function(d) {
+              if (parsed.rates[d] && parsed.rates[d]['ILS']) map[d] = parsed.rates[d]['ILS'];
+            });
+            if (Object.keys(map).length) rangeMaps[cur] = map;
+          }
+        }
+      } catch(ex) { Logger.log('Range rate error ' + cur + ': ' + ex); }
+    });
+  }
+
+  return function(cur, dateStr) {
+    if (!cur || cur === 'ILS') return { rate: 1, rateDate: dateStr, rateSource: 'same' };
+
+    var inRange = startDate && endDate && dateStr >= startDate && dateStr <= endDate;
+
+    if (inRange && rangeMaps[cur]) {
+      var map = rangeMaps[cur];
+      var keys = Object.keys(map).sort();
+      // Find rate for this date or nearest prior business day
+      for (var i = keys.length - 1; i >= 0; i--) {
+        if (keys[i] <= dateStr) return { rate: map[keys[i]], rateDate: keys[i], rateSource: 'historical' };
+      }
+    }
+
+    // Out-of-range or missing range data: individual call, deduplicated by cache
+    var cKey = cur + '|' + dateStr;
+    if (outOfRange[cKey]) return outOfRange[cKey];
+    var rr = getExchangeRate(cur, 'ILS', dateStr);
+    var result = rr
+      ? { rate: rr.rate, rateDate: rr.date, rateSource: 'historical' }
+      : { rate: 1, rateDate: '', rateSource: 'unavailable' };
+    outOfRange[cKey] = result;
+    return result;
+  };
+}
 
 function importFromJson(data) {
   if (!data || !data.expenses || !Array.isArray(data.expenses)) throw new Error('Invalid import file: missing expenses array');
@@ -615,17 +669,16 @@ function importFromJson(data) {
   var validTypes = ['Flight','Lodging','Car Rental','Insurance','Petrol','Toll Roads',
                     'Parking','Transportation','Meals','Souvenirs','Attractions','Phone','Other'];
 
-  // Collect unique non-ILS currencies to fetch rates
-  var rateCache = {};
+  var startDate = data.startDate || '';
+  var endDate   = data.endDate   || '';
+
+  var currencies = [];
   data.expenses.forEach(function(e) {
     var cur = String(e.currency || 'ILS').trim().toUpperCase();
-    if (cur !== 'ILS' && !rateCache.hasOwnProperty(cur)) {
-      try {
-        var rr = getExchangeRate(cur, 'ILS', '');
-        rateCache[cur] = rr ? rr.rate : null;
-      } catch(ex) { rateCache[cur] = null; }
-    }
+    if (cur !== 'ILS' && currencies.indexOf(cur) === -1) currencies.push(cur);
   });
+
+  var getRate = _buildRateFetcher(currencies, startDate, endDate);
 
   var tripId = 'trip_' + Date.now();
   var trip = {
@@ -633,8 +686,8 @@ function importFromJson(data) {
     title: String(data.title).trim(),
     country: String(data.country).trim(),
     currency: String(data.currency || 'EUR').trim().toUpperCase(),
-    startDate: data.startDate || '',
-    endDate: data.endDate || ''
+    startDate: startDate,
+    endDate: endDate
   };
   var trips = load('trips', []);
   trips.unshift(trip);
@@ -652,14 +705,8 @@ function importFromJson(data) {
     var expCur  = String(e.currency || 'ILS').trim().toUpperCase();
     var expType = validTypes.indexOf(e.type) !== -1 ? e.type : 'Other';
 
-    var amountILS, rate;
-    if (expCur === 'ILS') {
-      amountILS = amount; rate = 1;
-    } else if (rateCache[expCur] != null) {
-      rate = rateCache[expCur]; amountILS = amount * rate;
-    } else {
-      amountILS = amount; rate = 1;
-    }
+    var rateInfo  = getRate(expCur, dateVal);
+    var amountILS = expCur === 'ILS' ? amount : Math.round(amount * rateInfo.rate * 100) / 100;
 
     expenses.push({
       id: 'e_' + Date.now() + '_' + idx,
@@ -669,10 +716,10 @@ function importFromJson(data) {
       type: expType,
       amount: Math.round(amount * 100) / 100,
       currency: expCur,
-      amountILS: Math.round(amountILS * 100) / 100,
-      rate: rate,
-      rateDate: '',
-      rateSource: 'import',
+      amountILS: amountILS,
+      rate: rateInfo.rate,
+      rateDate: rateInfo.rateDate,
+      rateSource: rateInfo.rateSource,
       info2: '',
       info3: String(e.notes || '').trim(),
       createdAt: new Date().toISOString()
@@ -682,6 +729,42 @@ function importFromJson(data) {
 
   save('exp_' + tripId, expenses);
   return { imported: importedCount, skipped: skipped, trips: trips };
+}
+
+function rerateImportedExpenses(tripId) {
+  var trips = getTrips();
+  var trip = null;
+  for (var i = 0; i < trips.length; i++) {
+    if (trips[i].id === tripId) { trip = trips[i]; break; }
+  }
+  if (!trip) return { success: false, error: 'Trip not found' };
+
+  var expenses = getExpenses(tripId);
+  if (!expenses.length) return { success: true, updated: 0 };
+
+  var currencies = [];
+  expenses.forEach(function(e) {
+    var cur = String(e.currency || 'ILS').trim().toUpperCase();
+    if (cur !== 'ILS' && currencies.indexOf(cur) === -1) currencies.push(cur);
+  });
+
+  var getRate = _buildRateFetcher(currencies, trip.startDate || '', trip.endDate || '');
+  var updated = 0;
+
+  expenses.forEach(function(e) {
+    var cur = String(e.currency || 'ILS').trim().toUpperCase();
+    if (cur === 'ILS') return;
+    var rateInfo  = getRate(cur, e.date);
+    var newILS    = Math.round(e.amount * rateInfo.rate * 100) / 100;
+    e.amountILS   = newILS;
+    e.rate        = rateInfo.rate;
+    e.rateDate    = rateInfo.rateDate;
+    e.rateSource  = rateInfo.rateSource;
+    updated++;
+  });
+
+  save('exp_' + tripId, expenses);
+  return { success: true, updated: updated };
 }
 
 // ---- COUNTRY → CURRENCY ----

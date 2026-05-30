@@ -373,6 +373,37 @@ tbody tr:last-child td { border-bottom: none; }
 .plan-bank-chip-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
 .plan-bank-chip-del { flex-shrink: 0; padding: 0; margin-left: 3px; cursor: pointer; font-weight: 800; opacity: 0.4; border: none; background: none; color: inherit; font-size: 15px; line-height: 1; }
 .plan-bank-chip-del:hover { opacity: 1; color: var(--danger); }
+
+/* ===== COUNTRY TAG INPUT ===== */
+.ctag-wrap { display:flex; flex-wrap:wrap; gap:5px; align-items:center; border:1.5px solid var(--border); border-radius:10px; padding:6px 10px; background:#FAFBFF; min-height:44px; cursor:text; transition:border-color 0.2s; }
+.ctag-wrap:focus-within { border-color:var(--primary); background:#fff; }
+.ctag { display:inline-flex; align-items:center; gap:4px; background:var(--primary); color:#fff; border-radius:14px; padding:3px 10px; font-size:13px; font-weight:600; }
+.ctag button { background:none; border:none; color:#fff; cursor:pointer; font-size:15px; padding:0; line-height:1; opacity:0.75; margin-left:1px; }
+.ctag button:hover { opacity:1; }
+.ctag-input { flex:1; min-width:120px; border:none; outline:none; background:transparent; font-size:15px; color:var(--text); padding:2px 0; }
+
+/* ===== DATE RANGE PICKER ===== */
+.drp-display { border:1.5px solid var(--border); border-radius:10px; padding:11px 13px; font-size:15px; background:#FAFBFF; cursor:pointer; color:var(--text); transition:border-color 0.2s; display:flex; align-items:center; gap:6px; }
+.drp-display:hover { border-color:var(--primary); }
+#drpOverlay { position:fixed; inset:0; z-index:1100; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.35); padding:16px; }
+#drpOverlay.open { display:flex; }
+.drp-card { background:#fff; border-radius:16px; padding:18px 16px 14px; width:100%; max-width:340px; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
+.drp-nav-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+.drp-nav { width:34px; height:34px; border:1.5px solid var(--border); background:var(--card); border-radius:8px; font-size:18px; color:var(--muted); cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.drp-nav:hover { border-color:var(--primary); color:var(--primary); }
+.drp-month-label { font-weight:700; font-size:15px; }
+.drp-grid { width:100%; border-collapse:collapse; table-layout:fixed; }
+.drp-grid th { font-size:11px; font-weight:700; color:var(--muted); text-align:center; padding:3px 0 6px; }
+.drp-grid td { text-align:center; padding:2px 1px; }
+.drp-day { width:36px; height:36px; border-radius:50%; border:none; background:none; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; color:var(--text); width:100%; }
+.drp-day:hover:not(:disabled):not(.empty) { background:var(--bg); border-radius:50%; }
+.drp-day.sel-from, .drp-day.sel-to { background:var(--primary); color:#fff; font-weight:700; border-radius:50%; }
+.drp-day.in-range { background:#DBEAFE; border-radius:0; color:var(--primary); font-weight:600; }
+td.range-start .drp-day.in-range { border-radius:50% 0 0 50%; }
+td.range-end .drp-day.in-range { border-radius:0 50% 50% 0; }
+.drp-day:disabled, .drp-day.empty { color:#ccc; cursor:default; pointer-events:none; }
+.drp-hint { font-size:12px; color:var(--muted); text-align:center; margin:8px 0 10px; min-height:16px; }
+.drp-btns { display:flex; gap:8px; }
 </style>
 </head>
 <body>
@@ -423,21 +454,23 @@ tbody tr:last-child td { border-bottom: none; }
         <input class="fc" id="fTripTitle" type="text" placeholder="e.g., Europe 2026">
       </div>
       <div class="fg">
-        <label>Destination Country <span class="req">*</span></label>
-        <input class="fc" id="fTripCountry" type="text" list="dl-countries"
-               placeholder="e.g., France" oninput="onCountryInput()">
+        <label>Countries <span class="req">*</span></label>
+        <div class="ctag-wrap" id="ctagWrap" onclick="document.getElementById('ctagInput').focus()">
+          <span id="ctagList"></span>
+          <input id="ctagInput" class="ctag-input" type="text" list="dl-countries"
+                 placeholder="Add country…" autocomplete="off"
+                 oninput="onCtagInput()" onkeydown="onCtagKeydown(event)">
+        </div>
         <datalist id="dl-countries"></datalist>
         <div class="fhint" id="currHint" style="color:var(--primary);font-weight:600"></div>
       </div>
-      <div class="frow">
-        <div class="fg">
-          <label>From Date</label>
-          <input class="fc" id="fTripStart" type="date">
+      <div class="fg">
+        <label>Travel Dates</label>
+        <div class="drp-display" id="tripDrpDisplay" onclick="openDrp('trip')">
+          <span id="tripDrpLabel" style="color:var(--muted)">Select dates…</span>
         </div>
-        <div class="fg">
-          <label>To Date</label>
-          <input class="fc" id="fTripEnd" type="date">
-        </div>
+        <input type="hidden" id="fTripStart">
+        <input type="hidden" id="fTripEnd">
       </div>
       <button class="btn btn-primary" id="saveTripBtn" onclick="saveTrip()">
         &#128640; Create Trip
@@ -670,6 +703,26 @@ tbody tr:last-child td { border-bottom: none; }
   </div>
 
 </main>
+
+<!-- Date Range Picker Overlay -->
+<div id="drpOverlay" onclick="if(event.target===this)closeDrp()">
+  <div class="drp-card">
+    <div class="drp-nav-row">
+      <button class="drp-nav" onclick="drpShiftMonth(-1)">&#8249;</button>
+      <span class="drp-month-label" id="drpMonthLabel"></span>
+      <button class="drp-nav" onclick="drpShiftMonth(1)">&#8250;</button>
+    </div>
+    <table class="drp-grid">
+      <thead><tr id="drpDow"></tr></thead>
+      <tbody id="drpBody"></tbody>
+    </table>
+    <div class="drp-hint" id="drpHint">Tap a start date</div>
+    <div class="drp-btns">
+      <button class="btn btn-outline" style="flex:1" onclick="closeDrp()">Cancel</button>
+      <button class="btn btn-primary" style="flex:1" id="drpConfirmBtn" onclick="drpConfirm()" disabled>Confirm</button>
+    </div>
+  </div>
+</div>
 
 <!-- Map Picker Overlay -->
 <div id="mapPickerOverlay" style="display:none;position:fixed;inset:0;z-index:300;background:#fff;flex-direction:column">
@@ -916,9 +969,12 @@ function init() {
     });
   }
 
-  // Escape key closes any open modal
+  // Escape key closes DRP overlay first, then modal
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && document.getElementById('modalBg').classList.contains('open')) {
+    if (e.key !== 'Escape') return;
+    if (document.getElementById('drpOverlay').classList.contains('open')) {
+      closeDrp();
+    } else if (document.getElementById('modalBg').classList.contains('open')) {
       closeModal();
     }
   });
@@ -1111,24 +1167,33 @@ function editTripTitle(id) {
   const t = S.trips.find(x => x.id === tripId);
   if (!t) return;
   S._editingTripId = tripId;
+  const editDrpLabel = (t.startDate || t.endDate)
+    ? (t.startDate || '?') + ' → ' + (t.endDate || '?')
+    : 'Select dates…';
   showModal('Edit Trip', `
     <div class="fg">
       <label>Title <span class="req">*</span></label>
       <input class="fc" id="fEditTitle" type="text" value="${esc(t.title)}">
     </div>
-    <div class="frow">
-      <div class="fg">
-        <label>From Date</label>
-        <input class="fc" id="fEditStart" type="date" value="${t.startDate || ''}">
-      </div>
-      <div class="fg">
-        <label>To Date</label>
-        <input class="fc" id="fEditEnd" type="date" value="${t.endDate || ''}">
-      </div>
+    <div class="fg" style="margin-top:10px">
+      <label>Countries</label>
+      <input class="fc" id="fEditCountry" type="text" value="${esc(t.country || '')}" placeholder="e.g., Austria, Czech Republic">
+      <div class="fhint">Separate multiple countries with commas</div>
     </div>
-    <div class="btn-row">
+    <div class="fg" style="margin-top:10px">
+      <label>Travel Dates</label>
+      <div class="drp-display" onclick="openDrp('edit')">
+        <span id="editDrpLabel" style="color:${(t.startDate||t.endDate)?'var(--text)':'var(--muted)'}">${esc(editDrpLabel)}</span>
+      </div>
+      <input type="hidden" id="fEditStart" value="${t.startDate || ''}">
+      <input type="hidden" id="fEditEnd" value="${t.endDate || ''}">
+    </div>
+    <div class="btn-row" style="margin-top:14px">
       <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary" onclick="saveTripEdits()">&#10003; Save</button>
+    </div>
+    <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+      <button class="btn btn-outline" id="rerateBtn" style="width:100%;font-size:13px" onclick="rerateExpenses()">&#8635; Re-rate expenses with historical rates</button>
     </div>`);
   setTimeout(() => { var el = document.getElementById('fEditTitle'); if (el) { el.focus(); el.select(); } }, 150);
 }
@@ -1136,19 +1201,22 @@ function editTripTitle(id) {
 function saveTripEdits() {
   const title = (document.getElementById('fEditTitle').value || '').trim();
   if (!title) { toast('Title is required', 'err'); return; }
+  const country = (document.getElementById('fEditCountry').value || '').trim();
   const data = {
     id:        S._editingTripId,
     title,
+    country,
     startDate: document.getElementById('fEditStart').value,
     endDate:   document.getElementById('fEditEnd').value
   };
   closeModal();
   // Optimistic update — reflect immediately without waiting for server
   const t = S.trips.find(x => x.id === data.id);
-  if (t) { t.title = data.title; t.startDate = data.startDate; t.endDate = data.endDate; }
+  if (t) { t.title = data.title; t.country = data.country; t.startDate = data.startDate; t.endDate = data.endDate; }
   const inTripView = document.getElementById('view-trip').classList.contains('active');
   if (inTripView && S.currentTrip && S.currentTrip.id === data.id) {
     S.currentTrip.title     = data.title;
+    S.currentTrip.country   = data.country;
     S.currentTrip.startDate = data.startDate;
     S.currentTrip.endDate   = data.endDate;
     document.getElementById('hTitle').textContent = data.title;
@@ -1162,6 +1230,24 @@ function saveTripEdits() {
     .updateTrip(data);
 }
 
+function rerateExpenses() {
+  const tripId = S._editingTripId;
+  if (!tripId) return;
+  const btn = document.getElementById('rerateBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Fetching historical rates…'; }
+  google.script.run
+    .withSuccessHandler(r => {
+      closeModal();
+      toast('Re-rated ' + r.updated + ' expense' + (r.updated !== 1 ? 's' : '') + ' with historical rates', 'ok');
+      if (S.currentTrip && S.currentTrip.id === tripId) loadExpenses(tripId);
+    })
+    .withFailureHandler(err => {
+      if (btn) { btn.disabled = false; btn.textContent = '↻ Re-rate expenses with historical rates'; }
+      toast('Re-rating failed: ' + err.message, 'err');
+    })
+    .rerateImportedExpenses(tripId);
+}
+
 function tripDays(t) {
   if (!t.startDate || !t.endDate) return 0;
   return Math.round((new Date(t.endDate) - new Date(t.startDate)) / 86400000) + 1;
@@ -1171,18 +1257,68 @@ function tripDays(t) {
 // NEW TRIP FORM
 // =======================================================
 
+var _ctagList = [];
+
 function clearTripForm() {
-  document.getElementById('fTripTitle').value   = '';
-  document.getElementById('fTripCountry').value = '';
-  document.getElementById('fTripStart').value   = '';
-  document.getElementById('fTripEnd').value     = '';
+  document.getElementById('fTripTitle').value = '';
+  _ctagList = [];
+  renderCtags();
+  document.getElementById('ctagInput').value = '';
+  document.getElementById('fTripStart').value = '';
+  document.getElementById('fTripEnd').value   = '';
   document.getElementById('currHint').textContent = '';
+  document.getElementById('tripDrpLabel').textContent = 'Select dates…';
+  document.getElementById('tripDrpLabel').style.color = 'var(--muted)';
 }
 
-function onCountryInput() {
-  const c = document.getElementById('fTripCountry').value;
-  const cur = countryToCur(c);
-  document.getElementById('currHint').textContent = c ? `Default currency: ${cur}` : '';
+function onCtagInput() {
+  const input = document.getElementById('ctagInput');
+  const val = input.value;
+  if (val.endsWith(',')) {
+    const name = val.slice(0, -1).trim();
+    if (name) addCtag(name);
+    input.value = '';
+    return;
+  }
+  _updateCurrHint();
+}
+
+function onCtagKeydown(e) {
+  const input = document.getElementById('ctagInput');
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault();
+    const name = input.value.trim();
+    if (name) addCtag(name);
+    input.value = '';
+  } else if (e.key === 'Backspace' && !input.value && _ctagList.length) {
+    removeCtag(_ctagList.length - 1);
+  }
+}
+
+function addCtag(name) {
+  if (!name || _ctagList.includes(name)) return;
+  _ctagList.push(name);
+  renderCtags();
+  document.getElementById('ctagInput').value = '';
+  _updateCurrHint();
+}
+
+function removeCtag(idx) {
+  _ctagList.splice(idx, 1);
+  renderCtags();
+  _updateCurrHint();
+}
+
+function renderCtags() {
+  document.getElementById('ctagList').innerHTML = _ctagList.map((n, i) =>
+    `<span class="ctag">${esc(n)}<button type="button" onclick="removeCtag(${i})">&#215;</button></span>`
+  ).join('');
+}
+
+function _updateCurrHint() {
+  const first = _ctagList[0] || document.getElementById('ctagInput').value.trim();
+  const cur = countryToCur(first);
+  document.getElementById('currHint').textContent = first ? `Default currency: ${cur}` : '';
 }
 
 function countryToCur(c) {
@@ -1191,15 +1327,18 @@ function countryToCur(c) {
 
 function saveTrip() {
   const title   = document.getElementById('fTripTitle').value.trim();
-  const country = document.getElementById('fTripCountry').value.trim();
-  if (!title || !country) { toast('Please fill in Title and Country', 'err'); return; }
+  // Accept tags, or whatever is still typed in the input
+  const typed = document.getElementById('ctagInput').value.trim();
+  if (typed) addCtag(typed);
+  const country = _ctagList.join(', ');
+  if (!title || !country) { toast('Please fill in Title and Countries', 'err'); return; }
 
   const btn = document.getElementById('saveTripBtn');
   btn.disabled = true; btn.textContent = 'Creating...';
 
   const data = {
     title, country,
-    currency: countryToCur(country),
+    currency: countryToCur(_ctagList[0] || country),
     startDate: document.getElementById('fTripStart').value,
     endDate:   document.getElementById('fTripEnd').value
   };
@@ -1710,6 +1849,150 @@ function doDelTrip(id) {
     })
     .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
     .deleteTrip(id);
+}
+
+// =======================================================
+// DATE RANGE PICKER
+// =======================================================
+
+var _drp = { year: 0, month: 0, from: '', to: '', ctx: '' };
+
+function openDrp(ctx) {
+  _drp.ctx = ctx;
+  const startEl = document.getElementById(ctx === 'edit' ? 'fEditStart' : 'fTripStart');
+  const endEl   = document.getElementById(ctx === 'edit' ? 'fEditEnd'   : 'fTripEnd');
+  _drp.from = (startEl && startEl.value) || '';
+  _drp.to   = (endEl   && endEl.value)   || '';
+  const base = _drp.from ? new Date(_drp.from + 'T12:00:00Z') : new Date();
+  _drp.year  = base.getUTCFullYear();
+  _drp.month = base.getUTCMonth();
+  document.getElementById('drpOverlay').classList.add('open');
+  _renderDrp();
+}
+
+function closeDrp() {
+  document.getElementById('drpOverlay').classList.remove('open');
+}
+
+function drpShiftMonth(delta) {
+  _drp.month += delta;
+  if (_drp.month < 0)  { _drp.month = 11; _drp.year--; }
+  if (_drp.month > 11) { _drp.month = 0;  _drp.year++; }
+  _renderDrp();
+}
+
+function _renderDrp() {
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const DAYS   = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+  document.getElementById('drpMonthLabel').textContent = MONTHS[_drp.month] + ' ' + _drp.year;
+
+  // DOW header (only render once)
+  const dowEl = document.getElementById('drpDow');
+  if (!dowEl.children.length) {
+    dowEl.innerHTML = DAYS.map(d => `<th>${d}</th>`).join('');
+  }
+
+  const firstDay = new Date(Date.UTC(_drp.year, _drp.month, 1)).getUTCDay();
+  const daysInMonth = new Date(Date.UTC(_drp.year, _drp.month + 1, 0)).getUTCDate();
+  const from = _drp.from, to = _drp.to;
+
+  let cells = [], row = [];
+  for (let i = 0; i < firstDay; i++) row.push('<td class="empty"><span class="drp-day empty"></span></td>');
+  for (let d = 1; d <= daysInMonth; d++) {
+    const iso = _drp.year + '-' + String(_drp.month+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+    const isFrom = iso === from, isTo = iso === to;
+    const inRange = from && to && iso > from && iso < to;
+    const cls = [
+      'drp-day',
+      isFrom ? 'sel-from' : '',
+      isTo   ? 'sel-to'   : '',
+      inRange ? 'in-range' : ''
+    ].filter(Boolean).join(' ');
+    const tdCls = inRange||isFrom||isTo ? (iso===from?'range-start':iso===to?'range-end':'') : '';
+    row.push(`<td class="${tdCls}"><button class="${cls}" onclick="drpClickDay('${iso}')">${d}</button></td>`);
+    if (row.length === 7) { cells.push('<tr>' + row.join('') + '</tr>'); row = []; }
+  }
+  while (row.length && row.length < 7) row.push('<td></td>');
+  if (row.length) cells.push('<tr>' + row.join('') + '</tr>');
+  document.getElementById('drpBody').innerHTML = cells.join('');
+
+  const hint = !from ? 'Tap a start date' : (!to ? 'Tap an end date' : (from + ' → ' + to));
+  document.getElementById('drpHint').textContent = hint;
+  document.getElementById('drpConfirmBtn').disabled = !(from && to);
+}
+
+function drpClickDay(iso) {
+  if (!_drp.from || (_drp.from && _drp.to)) {
+    _drp.from = iso; _drp.to = '';
+  } else {
+    if (iso < _drp.from) { _drp.from = iso; _drp.to = ''; }
+    else if (iso === _drp.from) { _drp.from = ''; _drp.to = ''; }
+    else { _drp.to = iso; }
+  }
+  _renderDrp();
+}
+
+function drpConfirm() {
+  const startId = _drp.ctx === 'edit' ? 'fEditStart' : 'fTripStart';
+  const endId   = _drp.ctx === 'edit' ? 'fEditEnd'   : 'fTripEnd';
+  document.getElementById(startId).value = _drp.from;
+  document.getElementById(endId).value   = _drp.to;
+  const label = _drp.from + ' → ' + _drp.to;
+  if (_drp.ctx === 'edit') {
+    const el = document.getElementById('editDrpLabel');
+    if (el) { el.textContent = label; el.style.color = 'var(--text)'; }
+  } else {
+    const el = document.getElementById('tripDrpLabel');
+    if (el) { el.textContent = label; el.style.color = 'var(--text)'; }
+  }
+  closeDrp();
+}
+
+// =======================================================
+// COUNTRY / MAP HELPERS
+// =======================================================
+
+const COUNTRY_ISO = {
+  'austria':'at','czech republic':'cz','czechia':'cz','germany':'de','france':'fr',
+  'italy':'it','spain':'es','portugal':'pt','greece':'gr','netherlands':'nl',
+  'belgium':'be','switzerland':'ch','poland':'pl','hungary':'hu','croatia':'hr',
+  'slovenia':'si','slovakia':'sk','israel':'il','united states':'us','usa':'us',
+  'united kingdom':'gb','uk':'gb','japan':'jp','thailand':'th','turkey':'tr',
+  'egypt':'eg','norway':'no','sweden':'se','denmark':'dk','finland':'fi',
+  'ireland':'ie','romania':'ro','bulgaria':'bg','australia':'au','new zealand':'nz',
+  'canada':'ca','mexico':'mx','brazil':'br','india':'in','china':'cn',
+  'singapore':'sg','jordan':'jo','uae':'ae','iceland':'is','georgia':'ge',
+  'serbia':'rs','albania':'al','north macedonia':'mk','montenegro':'me'
+};
+
+const COUNTRY_CENTERS = {
+  'austria':{lat:47.5,lng:14.5},'czech republic':{lat:49.8,lng:15.5},'czechia':{lat:49.8,lng:15.5},
+  'germany':{lat:51.2,lng:10.5},'france':{lat:46.2,lng:2.2},'italy':{lat:42.8,lng:12.8},
+  'spain':{lat:40.4,lng:-3.7},'portugal':{lat:39.6,lng:-8.0},'greece':{lat:39.1,lng:21.8},
+  'netherlands':{lat:52.3,lng:5.3},'belgium':{lat:50.5,lng:4.5},'switzerland':{lat:46.8,lng:8.2},
+  'poland':{lat:52.1,lng:19.4},'hungary':{lat:47.2,lng:19.4},'croatia':{lat:45.2,lng:16.4},
+  'slovenia':{lat:46.1,lng:14.8},'slovakia':{lat:48.7,lng:19.7},'israel':{lat:31.5,lng:34.8},
+  'united states':{lat:39.5,lng:-98.4},'usa':{lat:39.5,lng:-98.4},
+  'united kingdom':{lat:54.4,lng:-2.0},'uk':{lat:54.4,lng:-2.0},
+  'japan':{lat:36.2,lng:138.3},'thailand':{lat:13.0,lng:101.0},'turkey':{lat:39.0,lng:35.0},
+  'egypt':{lat:26.8,lng:30.8},'norway':{lat:64.5,lng:17.9},'sweden':{lat:62.0,lng:15.6},
+  'denmark':{lat:56.3,lng:9.5},'finland':{lat:64.9,lng:26.0},'ireland':{lat:53.4,lng:-8.2},
+  'romania':{lat:45.9,lng:24.9},'bulgaria':{lat:42.7,lng:25.5},'australia':{lat:-25.3,lng:133.8},
+  'new zealand':{lat:-40.9,lng:174.9},'canada':{lat:56.1,lng:-106.3},'mexico':{lat:23.6,lng:-102.6},
+  'georgia':{lat:42.3,lng:43.4},'iceland':{lat:64.9,lng:-19.0}
+};
+
+function _getTripCountryCodes() {
+  if (!S.currentTrip) return '';
+  return S.currentTrip.country.split(',')
+    .map(c => COUNTRY_ISO[c.trim().toLowerCase()])
+    .filter(Boolean).join(',');
+}
+
+function _getTripCountryCenter() {
+  if (!S.currentTrip) return null;
+  const first = S.currentTrip.country.split(',')[0].trim().toLowerCase();
+  return COUNTRY_CENTERS[first] || null;
 }
 
 // =======================================================
@@ -2892,8 +3175,13 @@ function openMapPicker(context) {
         if (_mpMarker) { _mpMarker.remove(); _mpMarker = null; }
       }
       var _ctxCoords = (_mpContext === 'planner') ? S.planGpsCoords : S.gpsCoords;
-      var center = _ctxCoords || { lat: 30, lng: 20 };
-      _mpMap.setView([center.lat, center.lng], _ctxCoords ? 13 : 2);
+      var _ctxSource = (_mpContext === 'planner') ? S.planGpsSource : S.gpsSource;
+      // For planner: only use stored coords if the user deliberately set them (not auto-GPS)
+      var intentional = _ctxCoords && (_ctxSource === 'manual' || _ctxSource === 'nominatim' || _ctxSource === 'saved');
+      var countryCenter = (!intentional && _mpContext === 'planner') ? _getTripCountryCenter() : null;
+      var center = intentional ? _ctxCoords : (countryCenter || { lat: 30, lng: 20 });
+      var zoom   = intentional ? 13 : (countryCenter ? 7 : 2);
+      _mpMap.setView([center.lat, center.lng], zoom);
       _mpMap.invalidateSize();
     });
   }, 120);
@@ -3500,18 +3788,38 @@ function fetchPlanNearbySuggestions() {
 }
 
 function searchPlanByName(q) {
-  let url = 'https://nominatim.openstreetmap.org/search?format=json&limit=8&q=' + encodeURIComponent(q);
-  fetch(url, { headers: { 'Accept-Language': 'en' } })
+  const codes = _getTripCountryCodes();
+  const nom = 'https://nominatim.openstreetmap.org/search?format=json&limit=15&q=';
+  const cc  = codes ? '&countrycodes=' + codes : '';
+  const toItems = raw => (raw || []).map(p => ({
+    place_id: p.place_id,
+    name: p.display_name.split(',')[0],
+    sub:  p.display_name.split(',').slice(1, 3).join(',').trim(),
+    lat:  parseFloat(p.lat),
+    lng:  parseFloat(p.lon)
+  }));
+  const merge = (base, extra) => {
+    const seen = new Set(base.map(p => p.place_id));
+    extra.forEach(p => { if (!seen.has(p.place_id)) base.push(p); });
+    return base;
+  };
+  const show = items => items.length ? showPlanSuggestions(items.slice(0, 8)) : hidePlanSuggestions();
+
+  fetch(nom + encodeURIComponent(q) + cc, { headers: { 'Accept-Language': 'en' } })
   .then(r => r.json())
   .then(data => {
-    const items = (data || []).slice(0, 8).map(p => ({
-      name: p.display_name.split(',')[0],
-      sub:  p.display_name.split(',').slice(1, 3).join(',').trim(),
-      lat:  parseFloat(p.lat),
-      lng:  parseFloat(p.lon)
-    }));
-    if (items.length) showPlanSuggestions(items);
-    else hidePlanSuggestions();
+    const results = toItems(data);
+    const words = q.trim().split(/\s+/);
+    if (results.length < 3 && words.length > 1) {
+      // Multi-word query with few matches: retry with first word only.
+      // e.g. "Prachov Rocks" → "Prachov" surfaces "Prachovské skály" which contains "Prachov"
+      fetch(nom + encodeURIComponent(words[0]) + cc, { headers: { 'Accept-Language': 'en' } })
+      .then(r => r.json())
+      .then(d2 => show(merge(results, toItems(d2))))
+      .catch(() => show(results));
+    } else {
+      show(results);
+    }
   })
   .catch(() => hidePlanSuggestions());
 }

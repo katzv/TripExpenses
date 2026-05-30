@@ -72,7 +72,7 @@ Stored as `{id → entry}` object (not array) to give O(1) lookup/update/delete 
 ### Trips
 - `getTrips()` — returns array of trip objects
 - `createTrip(d)` — creates trip with `{id, title, country, currency, startDate, endDate, createdAt}`, returns `{success, id}`
-- `updateTrip(d)` — updates `title`, `startDate`, `endDate` for trip by id
+- `updateTrip(d)` — updates `title`, `country`, `startDate`, `endDate` for trip by id; preserves existing `country` if `d.country` is empty
 - `deleteTrip(id)` — deletes trip, its expenses (`exp_{id}`), its check-ins (`checkins_{id}`), its calendar descriptions (`caldesc_{id}`), and its plan data (`plan_{id}`)
 
 ### Calendar Day Descriptions
@@ -109,10 +109,10 @@ Stored as `{id → entry}` object (not array) to give O(1) lookup/update/delete 
 ### Report
 - `getReport(tripId)` — returns `{trip, days, expenseCount, categories, totalILS, totalUSD, totalEUR, ratesDate}`. Each category has `{type, count, totalILS, totalUSD, totalEUR}`.
 
-### JSON Import (new)
-- `importFromJson(data)` — validates `{title, country, expenses[]}`, fetches today's exchange rate once per unique non-ILS currency (via `getExchangeRate`), creates a new trip and all expenses
-  - Each imported expense stored with the standard expense schema; `rateSource` set to `'import'`
-  - Returns `{ imported, skipped, trips }`
+### JSON Import / Historical Rates
+- `_buildRateFetcher(currencies, startDate, endDate)` — shared rate-fetch helper; makes one date-range API call per currency (`startDate..endDate` via frankfurter.app) covering the trip duration; results cached in memory. Returns a `getRate(cur, dateStr)` closure: for in-range dates it looks up the nearest prior ECB business day in the range map; for out-of-range dates (pre-trip bookings) it falls back to individual `getExchangeRate` calls, deduplicated by `cur|dateStr` key.
+- `importFromJson(data)` — validates `{title, country, expenses[]}`. Calls `_buildRateFetcher(currencies, startDate, endDate)` to fetch historical rates; each expense gets the rate for its specific date. Each imported expense stored with `rateSource: 'historical'` and specific `rateDate`. Returns `{ imported, skipped, trips }`.
+- `rerateImportedExpenses(tripId)` — re-rates all non-ILS expenses for an existing trip using the same `_buildRateFetcher` logic. Reads trip `startDate`/`endDate`, fetches historical per-date rates, updates `amountILS`, `rate`, `rateDate`, `rateSource` on every non-ILS expense, saves, returns `{ success, updated }`.
 
 ### Trip Planner
 - `getPlan(tripId)` — returns `{ bank: [...], assignments: {...} }` or `{ bank: [], assignments: {} }` if none
@@ -245,15 +245,31 @@ Seven views, only one active at a time (CSS `display:none`/`display:block` + `fa
 - Tap anywhere on card → `openTrip(id)` which resets `S.defaultRates = {}`
 
 ### New Trip Form
-- Fields: Title (required), Destination Country (required, with datalist autocomplete), From Date, To Date
-- Country input auto-detects currency: shown as hint below field
+- Fields: Title (required), Countries (required, tag/chip input), Travel Dates (date range picker)
+- **Country tag input**: type a country name and press Enter or comma to add it as a chip; click × on a chip to remove it; `_ctagList` array holds the entries; `addCtag()` / `removeCtag()` / `renderCtags()` manage state; supports multiple countries (e.g. Austria + Czech Republic)
+- First country in `_ctagList` determines default currency via `countryToCur()`; hint shown below field
 - `countryToCur()` maps country name → currency code (39 countries mapped)
+- Travel Dates use the **date range picker** (see below) — hidden inputs `fTripStart` / `fTripEnd` receive the values
 - On create: calls `createTrip`, then re-fetches trips, navigates to `view-trip`
 
 ### Edit Trip
-- Modal with Title, From Date, To Date
-- Optimistic update: reflects immediately in UI, then calls `updateTrip` in background
+- Modal with Title, Countries (plain comma-separated text input), Travel Dates (date range picker)
+- Optimistic update: reflects title, country, and dates immediately in UI, then calls `updateTrip` in background
 - View-aware render: only calls `renderExpenses()` (and updates `hTitle`) if `view-trip` is the active DOM view; otherwise calls `renderTrips()`. This prevents a stale `S.currentTrip` (which persists after going back to the trips list) from routing the re-render to the wrong view.
+- **Re-rate button**: "↻ Re-rate expenses with historical rates" at the bottom of the modal (below Save/Cancel). Calls `rerateImportedExpenses(tripId)`; shows "Fetching historical rates…" while running; on success closes the modal, reloads expenses, and shows a toast with the count of re-rated expenses.
+
+### Date Range Picker
+- Single-window calendar overlay (`#drpOverlay`), fixed full-screen with semi-transparent backdrop
+- State object `_drp = { year, month, from, to, ctx }` — `ctx` is `'trip'` or `'edit'`
+- `openDrp(ctx)` — reads existing start/end from hidden inputs, initializes month to the `from` date (or current month), opens overlay
+- 1st tap on a day sets `_drp.from` (start date); 2nd tap sets `_drp.to` (end date)
+- If 2nd tap is earlier than `from`, resets and sets the tapped day as the new `from`
+- Tapping the current `from` again clears both dates
+- In-range days highlighted with blue fill; `from` and `to` shown as solid circles
+- Confirm button disabled until both `from` and `to` are selected
+- `drpConfirm()` writes values to hidden inputs and updates the display label; `closeDrp()` dismisses without saving
+- Hint text below grid: "Tap a start date" → "Tap an end date" → blank once both selected
+- Navigation: `drpShiftMonth(delta)` moves calendar forward/back one month
 
 ### Import Trip from JSON
 
@@ -268,7 +284,7 @@ Seven views, only one active at a time (CSS `display:none`/`display:block` + `fa
 6. The app fetches today's exchange rate for each non-ILS currency, creates the trip, and imports all expenses. A toast confirms success.
 7. The new trip appears at the top of the Trips list. Tap it to open and review.
 
-> **Note on ILS amounts:** Exchange rates are fetched at import time (today's rate). If the original sheet used rates from the time of travel, the ILS totals may differ. The original `amount` and `currency` of every expense are preserved, so amounts are always correct.
+> **Note on ILS amounts:** Exchange rates are fetched from ECB historical data (via frankfurter.app) at the actual expense date: one range call covers all trip-duration expenses, plus individual calls for pre-trip bookings (flights, insurance, etc.). The original `amount` and `currency` of every expense are always preserved. If you have an existing trip imported before this feature was added, use the **↻ Re-rate** button in Edit Trip to update its ILS amounts with historical rates.
 
 ---
 
@@ -568,7 +584,14 @@ Three tabs: **List**, **Calendar**, **Map**
 - **Bottom bar**: coords display + "✓ Use This Location" confirm button
 - **Context-aware**: `openMapPicker(context)` where context is `'checkin'` (default) or `'planner'`
   - Module-level var `_mpContext` tracks which context opened the picker
-  - Opening centers on `S.planGpsCoords` (planner) or `S.gpsCoords` (checkin) at zoom 13; world view (zoom 2) if none
+  - **Opening center logic (planner context)**:
+    1. Reads stored coords (`S.planGpsCoords`) and source (`S.planGpsSource`)
+    2. Coords are treated as "intentional" only if source is `'manual'`, `'nominatim'`, or `'saved'` — GPS auto-acquired (`'gps'`) is NOT treated as intentional (unreliable when the user just opened the form in their home country)
+    3. If intentional coords exist: center at zoom 13
+    4. If not intentional: call `_getTripCountryCenter()` → center on trip country at zoom 7
+    5. Fallback: `{lat:30, lng:20}` world view at zoom 2
+  - `_getTripCountryCenter()` — reads first country from `S.currentTrip.country`, looks up `COUNTRY_CENTERS` map (40+ entries, country name → `{lat, lng}`); returns `null` if not found
+  - Checkin context: always uses `S.gpsCoords` at zoom 13, or world view if none
   - `confirmMapPin()` routes to `S.planGpsCoords` + `setPlanGpsStatus()` or `S.gpsCoords` + `setGpsStatus()` based on `_mpContext`
 - Tap map → drops/moves marker, updates coords display, enables confirm button
 - Marker is draggable — `dragend` updates coords
@@ -673,7 +696,9 @@ Three tabs: **Bank**, **Calendar**, **Map**
 - After save: calls `loadPlan()` to refresh from server
 
 ### Place Name Autocomplete (Planner)
-- Same mechanisms as Tracker: Overpass nearby (600m, 15 results, `out center`) + Nominatim name search (limit=8, no viewbox)
+- Same mechanisms as Tracker: Overpass nearby (600m, 15 results, `out center`) + Nominatim name search (limit=**15**, no viewbox)
+- **Country-scoped Nominatim search with first-word fallback**: `searchPlanByName()` first searches with `&countrycodes=XX[,YY]` derived from the trip's `country` field via `COUNTRY_ISO` map. If a multi-word query returns fewer than 3 results, a second search using only the first word is fired (same countrycodes) and merged in. This handles natural features whose local names share only a prefix with the English query — e.g. "Prachov Rocks" → first word "Prachov" surfaces "Prachovské skály" (the Czech rock formation) which contains "Prachov". Results are deduped by `place_id`; original results appear first.
+- `_getTripCountryCodes()` — splits `S.currentTrip.country` on commas, maps each to ISO code via `COUNTRY_ISO`, joins with `,`; returns empty string if none found (skips countrycodes param entirely)
 - Separate suggestion element (`#planSuggest`), separate state (`S.planSuggestTimer`)
 - Selecting fills `#planName` and sets `S.planGpsCoords` + status if coords available
 
@@ -725,7 +750,21 @@ Three tabs: **Bank**, **Calendar**, **Map**
 
 ## Supported Countries (COUNTRIES array, 99 entries)
 
-Full list includes Afghanistan through Zimbabwe. Used for `<datalist>` autocomplete on trip creation.
+Full list includes Afghanistan through Zimbabwe. Used for `<datalist>` autocomplete on trip creation (now shown as suggestions in the country tag input).
+
+---
+
+## Country Lookup Maps
+
+### COUNTRY_ISO (40+ entries)
+Maps lowercase country name → ISO 3166-1 alpha-2 code. Used by `_getTripCountryCodes()` to build the Nominatim `countrycodes` parameter.
+
+Examples: `"austria" → "at"`, `"czech republic" → "cz"`, `"greece" → "gr"`, `"israel" → "il"`, `"france" → "fr"`, etc.
+
+### COUNTRY_CENTERS (40+ entries)
+Maps lowercase country name → `{ lat, lng }` geographic center. Used by `_getTripCountryCenter()` to set the default map picker viewport.
+
+Examples: `"austria" → {lat:47.5, lng:14.5}`, `"greece" → {lat:39.0, lng:22.0}`, `"france" → {lat:46.2, lng:2.2}`, etc.
 
 ---
 
@@ -831,3 +870,16 @@ No template literals may contain `<?`, `<![CDATA[`, or `]]>`.
 - English: `['Sun','Mon','Tue','Wed','Thu','Fri','Sat']`
 - Hebrew: `['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','ש׳']`
 - Check-in list date labels show both: `"Sun (יום א׳)"`
+
+---
+
+## Data Files (JSON Import Sources)
+
+Pre-converted trip JSON files stored in the project root for re-import or reference:
+
+| File | Trip | Dates | Expenses | Notes |
+|---|---|---|---|---|
+| `austria_2024.json` | Austria 2024 | Apr 2024 | — | — |
+| `austria_2025.json` | Austria 2025 | Apr 2025 | — | — |
+| `north_italy_2023.json` | North Italy 2023 | Jun 17–Jul 1 2023 | 93 | EUR; pre-trip bookings from Apr 2023 |
+| `greece_peloponnese_2025.json` | Greece, Peloponnese 2025 | Sep 29–Oct 13 2025 | — | EUR + USD + ILS |
