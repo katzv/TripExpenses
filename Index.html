@@ -298,6 +298,7 @@ tbody tr:last-child td { border-bottom: none; }
 .suggest-item { padding: 11px 14px; font-size: 14px; cursor: pointer; border-bottom: 1px solid var(--border); }
 .suggest-item:last-child { border-bottom: none; }
 .suggest-item:hover { background: #F0F4FF; }
+.suggest-item.active { background: #F0F4FF; outline: 2px solid var(--primary); outline-offset: -2px; }
 .suggest-item .si-name { font-weight: 600; }
 .suggest-item .si-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
 .gps-status { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; margin-top: 5px; }
@@ -323,11 +324,9 @@ tbody tr:last-child td { border-bottom: none; }
 .cal-dow-cell { font-weight: 700; white-space: nowrap; color: var(--primary); width: 32px; min-width: 32px; text-align: left; }
 .cal-ci-pill { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; margin: 2px 3px 2px 0; }
 #tracker-map { height: calc(100svh - 130px); min-height: 300px; border-radius: var(--radius); overflow: hidden; }
-.leaflet-popup-content-wrapper { border-radius: 10px !important; box-shadow: 0 4px 16px rgba(0,0,0,0.15) !important; font-family: inherit !important; }
-.leaflet-popup-content { margin: 10px 14px !important; font-size: 13px !important; }
-.leaflet-popup-tip { box-shadow: none !important; }
-.leaflet-control-attribution { font-size: 10px !important; }
-.leaflet-control-zoom a { border-radius: 8px !important; }
+.gm-style .gm-style-iw-c { border-radius: 10px !important; box-shadow: 0 4px 16px rgba(0,0,0,0.15) !important; font-family: inherit !important; max-height: 320px !important; }
+.gm-style .gm-style-iw-d { overflow: auto !important; font-size: 13px !important; max-height: 290px !important; }
+.gm-ui-hover-effect { display: none !important; }
 
 /* ===== 7-COLUMN CALENDAR ===== */
 .cal7-dow-sticky { position: sticky; top: 58px; z-index: 10; overflow: hidden; background: #F8F9FB; }
@@ -573,7 +572,7 @@ td.range-end .drp-day.in-range { border-radius:0 50% 50% 0; }
         <label>Place Name <span class="req">*</span></label>
         <div class="suggest-wrap">
           <input class="fc" id="ciName" type="text" placeholder="Start typing a place name…"
-                 autocomplete="off" oninput="onCiNameInput()" onfocus="onCiNameFocus()">
+                 autocomplete="off" oninput="onCiNameInput()" onfocus="onCiNameFocus()" onkeydown="onCiNameKeydown(event)">
           <div class="suggest-list" id="ciSuggest" style="display:none"></div>
         </div>
         <div class="gps-status" id="gpsStatus">
@@ -650,7 +649,7 @@ td.range-end .drp-day.in-range { border-radius:0 50% 50% 0; }
         <label>Place Name <span class="req">*</span></label>
         <div class="plan-suggest-wrap">
           <input class="fc" id="planName" type="text" placeholder="Search or type a place name…"
-                 autocomplete="off" oninput="onPlanNameInput()" onfocus="onPlanNameFocus()">
+                 autocomplete="off" oninput="onPlanNameInput()" onfocus="onPlanNameFocus()" onkeydown="onPlanNameKeydown(event)">
           <div class="suggest-list" id="planSuggest" style="display:none"></div>
         </div>
         <div class="gps-status" id="planGpsStatus">
@@ -661,7 +660,12 @@ td.range-end .drp-day.in-range { border-radius:0 50% 50% 0; }
       </div>
       <div class="fg" style="margin-bottom:10px">
         <label>Type</label>
-        <select class="fc" id="planType"></select>
+        <div style="position:relative">
+          <input class="fc" id="planTypeInput" type="text" placeholder="Search type…" autocomplete="off"
+                 oninput="_filterPlanTypeList(this.value)" onfocus="_openPlanTypeList()" onkeydown="_planTypeKeydown(event)">
+          <div class="suggest-list" id="planTypeList" style="display:none"></div>
+          <input type="hidden" id="planType" value="">
+        </div>
       </div>
       <div class="fg" style="margin-bottom:12px">
         <label>Description / Notes</label>
@@ -672,12 +676,9 @@ td.range-end .drp-day.in-range { border-radius:0 50% 50% 0; }
       </div>
       <div class="btn-row">
         <button class="btn btn-outline btn-sm" onclick="cancelPlannerForm()">Cancel</button>
+        <button class="btn btn-danger btn-sm" id="planDelBtn" style="display:none"
+                onclick="confirmDeletePlanPlace(S.editingPlaceId)">&#128465; Remove</button>
         <button class="btn btn-accent btn-sm" id="planSaveBtn" onclick="savePlanPlaceUI()">+ Add to Bank</button>
-      </div>
-      <div id="planDelWrap" style="display:none;margin-top:12px">
-        <hr style="border:none;border-top:1px solid var(--border);margin-bottom:12px">
-        <button class="btn btn-danger btn-sm" style="width:auto"
-                onclick="confirmDeletePlanPlace(S.editingPlaceId)">&#128465; Remove from Bank</button>
       </div>
     </div>
 
@@ -738,6 +739,7 @@ td.range-end .drp-day.in-range { border-radius:0 50% 50% 0; }
   </div>
 </div>
 
+<div id="placesServiceDiv" style="display:none"></div>
 <datalist id="dl-currencies"></datalist>
 
 <script>
@@ -958,16 +960,9 @@ function init() {
   });
   // Populate currency dropdowns
   populateCurrSel('fCurrency');
-  // Populate planner type select
-  const planSel = document.getElementById('planType');
-  if (planSel) {
-    Object.keys(PLAN_TYPES).forEach(k => {
-      const o = document.createElement('option');
-      o.value = k;
-      o.textContent = PLAN_TYPES[k].icon + ' ' + PLAN_TYPES[k].label;
-      planSel.appendChild(o);
-    });
-  }
+  // Build sorted planner type list
+  _planTypeKeys = Object.keys(PLAN_TYPES).sort((a, b) => PLAN_TYPES[a].label.localeCompare(PLAN_TYPES[b].label));
+  _selectPlanType(_planTypeKeys[0]);
 
   // Escape key closes DRP overlay first, then modal
   document.addEventListener('keydown', e => {
@@ -985,6 +980,9 @@ function init() {
     if (wrap && !wrap.contains(e.target)) hideSuggestions();
     const pw = document.querySelector('.plan-suggest-wrap');
     if (pw && !pw.contains(e.target)) hidePlanSuggestions();
+    const ptl = document.getElementById('planTypeList');
+    if (ptl && e.target !== document.getElementById('planTypeInput') && !ptl.contains(e.target))
+      ptl.style.display = 'none';
   });
 
   setLoadProgress(25, 'Connecting to server…');
@@ -2519,47 +2517,84 @@ function onCiNameInput() {
   S.suggestTimer = setTimeout(() => searchByName(q), 600);
 }
 
+var _ciSuggestIdx = -1, _planSuggestIdx = -1;
+
+function _navigateSuggest(listId, idx, delta) {
+  const list = document.getElementById(listId);
+  if (!list || list.style.display === 'none') return idx;
+  const items = list.querySelectorAll('.suggest-item');
+  if (!items.length) return idx;
+  items.forEach(el => el.classList.remove('active'));
+  const newIdx = Math.max(-1, Math.min(items.length - 1, idx + delta));
+  if (newIdx >= 0) { items[newIdx].classList.add('active'); items[newIdx].scrollIntoView({ block: 'nearest' }); }
+  return newIdx;
+}
+
+function onCiNameKeydown(e) {
+  const list = document.getElementById('ciSuggest');
+  const open = list && list.style.display !== 'none';
+  if (!open) return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); _ciSuggestIdx = _navigateSuggest('ciSuggest', _ciSuggestIdx, 1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); _ciSuggestIdx = _navigateSuggest('ciSuggest', _ciSuggestIdx, -1); }
+  else if (e.key === 'Enter' && _ciSuggestIdx >= 0) {
+    e.preventDefault();
+    const el = list.querySelectorAll('.suggest-item')[_ciSuggestIdx];
+    if (el) selectSuggestion(el);
+    _ciSuggestIdx = -1;
+  } else if (e.key === 'Escape') { e.stopPropagation(); hideSuggestions(); _ciSuggestIdx = -1; }
+}
+
+function onPlanNameKeydown(e) {
+  const list = document.getElementById('planSuggest');
+  const open = list && list.style.display !== 'none';
+  if (!open) return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); _planSuggestIdx = _navigateSuggest('planSuggest', _planSuggestIdx, 1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); _planSuggestIdx = _navigateSuggest('planSuggest', _planSuggestIdx, -1); }
+  else if (e.key === 'Enter' && _planSuggestIdx >= 0) {
+    e.preventDefault();
+    const el = list.querySelectorAll('.suggest-item')[_planSuggestIdx];
+    if (el) selectPlanSuggestion(el);
+    _planSuggestIdx = -1;
+  } else if (e.key === 'Escape') { e.stopPropagation(); hidePlanSuggestions(); _planSuggestIdx = -1; }
+}
+
 function fetchNearbySuggestions() {
   if (!S.gpsCoords) return;
   const { lat, lng } = S.gpsCoords;
-  const query = `[out:json][timeout:10];(node["name"](around:600,${lat},${lng});way["name"](around:600,${lat},${lng});)->.a;.a out center tags 15;`;
-  fetch('https://overpass-api.de/api/interpreter', {
-    method: 'POST', body: 'data=' + encodeURIComponent(query)
-  })
-  .then(r => r.json())
-  .then(data => {
-    const items = (data.elements || [])
-      .filter(el => el.tags && el.tags.name)
-      .slice(0, 8)
-      .map(el => ({
-        name: el.tags.name,
-        sub:  el.tags.amenity || el.tags.tourism || el.tags.place || el.tags.shop || '',
-        lat:  el.lat || (el.center && el.center.lat) || null,
-        lng:  el.lon || (el.center && el.center.lon) || null
+  loadGoogleMaps(() => {
+    const svc = _getPlacesService();
+    if (!svc) return;
+    svc.nearbySearch({ location: { lat, lng }, radius: 600 }, (results, status) => {
+      if (status !== google.maps.places.PlacesServiceStatus.OK || !results) return;
+      const items = results.slice(0, 8).map(r => ({
+        place_id: r.place_id,
+        name: r.name,
+        sub: (r.types || []).slice(0, 2).join(', ').replace(/_/g, ' '),
+        lat: r.geometry.location.lat(), lng: r.geometry.location.lng()
       }));
-    if (items.length) showSuggestions(items);
-  })
-  .catch(() => {});
+      if (items.length) showSuggestions(items);
+    });
+  });
 }
 
 function searchByName(q) {
-  let url = 'https://nominatim.openstreetmap.org/search?format=json&limit=8&q=' + encodeURIComponent(q);
-  fetch(url, { headers: { 'Accept-Language': 'en' } })
-  .then(r => r.json())
-  .then(data => {
-    const items = (data || []).slice(0, 8).map(p => ({
-      name: p.display_name.split(',')[0],
-      sub:  p.display_name.split(',').slice(1, 3).join(',').trim(),
-      lat:  parseFloat(p.lat),
-      lng:  parseFloat(p.lon)
-    }));
-    if (items.length) showSuggestions(items);
-    else hideSuggestions();
-  })
-  .catch(() => hideSuggestions());
+  loadGoogleMaps(() => {
+    const svc = new google.maps.places.AutocompleteService();
+    svc.getPlacePredictions({ input: q, sessionToken: _trackerToken(), language: 'en' }, (predictions, status) => {
+      if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions) { hideSuggestions(); return; }
+      const items = predictions.slice(0, 8).map(p => ({
+        place_id: p.place_id,
+        name: p.structured_formatting.main_text,
+        sub: p.structured_formatting.secondary_text || '',
+        lat: null, lng: null
+      }));
+      showSuggestions(items);
+    });
+  });
 }
 
 function showSuggestions(items) {
+  _ciSuggestIdx = -1;
   const list = document.getElementById('ciSuggest');
   if (!list) return;
   list.innerHTML = items.map(item => `
@@ -2567,6 +2602,7 @@ function showSuggestions(items) {
          data-name="${esc(item.name)}"
          data-lat="${item.lat || ''}"
          data-lng="${item.lng || ''}"
+         data-place-id="${item.place_id || ''}"
          onclick="selectSuggestion(this)">
       <div class="si-name">${esc(item.name)}</div>
       ${item.sub ? `<div class="si-sub">${esc(item.sub)}</div>` : ''}
@@ -2575,6 +2611,7 @@ function showSuggestions(items) {
 }
 
 function hideSuggestions() {
+  _ciSuggestIdx = -1;
   const list = document.getElementById('ciSuggest');
   if (list) list.style.display = 'none';
 }
@@ -2583,13 +2620,25 @@ function selectSuggestion(el) {
   const name = el.getAttribute('data-name');
   const lat  = parseFloat(el.getAttribute('data-lat')) || null;
   const lng  = parseFloat(el.getAttribute('data-lng')) || null;
+  const placeId = el.getAttribute('data-place-id');
   document.getElementById('ciName').value = name;
+  hideSuggestions();
   if (lat && lng) {
     S.gpsCoords = { lat, lng };
     S.gpsSource = 'nominatim';
     setGpsStatus('ok', 'Location: ' + lat.toFixed(5) + ', ' + lng.toFixed(5));
+  } else if (placeId && window.google) {
+    setGpsStatus('spin', 'Getting location...');
+    _getPlacesService().getDetails({ placeId, fields: ['geometry'], sessionToken: _trackerToken() }, (place, status) => {
+      _trackerAcToken = null;
+      if (status === 'OK' && place.geometry) {
+        const loc = place.geometry.location;
+        S.gpsCoords = { lat: loc.lat(), lng: loc.lng() };
+        S.gpsSource = 'nominatim';
+        setGpsStatus('ok', 'Location: ' + S.gpsCoords.lat.toFixed(5) + ', ' + S.gpsCoords.lng.toFixed(5));
+      } else { setGpsStatus('err', 'Could not get location — pick on map'); }
+    });
   }
-  hideSuggestions();
 }
 
 function saveCheckinUI() {
@@ -3059,23 +3108,43 @@ function loadChartJs(cb) {
   document.head.appendChild(script);
 }
 
-function loadLeaflet(cb) {
-  if (window.L) { cb(); return; }
-  if (!document.getElementById('leaflet-css')) {
-    const link = document.createElement('link');
-    link.id = 'leaflet-css';
-    link.rel = 'stylesheet';
-    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-    document.head.appendChild(link);
-  }
-  const script = document.createElement('script');
-  script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-  script.onload = cb;
-  script.onerror = () => {
-    const c = document.getElementById('tracker-map');
+var _gmapsLoaded = false, _gmapsCallbacks = [];
+function loadGoogleMaps(cb) {
+  if (window.google && window.google.maps && window.google.maps.places) { cb(); return; }
+  _gmapsCallbacks.push(cb);
+  if (_gmapsLoaded) return;
+  _gmapsLoaded = true;
+  window._gmapsReady = function() {
+    var cbs = _gmapsCallbacks.slice(); _gmapsCallbacks = [];
+    cbs.forEach(function(fn) { fn(); });
+  };
+  var s = document.createElement('script');
+  s.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyD_DRzG7TqWgNiQMdeyOzk4MLW2pezem6U&libraries=places&callback=_gmapsReady';
+  s.async = true;
+  s.onerror = function() {
+    var c = document.getElementById('tracker-map');
     if (c) c.innerHTML = '<div style="padding:20px;color:var(--danger)">Could not load map library</div>';
   };
-  document.head.appendChild(script);
+  document.head.appendChild(s);
+}
+
+var _placesService = null;
+function _getPlacesService() {
+  if (!_placesService && window.google && google.maps)
+    _placesService = new google.maps.places.PlacesService(document.getElementById('placesServiceDiv'));
+  return _placesService;
+}
+
+var _trackerAcToken = null, _plannerAcToken = null;
+function _trackerToken() {
+  if (!_trackerAcToken && window.google && google.maps)
+    _trackerAcToken = new google.maps.places.AutocompleteSessionToken();
+  return _trackerAcToken;
+}
+function _plannerToken() {
+  if (!_plannerAcToken && window.google && google.maps)
+    _plannerAcToken = new google.maps.places.AutocompleteSessionToken();
+  return _plannerAcToken;
 }
 
 function initTrackerMap() {
@@ -3083,59 +3152,58 @@ function initTrackerMap() {
   if (!container) return;
   const withGPS = S.checkins.filter(c => c.lat && c.lng);
   if (!withGPS.length) {
-    if (S.leafletMap) { S.leafletMap.remove(); S.leafletMap = null; S.leafletMarkers = []; S._routeLine = null; }
+    if (S.leafletMap) { (S.leafletMarkers || []).forEach(m => m.setMap(null)); S.leafletMarkers = []; if (S._routeLine) { S._routeLine.setMap(null); S._routeLine = null; } S.leafletMap = null; }
     container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:14px;padding:20px">No GPS data yet</div>';
     return;
   }
   if (!S.leafletMap) {
     container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:13px">Loading map…</div>';
   }
-  loadLeaflet(() => _renderLeafletMap());
+  loadGoogleMaps(() => _renderLeafletMap());
 }
 
 function _renderLeafletMap() {
   const container = document.getElementById('tracker-map');
   if (!container) return;
-  // Sort check-ins by timestamp for route line
   const withGPS = [...S.checkins].filter(c => c.lat && c.lng).sort((a, b) => a.timestamp < b.timestamp ? -1 : 1);
-  if (S.leafletMap) {
-    S.leafletMarkers.forEach(m => m.remove());
-    S.leafletMarkers = [];
-    if (S._routeLine) { S._routeLine.remove(); S._routeLine = null; }
-    S.leafletMap.invalidateSize();
-  } else {
+  (S.leafletMarkers || []).forEach(m => m.setMap(null));
+  S.leafletMarkers = [];
+  if (S._routeLine) { S._routeLine.setMap(null); S._routeLine = null; }
+  if (!S.leafletMap) {
     container.innerHTML = '';
-    S.leafletMap = L.map('tracker-map', { zoomControl: true });
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      attribution: '© OpenStreetMap © CARTO',
-      subdomains: 'abcd', maxZoom: 19
-    }).addTo(S.leafletMap);
-  }
-
-  // Route polyline connecting check-ins in chronological order
-  if (withGPS.length > 1) {
-    S._routeLine = L.polyline(withGPS.map(c => [c.lat, c.lng]), {
-      color: '#1565C0', weight: 2.5, opacity: 0.55, dashArray: '6 5'
-    }).addTo(S.leafletMap);
-  }
-
-  const bounds = [];
-  withGPS.forEach((c, i) => {
-    const col  = CI_COLORS[c.type] || '#9E9E9E';
-    const seq  = i + 1;
-    const icon = L.divIcon({
-      html: `<div style="background:${col};color:#fff;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;border:2.5px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.22);position:relative">${CI_ICONS[c.type] || '📌'}<span style="position:absolute;top:-5px;right:-5px;background:#fff;color:${col};font-size:10px;font-weight:800;border-radius:50%;width:16px;height:16px;display:flex;align-items:center;justify-content:center;line-height:1">${seq}</span></div>`,
-      className: '', iconSize: [34, 34], iconAnchor: [17, 17]
+    S.leafletMap = new google.maps.Map(container, {
+      center: { lat: parseFloat(withGPS[0].lat), lng: parseFloat(withGPS[0].lng) },
+      zoom: 10, mapTypeControl: false, streetViewControl: false, fullscreenControl: false, gestureHandling: 'greedy'
     });
-    const popup = L.popup({ offset: [0, -14], closeButton: false }).setContent(
-      '<div style="font-weight:700;font-size:13px;margin-bottom:3px">' + esc(c.name) + '</div>' +
-      '<div style="font-size:11px;color:#6B7280">' + (CI_ICONS[c.type] || '') + ' ' + c.type + ' \u00b7 ' + fmtCheckinTime(c.timestamp) + '</div>'
-    );
-    const marker = L.marker([c.lat, c.lng], { icon }).addTo(S.leafletMap).bindPopup(popup);
+  }
+  if (withGPS.length > 1) {
+    S._routeLine = new google.maps.Polyline({
+      path: withGPS.map(c => ({ lat: parseFloat(c.lat), lng: parseFloat(c.lng) })),
+      strokeColor: '#1565C0', strokeOpacity: 0.55, strokeWeight: 2.5, map: S.leafletMap
+    });
+  }
+  const infoWindow = new google.maps.InfoWindow();
+  const bounds = new google.maps.LatLngBounds();
+  withGPS.forEach((c, i) => {
+    const col = CI_COLORS[c.type] || '#9E9E9E';
+    const marker = new google.maps.Marker({
+      position: { lat: parseFloat(c.lat), lng: parseFloat(c.lng) },
+      map: S.leafletMap,
+      icon: { path: google.maps.SymbolPath.CIRCLE, fillColor: col, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2.5, scale: 14 },
+      label: { text: String(i + 1), color: '#fff', fontSize: '11px', fontWeight: '700' },
+      title: c.name
+    });
+    marker.addListener('click', () => {
+      infoWindow.setContent('<div style="font-weight:700;font-size:13px;margin-bottom:3px">' + esc(c.name) + '</div><div style="font-size:11px;color:#6B7280">' + (CI_ICONS[c.type] || '') + ' ' + c.type + ' · ' + fmtCheckinTime(c.timestamp) + '</div>');
+      infoWindow.open(S.leafletMap, marker);
+    });
     S.leafletMarkers.push(marker);
-    bounds.push([c.lat, c.lng]);
+    bounds.extend({ lat: parseFloat(c.lat), lng: parseFloat(c.lng) });
   });
-  S.leafletMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+  S.leafletMap.fitBounds(bounds);
+  google.maps.event.addListenerOnce(S.leafletMap, 'bounds_changed', () => {
+    if (S.leafletMap.getZoom() > 14) S.leafletMap.setZoom(14);
+  });
 }
 
 // =======================================================
@@ -3151,38 +3219,37 @@ function openMapPicker(context) {
   ov.style.display = 'flex';
   _updateMpCoords();
   setTimeout(function() {
-    loadLeaflet(function() {
+    loadGoogleMaps(function() {
       if (!_mpMap) {
-        _mpMap = L.map('mapPicker', { zoomControl: true });
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-          attribution: '\u00a9 OpenStreetMap \u00a9 CARTO', subdomains: 'abcd', maxZoom: 19
-        }).addTo(_mpMap);
-        _mpMap.on('click', function(e) {
-          _mpCoords = { lat: e.latlng.lat, lng: e.latlng.lng };
+        _mpMap = new google.maps.Map(document.getElementById('mapPicker'), {
+          zoom: 2, center: { lat: 30, lng: 20 },
+          mapTypeControl: false, streetViewControl: false, fullscreenControl: false, gestureHandling: 'greedy'
+        });
+        _mpMap.addListener('click', function(e) {
+          _mpCoords = { lat: e.latLng.lat(), lng: e.latLng.lng() };
           if (_mpMarker) {
-            _mpMarker.setLatLng(e.latlng);
+            _mpMarker.setPosition(e.latLng);
           } else {
-            _mpMarker = L.marker(e.latlng, { draggable: true }).addTo(_mpMap);
-            _mpMarker.on('dragend', function(ev) {
-              var ll = ev.target.getLatLng();
-              _mpCoords = { lat: ll.lat, lng: ll.lng };
+            _mpMarker = new google.maps.Marker({ position: e.latLng, map: _mpMap, draggable: true });
+            _mpMarker.addListener('dragend', function() {
+              var pos = _mpMarker.getPosition();
+              _mpCoords = { lat: pos.lat(), lng: pos.lng() };
               _updateMpCoords();
             });
           }
           _updateMpCoords();
         });
       } else {
-        if (_mpMarker) { _mpMarker.remove(); _mpMarker = null; }
+        if (_mpMarker) { _mpMarker.setMap(null); _mpMarker = null; }
       }
       var _ctxCoords = (_mpContext === 'planner') ? S.planGpsCoords : S.gpsCoords;
       var _ctxSource = (_mpContext === 'planner') ? S.planGpsSource : S.gpsSource;
-      // For planner: only use stored coords if the user deliberately set them (not auto-GPS)
       var intentional = _ctxCoords && (_ctxSource === 'manual' || _ctxSource === 'nominatim' || _ctxSource === 'saved');
       var countryCenter = (!intentional && _mpContext === 'planner') ? _getTripCountryCenter() : null;
       var center = intentional ? _ctxCoords : (countryCenter || { lat: 30, lng: 20 });
       var zoom   = intentional ? 13 : (countryCenter ? 7 : 2);
-      _mpMap.setView([center.lat, center.lng], zoom);
-      _mpMap.invalidateSize();
+      _mpMap.setCenter({ lat: center.lat, lng: center.lng });
+      _mpMap.setZoom(zoom);
     });
   }, 120);
 }
@@ -3215,28 +3282,28 @@ function confirmMapPin() {
 function useMyLocationInPicker() {
   const btn = document.getElementById('myLocBtn');
   if (!navigator.geolocation) { toast('GPS not available on this device', 'err'); return; }
-  if (btn) { btn.disabled = true; btn.textContent = 'Locating…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Locating...'; }
   navigator.geolocation.getCurrentPosition(
     function(pos) {
       const lat = pos.coords.latitude, lng = pos.coords.longitude;
       _mpCoords = { lat: lat, lng: lng };
-      var ll = L.latLng(lat, lng);
-      _mpMap.setView(ll, 15);
+      _mpMap.setCenter({ lat: lat, lng: lng });
+      _mpMap.setZoom(15);
       if (_mpMarker) {
-        _mpMarker.setLatLng(ll);
+        _mpMarker.setPosition({ lat: lat, lng: lng });
       } else {
-        _mpMarker = L.marker(ll, { draggable: true }).addTo(_mpMap);
-        _mpMarker.on('dragend', function(ev) {
-          var ll2 = ev.target.getLatLng();
-          _mpCoords = { lat: ll2.lat, lng: ll2.lng };
+        _mpMarker = new google.maps.Marker({ position: { lat: lat, lng: lng }, map: _mpMap, draggable: true });
+        _mpMarker.addListener('dragend', function() {
+          var p = _mpMarker.getPosition();
+          _mpCoords = { lat: p.lat(), lng: p.lng() };
           _updateMpCoords();
         });
       }
       _updateMpCoords();
-      if (btn) { btn.disabled = false; btn.textContent = '\uD83C\uDF0D My Location'; }
+      if (btn) { btn.disabled = false; btn.textContent = '🌍 My Location'; }
     },
     function() {
-      if (btn) { btn.disabled = false; btn.textContent = '\uD83C\uDF0D My Location'; }
+      if (btn) { btn.disabled = false; btn.textContent = '🌍 My Location'; }
       toast('GPS unavailable — tap the map to place a pin', 'err');
     },
     { enableHighAccuracy: true, timeout: 10000 }
@@ -3285,11 +3352,11 @@ function showPlannerForm() {
   S.planGpsCoords = null;
   S.planGpsSource = 'none';
   document.getElementById('planName').value = '';
-  document.getElementById('planType').selectedIndex = 0;
+  _selectPlanType(_planTypeKeys[0] || '');
   document.getElementById('planDesc').value = '';
   setPlanGpsStatus('spin', 'Acquiring GPS…');
   document.getElementById('planSaveBtn').textContent = '+ Add to Bank';
-  document.getElementById('planDelWrap').style.display = 'none';
+  document.getElementById('planDelBtn').style.display = 'none';
   document.getElementById('plan-form-wrap').style.display = 'block';
   S._planFormVisible = true;
   acquirePlanGPS();
@@ -3356,7 +3423,7 @@ function editPlanPlace(id) {
   S.planGpsCoords = (p.lat && p.lng) ? { lat: parseFloat(p.lat), lng: parseFloat(p.lng) } : null;
   S.planGpsSource = S.planGpsCoords ? 'saved' : 'none';
   document.getElementById('planName').value = p.name || '';
-  document.getElementById('planType').value = p.type || Object.keys(PLAN_TYPES)[0];
+  _selectPlanType(p.type || _planTypeKeys[0] || '');
   document.getElementById('planDesc').value = p.description || '';
   if (S.planGpsCoords) {
     setPlanGpsStatus('ok', 'Location: ' + S.planGpsCoords.lat.toFixed(5) + ', ' + S.planGpsCoords.lng.toFixed(5));
@@ -3364,7 +3431,7 @@ function editPlanPlace(id) {
     setPlanGpsStatus('err', 'No location — pick on map or skip');
   }
   document.getElementById('planSaveBtn').textContent = '✓ Save Changes';
-  document.getElementById('planDelWrap').style.display = 'block';
+  document.getElementById('planDelBtn').style.display = 'block';
   document.getElementById('plan-form-wrap').style.display = 'block';
   S._planFormVisible = true;
   setTimeout(() => {
@@ -3620,7 +3687,7 @@ function removePlaceFromDayUI(dateStr, placeId) {
 function openDayPickerForPlace(placeId) {
   const p = S.planBank.find(x => x.id === placeId);
   if (!p) return;
-  if (S.plannerMap) S.plannerMap.closePopup();
+  if (S._planInfoWindow) S._planInfoWindow.close();
 
   const start = S.currentTrip.startDate;
   const end   = S.currentTrip.endDate;
@@ -3685,43 +3752,45 @@ function initPlannerMap() {
   if (!container) return;
   const withGPS = S.planBank.filter(p => p.lat && p.lng);
   if (!withGPS.length) {
-    if (S.plannerMap) { S.plannerMap.remove(); S.plannerMap = null; S.plannerMarkers = []; }
+    if (S.plannerMap) { (S.plannerMarkers || []).forEach(m => m.setMap(null)); S.plannerMarkers = []; S.plannerMap = null; }
     container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:14px;padding:20px">No places with GPS data yet</div>';
     return;
   }
   if (!S.plannerMap) {
-    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:13px">Loading map…</div>';
+    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:13px">Loading map...</div>';
   }
-  loadLeaflet(() => _renderPlannerLeaflet());
+  loadGoogleMaps(() => _renderPlannerLeaflet());
 }
 
 function _renderPlannerLeaflet() {
   const container = document.getElementById('planner-map');
   if (!container) return;
   const withGPS = S.planBank.filter(p => p.lat && p.lng);
-  if (S.plannerMap) {
-    S.plannerMarkers.forEach(m => m.remove());
-    S.plannerMarkers = [];
-    S.plannerMap.invalidateSize();
-  } else {
+  (S.plannerMarkers || []).forEach(m => m.setMap(null));
+  S.plannerMarkers = [];
+  if (!S.plannerMap) {
     container.innerHTML = '';
-    S.plannerMap = L.map('planner-map', { zoomControl: true });
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      attribution: '© OpenStreetMap © CARTO',
-      subdomains: 'abcd', maxZoom: 19
-    }).addTo(S.plannerMap);
+    S.plannerMap = new google.maps.Map(container, {
+      center: { lat: parseFloat(withGPS[0].lat), lng: parseFloat(withGPS[0].lng) },
+      zoom: 10, mapTypeControl: false, streetViewControl: false, fullscreenControl: false, gestureHandling: 'greedy'
+    });
   }
-  const bounds = [];
+  S._planInfoWindow = new google.maps.InfoWindow({ maxWidth: 240 });
+  const infoWindow = S._planInfoWindow;
+  const bounds = new google.maps.LatLngBounds();
   withGPS.forEach(p => {
     const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E', label: p.type };
-    const icon = L.divIcon({
-      html: '<div style="background:' + t.color + ';color:#fff;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;border:2.5px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.22)">' + t.icon + '</div>',
-      className: '', iconSize: [34, 34], iconAnchor: [17, 17]
+    const marker = new google.maps.Marker({
+      position: { lat: parseFloat(p.lat), lng: parseFloat(p.lng) },
+      map: S.plannerMap,
+      icon: { path: google.maps.SymbolPath.CIRCLE, fillColor: t.color, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2.5, scale: 14 },
+      label: { text: t.icon, color: '#fff', fontSize: '13px' },
+      title: p.name
     });
-    const descSnippet = p.description
-      ? '<div style="font-size:11px;color:#1A1A2E;margin-top:4px;max-width:200px;word-break:break-word" dir="auto">' + esc(p.description.substring(0, 120)) + (p.description.length > 120 ? '…' : '') + '</div>'
-      : '';
     const buildPopupContent = () => {
+      const descSnippet = p.description
+        ? '<div style="font-size:11px;color:#1A1A2E;margin-top:4px;max-width:200px;word-break:break-word" dir="auto">' + esc(p.description.substring(0, 120)) + (p.description.length > 120 ? '...' : '') + '</div>'
+        : '';
       const curAssigned = Object.keys(S.planAssignments)
         .filter(ds => (S.planAssignments[ds] || []).indexOf(p.id) !== -1)
         .sort();
@@ -3737,13 +3806,17 @@ function _renderPlannerLeaflet() {
         descSnippet + assignedHtml +
         '<button onclick="openDayPickerForPlace(\'' + p.id + '\')" style="margin-top:8px;width:100%;padding:5px 8px;background:var(--primary);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">📅 Assign to Day</button>';
     };
-    const popup = L.popup({ offset: [0, -14], closeButton: false, minWidth: 210 }).setContent(buildPopupContent());
-    const marker = L.marker([p.lat, p.lng], { icon }).addTo(S.plannerMap).bindPopup(popup);
-    marker.on('popupopen', function() { marker.getPopup().setContent(buildPopupContent()); });
+    marker.addListener('click', () => {
+      infoWindow.setContent(buildPopupContent());
+      infoWindow.open(S.plannerMap, marker);
+    });
     S.plannerMarkers.push(marker);
-    bounds.push([p.lat, p.lng]);
+    bounds.extend({ lat: parseFloat(p.lat), lng: parseFloat(p.lng) });
   });
-  S.plannerMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+  S.plannerMap.fitBounds(bounds);
+  google.maps.event.addListenerOnce(S.plannerMap, 'bounds_changed', () => {
+    if (S.plannerMap.getZoom() > 14) S.plannerMap.setZoom(14);
+  });
 }
 
 // ---- Planner place name suggestions ----
@@ -3767,68 +3840,44 @@ function onPlanNameInput() {
 function fetchPlanNearbySuggestions() {
   if (!S.planGpsCoords) return;
   const { lat, lng } = S.planGpsCoords;
-  const query = '[out:json][timeout:10];(node["name"](around:600,' + lat + ',' + lng + ');way["name"](around:600,' + lat + ',' + lng + ');)->.a;.a out center tags 15;';
-  fetch('https://overpass-api.de/api/interpreter', {
-    method: 'POST', body: 'data=' + encodeURIComponent(query)
-  })
-  .then(r => r.json())
-  .then(data => {
-    const items = (data.elements || [])
-      .filter(el => el.tags && el.tags.name)
-      .slice(0, 8)
-      .map(el => ({
-        name: el.tags.name,
-        sub:  el.tags.amenity || el.tags.tourism || el.tags.place || el.tags.shop || '',
-        lat:  el.lat || (el.center && el.center.lat) || null,
-        lng:  el.lon || (el.center && el.center.lon) || null
+  loadGoogleMaps(() => {
+    const svc = _getPlacesService();
+    if (!svc) return;
+    svc.nearbySearch({ location: { lat, lng }, radius: 600 }, (results, status) => {
+      if (status !== google.maps.places.PlacesServiceStatus.OK || !results) return;
+      const items = results.slice(0, 8).map(r => ({
+        place_id: r.place_id,
+        name: r.name,
+        sub: (r.types || []).slice(0, 2).join(', ').replace(/_/g, ' '),
+        lat: r.geometry.location.lat(), lng: r.geometry.location.lng()
       }));
-    if (items.length) showPlanSuggestions(items);
-  })
-  .catch(() => {});
+      if (items.length) showPlanSuggestions(items);
+    });
+  });
 }
 
 function searchPlanByName(q) {
-  const codes = _getTripCountryCodes();
-  const nom = 'https://nominatim.openstreetmap.org/search?format=json&limit=15&q=';
-  const cc  = codes ? '&countrycodes=' + codes : '';
-  const toItems = raw => (raw || []).map(p => ({
-    place_id: p.place_id,
-    name: p.display_name.split(',')[0],
-    sub:  p.display_name.split(',').slice(1, 3).join(',').trim(),
-    lat:  parseFloat(p.lat),
-    lng:  parseFloat(p.lon)
-  }));
-  const merge = (base, extra) => {
-    const seen = new Set(base.map(p => p.place_id));
-    extra.forEach(p => { if (!seen.has(p.place_id)) base.push(p); });
-    return base;
-  };
-  const show = items => items.length ? showPlanSuggestions(items.slice(0, 8)) : hidePlanSuggestions();
-
-  fetch(nom + encodeURIComponent(q) + cc, { headers: { 'Accept-Language': 'en' } })
-  .then(r => r.json())
-  .then(data => {
-    const results = toItems(data);
-    const words = q.trim().split(/\s+/);
-    if (results.length < 3 && words.length > 1) {
-      // Multi-word query with few matches: retry with first word only.
-      // e.g. "Prachov Rocks" → "Prachov" surfaces "Prachovské skály" which contains "Prachov"
-      fetch(nom + encodeURIComponent(words[0]) + cc, { headers: { 'Accept-Language': 'en' } })
-      .then(r => r.json())
-      .then(d2 => show(merge(results, toItems(d2))))
-      .catch(() => show(results));
-    } else {
-      show(results);
-    }
-  })
-  .catch(() => hidePlanSuggestions());
+  loadGoogleMaps(() => {
+    const svc = new google.maps.places.AutocompleteService();
+    svc.getPlacePredictions({ input: q, sessionToken: _plannerToken(), language: 'en' }, (predictions, status) => {
+      if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions) { hidePlanSuggestions(); return; }
+      const items = predictions.slice(0, 8).map(p => ({
+        place_id: p.place_id,
+        name: p.structured_formatting.main_text,
+        sub: p.structured_formatting.secondary_text || '',
+        lat: null, lng: null
+      }));
+      showPlanSuggestions(items);
+    });
+  });
 }
 
 function showPlanSuggestions(items) {
+  _planSuggestIdx = -1;
   const list = document.getElementById('planSuggest');
   if (!list) return;
   list.innerHTML = items.map(item =>
-    '<div class="suggest-item" data-name="' + esc(item.name) + '" data-lat="' + (item.lat || '') + '" data-lng="' + (item.lng || '') + '" onclick="selectPlanSuggestion(this)">' +
+    '<div class="suggest-item" data-name="' + esc(item.name) + '" data-lat="' + (item.lat || '') + '" data-lng="' + (item.lng || '') + '" data-place-id="' + (item.place_id || '') + '" onclick="selectPlanSuggestion(this)">' +
     '<div class="si-name">' + esc(item.name) + '</div>' +
     (item.sub ? '<div class="si-sub">' + esc(item.sub) + '</div>' : '') +
     '</div>'
@@ -3837,6 +3886,7 @@ function showPlanSuggestions(items) {
 }
 
 function hidePlanSuggestions() {
+  _planSuggestIdx = -1;
   const list = document.getElementById('planSuggest');
   if (list) list.style.display = 'none';
 }
@@ -3845,13 +3895,104 @@ function selectPlanSuggestion(el) {
   const name = el.getAttribute('data-name');
   const lat  = parseFloat(el.getAttribute('data-lat')) || null;
   const lng  = parseFloat(el.getAttribute('data-lng')) || null;
+  const placeId = el.getAttribute('data-place-id');
   document.getElementById('planName').value = name;
+  hidePlanSuggestions();
+  const _focusSave = () => { const btn = document.getElementById('planSaveBtn'); if (btn) btn.focus(); };
   if (lat && lng) {
     S.planGpsCoords = { lat, lng };
     S.planGpsSource = 'nominatim';
     setPlanGpsStatus('ok', 'Location: ' + lat.toFixed(5) + ', ' + lng.toFixed(5));
+    _focusSave();
+  } else if (placeId && window.google) {
+    setPlanGpsStatus('spin', 'Getting location...');
+    _getPlacesService().getDetails({ placeId, fields: ['geometry'], sessionToken: _plannerToken() }, (place, status) => {
+      _plannerAcToken = null;
+      if (status === 'OK' && place.geometry) {
+        const loc = place.geometry.location;
+        S.planGpsCoords = { lat: loc.lat(), lng: loc.lng() };
+        S.planGpsSource = 'nominatim';
+        setPlanGpsStatus('ok', 'Location: ' + S.planGpsCoords.lat.toFixed(5) + ', ' + S.planGpsCoords.lng.toFixed(5));
+      } else { setPlanGpsStatus('err', 'Could not get location — pick on map'); }
+      _focusSave();
+    });
+  } else {
+    _focusSave();
   }
-  hidePlanSuggestions();
+}
+
+
+
+// =======================================================
+// PLAN TYPE SEARCHABLE DROPDOWN
+// =======================================================
+var _planTypeKeys = [];
+var _planTypeKbIdx = -1;
+
+function _selectPlanType(key) {
+  const t = PLAN_TYPES[key];
+  document.getElementById('planType').value = key || '';
+  document.getElementById('planTypeInput').value = t ? (t.icon + ' ' + t.label) : '';
+  const list = document.getElementById('planTypeList');
+  if (list) list.style.display = 'none';
+  _planTypeKbIdx = -1;
+}
+
+function _openPlanTypeList() {
+  _planTypeKbIdx = -1;
+  const list = document.getElementById('planTypeList');
+  if (!list) return;
+  list.innerHTML = _planTypeKeys.map(k => {
+    const t = PLAN_TYPES[k];
+    return '<div class="suggest-item" data-key="' + k + '" onclick="_selectPlanType(\'' + k + '\')">' +
+      '<span style="font-size:15px;margin-right:6px">' + t.icon + '</span>' +
+      '<span class="si-name">' + esc(t.label) + '</span></div>';
+  }).join('');
+  list.style.display = 'block';
+}
+
+function _filterPlanTypeList(val) {
+  _planTypeKbIdx = -1;
+  const list = document.getElementById('planTypeList');
+  if (!list) return;
+  const raw = (val || '').trim();
+  const q = raw.replace(/^[^\w]+\s*/, '').toLowerCase();
+  const matches = _planTypeKeys.filter(k =>
+    !raw || PLAN_TYPES[k].label.toLowerCase().includes(q)
+  );
+  if (!matches.length) { list.style.display = 'none'; return; }
+  list.innerHTML = matches.map(k => {
+    const t = PLAN_TYPES[k];
+    return '<div class="suggest-item" data-key="' + k + '" onclick="_selectPlanType(\'' + k + '\')">' +
+      '<span style="font-size:15px;margin-right:6px">' + t.icon + '</span>' +
+      '<span class="si-name">' + esc(t.label) + '</span></div>';
+  }).join('');
+  list.style.display = 'block';
+}
+
+function _planTypeKeydown(e) {
+  const list = document.getElementById('planTypeList');
+  const open = list && list.style.display !== 'none';
+  if (e.key === 'Escape') { if (list) list.style.display = 'none'; _planTypeKbIdx = -1; return; }
+  if (e.key === 'ArrowDown' && !open) { e.preventDefault(); _openPlanTypeList(); return; }
+  if (!open) return;
+  const items = list.querySelectorAll('.suggest-item');
+  if (!items.length) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    items.forEach(el => el.classList.remove('active'));
+    _planTypeKbIdx = Math.min(_planTypeKbIdx + 1, items.length - 1);
+    if (_planTypeKbIdx >= 0) { items[_planTypeKbIdx].classList.add('active'); items[_planTypeKbIdx].scrollIntoView({ block: 'nearest' }); }
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    items.forEach(el => el.classList.remove('active'));
+    _planTypeKbIdx = Math.max(_planTypeKbIdx - 1, 0);
+    if (_planTypeKbIdx >= 0) { items[_planTypeKbIdx].classList.add('active'); items[_planTypeKbIdx].scrollIntoView({ block: 'nearest' }); }
+  } else if (e.key === 'Enter' && _planTypeKbIdx >= 0) {
+    e.preventDefault();
+    const key = items[_planTypeKbIdx].getAttribute('data-key');
+    if (key) _selectPlanType(key);
+  }
 }
 
 // =======================================================

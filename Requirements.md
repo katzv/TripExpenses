@@ -169,8 +169,9 @@ const S = {
   planBank,           // array of place objects
   planAssignments,    // { "YYYY-MM-DD": [...placeIds] }
   plannerTab,         // 'bank' | 'cal' | 'map'
-  plannerMap,         // Leaflet instance for planner map (separate from leafletMap)
-  plannerMarkers,     // array of Leaflet markers for planner
+  plannerMap,         // google.maps.Map instance for planner map (separate from leafletMap)
+  plannerMarkers,     // array of google.maps.Marker instances for planner
+  _planInfoWindow,    // google.maps.InfoWindow for planner map (stored to allow .close() from openDayPickerForPlace)
   planGpsCoords,      // { lat, lng } — separate from tracker gpsCoords
   planGpsSource,      // 'gps' | 'nominatim' | 'manual' | 'saved' | 'none'
   planSuggestTimer,
@@ -530,16 +531,13 @@ Three tabs: **List**, **Calendar**, **Map**
 - Form persists visibility state when switching tabs (`S._listFormVisible`)
 
 ### Place Name Autocomplete
-- **Nearby suggestions** (when GPS available, no text typed): Overpass API, 600m radius, max 8 displayed (15 requested)
-  - Query: `node["name"](around:600,lat,lng)` + `way["name"](around:600,lat,lng)`, output: `out center tags 15`
-  - `out center` required to return centroid coordinates for `way` elements (buildings/areas)
-  - Shows name + amenity/tourism/place/shop tag as subtitle
-- **Name search** (when user types): Nominatim, `limit=8`, **no viewbox bias** — global relevance ranking
-  - No `viewbox` or `bounded` parameters; returns globally relevant results regardless of GPS position
-  - First part of display_name as name, next 2 parts as subtitle
+- **Nearby suggestions** (when GPS available, no text typed): `PlacesService.nearbySearch()`, 600m radius, max 8 results
+  - Returns name, type subtitle, and coords from `geometry.location`
+- **Name search** (when user types): `AutocompleteService.getPlacePredictions()`, `language: 'en'`, session token (`_trackerToken()`)
+  - `structured_formatting.main_text` as name, `.secondary_text` as subtitle; no coords in predictions
+- **Selection with `place_id`**: `PlacesService.getDetails({ placeId, fields: ['geometry'], sessionToken: _trackerToken() })` resolves lat/lng; `_trackerAcToken = null` cleared after call
 - Selecting a suggestion: fills name field, updates `S.gpsCoords` and GPS status to "ok"
-- Click outside suggestion list closes it
-- **OSM coverage note**: Nominatim/Overpass only find places indexed in OpenStreetMap. Hotels/apartments not in OSM will not appear in suggestions. Workflow for unlisted places: type name manually, use "📍 Pick on Map" to set coordinates by tapping on the building.
+- Click outside suggestion list closes it (via `document.addEventListener('click')`)
 
 ### List Tab
 - Check-ins grouped by local date, sorted ascending
@@ -565,22 +563,21 @@ Three tabs: **List**, **Calendar**, **Map**
 - Scroll sync: DOW sticky table mirrors horizontal scroll of calendar table using `translateX`
 
 ### Map Tab
-- Leaflet.js map, lazy-loaded from `unpkg.com/leaflet@1.9.4`
-- Tiles: CartoDB light (`{s}.basemaps.cartocdn.com/light_all`)
+- Google Maps JavaScript API, lazy-loaded via `loadGoogleMaps()`
 - Map height: `calc(100svh - 130px)`, min 300px
 - "Export KML" button above map
 - On tab switch: `setTimeout(initTrackerMap, 50)`
-- Markers: colored circles (34×34px) with emoji icon + white sequence number badge (top-right)
-- Route polyline: blue dashed (#1565C0, weight 2.5, opacity 0.55, dashArray '6 5'), chronological order
-- Popups: name (bold) + type icon + type label + formatted time, no close button
-- `fitBounds` with 40px padding, maxZoom 14
-- Map instance reused across tab switches (markers/polyline removed and re-added)
+- Markers: `SymbolPath.CIRCLE`, colored fill (per CI_COLORS), white stroke 2.5px, scale 14; label = sequence number (white, 11px bold)
+- Route polyline: `google.maps.Polyline`, strokeColor #1565C0, strokeOpacity 0.55, strokeWeight 2.5, chronological order
+- InfoWindow: shared single instance, shows name (bold) + type icon + type label + formatted time
+- `fitBounds`, maxZoom 14 enforced via `bounds_changed` one-time listener
+- Map instance (`S.leafletMap`) reused; markers (`S.leafletMarkers`) and polyline (`S._routeLine`) removed and re-added on each render
 
 ### Map Picker Overlay (`#mapPickerOverlay`)
 - `position:fixed; inset:0; z-index:300` — full screen, above everything
 - `display:none` → `display:flex; flex-direction:column` when opened
 - **Header bar** (blue gradient): back button (←), "Pick Location" title, **"🌍 My Location" button**
-- **Map area** (`#mapPicker`): `flex:1; min-height:0` — Leaflet map
+- **Map area** (`#mapPicker`): `flex:1; min-height:0` — Google Maps map
 - **Bottom bar**: coords display + "✓ Use This Location" confirm button
 - **Context-aware**: `openMapPicker(context)` where context is `'checkin'` (default) or `'planner'`
   - Module-level var `_mpContext` tracks which context opened the picker
@@ -596,9 +593,8 @@ Three tabs: **List**, **Calendar**, **Map**
 - Tap map → drops/moves marker, updates coords display, enables confirm button
 - Marker is draggable — `dragend` updates coords
 - **"My Location" button** (`id="myLocBtn"`): calls `navigator.geolocation.getCurrentPosition`, centers map at zoom 15, drops/moves marker. Shows "Locating…" while waiting. Placed in header (not bottom) to always be visible regardless of screen height.
-- `_mpMap`, `_mpMarker`, `_mpCoords`, `_mpContext` are module-level vars (separate from `S.leafletMap`)
-- `_mpMap.invalidateSize()` called after overlay displayed
-- On reopen: removes previous marker (resets to clean state)
+- `_mpMap` (`google.maps.Map`), `_mpMarker` (`google.maps.Marker`), `_mpCoords`, `_mpContext` are module-level vars (separate from `S.leafletMap`)
+- On reopen: removes previous marker (`_mpMarker.setMap(null)`, resets to clean state)
 
 ### KML Export (`exportTrackerKml()`)
 - Only exports check-ins that have `lat` and `lng`
@@ -686,21 +682,28 @@ Three tabs: **Bank**, **Calendar**, **Map**
 
 ### Add / Edit Place Form
 - Shown inline (not a new view) within the bank tab; `plan-form-wrap` div
-- Fields: Place Name (with suggestion dropdown), Type (select from PLAN_TYPES), Description (textarea, `dir="auto"`, resizable, Hebrew-compatible)
+- Fields: Place Name (with suggestion dropdown), Type (**searchable dropdown**), Description (textarea, `dir="auto"`, resizable, Hebrew-compatible)
 - GPS status row: same pattern as check-in form (dot + text + "📍 Pick on Map" button)
 - GPS acquired automatically via `acquirePlanGPS()` when opening for a new place
 - "Pick on Map" calls `openMapPicker('planner')` — uses `S.planGpsCoords` context
 - Form title: "📍 Place Details"; save button: "+ Add to Bank" (new) or "✓ Save Changes" (edit)
-- Delete button (edit mode only, red, below separator)
+- **Type field** — custom searchable dropdown (not `<select>`):
+  - HTML: text input (`#planTypeInput`) + hidden input (`#planType`) + `.suggest-list` div (`#planTypeList`)
+  - Types sorted alphabetically by label; stored in `_planTypeKeys` array (initialized in `init()`)
+  - On focus: shows full sorted list; on input: filters by label (strips leading emoji via `replace(/^[^\w]+\s*/,'')`)
+  - Arrow key navigation (`.active` class + `scrollIntoView({ block: 'nearest' })`), Enter to select, Escape to close
+  - `_selectPlanType(key)` — sets hidden + visible input, hides dropdown, resets `_planTypeKbIdx = -1`
+  - Clicking outside closes dropdown (via `document.addEventListener('click')`)
+- Button row: Cancel | **Remove** (edit mode only, red, `id="planDelBtn"`) | Save — all inline in one `.btn-row`
 - `S._planFormVisible` persists form across tab switches (same pattern as check-in form)
 - After save: calls `loadPlan()` to refresh from server
 
 ### Place Name Autocomplete (Planner)
-- Same mechanisms as Tracker: Overpass nearby (600m, 15 results, `out center`) + Nominatim name search (limit=**15**, no viewbox)
-- **Country-scoped Nominatim search with first-word fallback**: `searchPlanByName()` first searches with `&countrycodes=XX[,YY]` derived from the trip's `country` field via `COUNTRY_ISO` map. If a multi-word query returns fewer than 3 results, a second search using only the first word is fired (same countrycodes) and merged in. This handles natural features whose local names share only a prefix with the English query — e.g. "Prachov Rocks" → first word "Prachov" surfaces "Prachovské skály" (the Czech rock formation) which contains "Prachov". Results are deduped by `place_id`; original results appear first.
-- `_getTripCountryCodes()` — splits `S.currentTrip.country` on commas, maps each to ISO code via `COUNTRY_ISO`, joins with `,`; returns empty string if none found (skips countrycodes param entirely)
-- Separate suggestion element (`#planSuggest`), separate state (`S.planSuggestTimer`)
-- Selecting fills `#planName` and sets `S.planGpsCoords` + status if coords available
+- Same mechanisms as Tracker: `PlacesService.nearbySearch()` for nearby (600m) + `AutocompleteService.getPlacePredictions()` for name search
+- No country-scoping — Google Places returns globally relevant results by default
+- Separate suggestion element (`#planSuggest`), separate state (`S.planSuggestTimer`), separate session token (`_plannerToken()` / `_plannerAcToken`)
+- Selection with `place_id`: `PlacesService.getDetails({ placeId, fields: ['geometry'], sessionToken: _plannerToken() })` resolves coords; `_plannerAcToken = null` cleared after call
+- Selecting fills `#planName` and sets `S.planGpsCoords` + `setPlanGpsStatus('ok', ...)` if coords available
 
 ### Calendar Tab (Planner)
 - Same 7-column weekly grid layout as Tracker calendar
@@ -717,10 +720,13 @@ Three tabs: **Bank**, **Calendar**, **Map**
 - Vacant (out-of-range) cells: grey, no add button
 
 ### Map Tab (Planner)
-- Leaflet map showing all bank places that have GPS coords
-- Markers: colored circles (34×34px) with type emoji, same style as Tracker but no sequence number
-- Popup: place name (bold), type icon + label, description snippet (first 120 chars, `dir="auto"`)
-- `fitBounds` with 40px padding, maxZoom 14
+- Google Maps showing all bank places that have GPS coords
+- Markers: `SymbolPath.CIRCLE`, colored per PLAN_TYPES, white stroke 2.5px, scale 14; label = type emoji (13px)
+- InfoWindow (`S._planInfoWindow`, `maxWidth: 240`): place name + type icon/label + description snippet (120 chars) + assigned days list + "📅 Assign to Day" button
+  - Stored on `S._planInfoWindow` so `openDayPickerForPlace()` can call `.close()` before showing the modal
+  - CSS `!important` overrides: `.gm-style .gm-style-iw-c { max-height: 320px !important }` and `.gm-style .gm-style-iw-d { max-height: 290px !important }` — required because Google Maps sets inline `max-height` that would otherwise clip content
+  - `maxWidth: 240` on InfoWindow constructor
+- `fitBounds`, maxZoom 14 enforced via `bounds_changed` one-time listener
 - Separate instance `S.plannerMap` (does not share with `S.leafletMap` or `_mpMap`)
 - No GPS data → "No places with GPS data yet" message
 
@@ -739,12 +745,16 @@ Three tabs: **Bank**, **Calendar**, **Map**
 - Loaded on first report view
 - Instance stored in `S.pieChart`, destroyed before re-creation
 
-### Leaflet.js
-- CSS: `https://unpkg.com/leaflet@1.9.4/dist/leaflet.css` (id="leaflet-css")
-- JS: `https://unpkg.com/leaflet@1.9.4/dist/leaflet.js`
-- Loaded on first map/picker open
-- Single load check: `if (window.L) { cb(); return; }`
-- Three separate Leaflet instances: `S.leafletMap` (tracker map), `S.plannerMap` (planner map), `_mpMap` (map picker)
+### Google Maps JavaScript API
+- URL: `https://maps.googleapis.com/maps/api/js?key=AIzaSyD_DRzG7TqWgNiQMdeyOzk4MLW2pezem6U&libraries=places&callback=_gmapsReady`
+- Loaded lazily on first map/autocomplete use via `loadGoogleMaps(cb)`
+- Async + callback pattern: `window._gmapsReady` drains the `_gmapsCallbacks[]` queue; `_gmapsLoaded` flag prevents double-loading
+- Already-loaded check: `if (window.google && window.google.maps && window.google.maps.places)`
+- Libraries: `places` — `PlacesService`, `AutocompleteService`, `AutocompleteSessionToken`
+- Three separate `google.maps.Map` instances: `S.leafletMap` (tracker), `S.plannerMap` (planner), `_mpMap` (picker)
+- `S.leafletMarkers` / `S.plannerMarkers` — arrays of `google.maps.Marker` instances
+- `S._routeLine` — `google.maps.Polyline` (tracker route)
+- Session tokens: `_trackerAcToken` and `_plannerAcToken` — `AutocompleteSessionToken` instances, cleared to `null` after each `getDetails` call
 
 ---
 
@@ -757,7 +767,7 @@ Full list includes Afghanistan through Zimbabwe. Used for `<datalist>` autocompl
 ## Country Lookup Maps
 
 ### COUNTRY_ISO (40+ entries)
-Maps lowercase country name → ISO 3166-1 alpha-2 code. Used by `_getTripCountryCodes()` to build the Nominatim `countrycodes` parameter.
+Maps lowercase country name → ISO 3166-1 alpha-2 code. Previously used to scope Nominatim search by country — no longer used after migration to Google Places API (function `_getTripCountryCodes()` remains in code but is not called).
 
 Examples: `"austria" → "at"`, `"czech republic" → "cz"`, `"greece" → "gr"`, `"israel" → "il"`, `"france" → "fr"`, etc.
 
@@ -804,6 +814,19 @@ No template literals may contain `<?`, `<![CDATA[`, or `]]>`.
 ### Bug 7 — KML layers not toggleable as one group in Google My Maps
 **Problem:** Google My Maps does not support nested `<Folder>` elements — it creates one layer per `<Folder>` in the `<Document>` regardless of nesting depth. Per-type sub-folders created many layers that had to be toggled individually.
 **Fix:** All placemarks placed in a single `<Folder>` named after the trip. Icons/styles still differentiate types visually, but the entire trip is one toggleable layer.
+
+### Bug 11 — "Assign to Day" button in planner map InfoWindow does nothing
+**Problem:** `openDayPickerForPlace()` called `S.plannerMap.closePopup()` — a Leaflet method — to dismiss the popup before opening the modal. After migration to Google Maps this became a no-op / TypeError.
+**Fix:** Stored the InfoWindow reference as `S._planInfoWindow` when created in `_renderPlannerLeaflet()`. `openDayPickerForPlace()` now calls `if (S._planInfoWindow) S._planInfoWindow.close()`.
+
+### Bug 12 — Planner map InfoWindow clips content / "Assign to Day" button not visible
+**Problem:** Google Maps sets inline `max-height` CSS on `.gm-style-iw-c` and `.gm-style-iw-d` elements (~200px), clipping InfoWindow content that includes the "Assign to Day" button.
+**Fix:** Added CSS `!important` class rules that override the inline style:
+```css
+.gm-style .gm-style-iw-c { max-height: 320px !important; }
+.gm-style .gm-style-iw-d { overflow: auto !important; max-height: 290px !important; }
+```
+Also set `maxWidth: 240` on the `InfoWindow` constructor to constrain width.
 
 ### Bug 9 — New built-in type (Phone) missing from type dropdown
 **Problem:** `getExpenseTypes()` returns server-saved custom types merged with defaults. If the user's saved types didn't include `Phone` (added after account creation), the new default was invisible.
