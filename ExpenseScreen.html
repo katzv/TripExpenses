@@ -1,0 +1,532 @@
+<!-- VIEW: TRIP DETAIL (Expense List) -->
+<div class="view" id="view-trip">
+  <div id="tripSummary"></div>
+  <div class="chips-outer">
+    <button class="chips-arrow hide" id="chipsPrev" onclick="scrollChips(-140)" aria-label="Scroll left">&#8249;</button>
+    <div class="chips" id="filterChips"></div>
+    <button class="chips-arrow hide" id="chipsNext" onclick="scrollChips(140)" aria-label="Scroll right">&#8250;</button>
+  </div>
+  <div id="expenseList"></div>
+  <div style="height:80px"></div>
+</div>
+
+<!-- VIEW: ADD / EDIT EXPENSE -->
+<div class="view" id="view-expense">
+  <div class="card">
+    <div class="fg">
+      <label>Date <span class="req">*</span></label>
+      <input class="fc" id="fDate" type="date">
+    </div>
+    <div class="fg">
+      <label>Expense (name / description) <span class="req">*</span></label>
+      <input class="fc" id="fName" type="text" placeholder="e.g., Air France, McDonald's">
+    </div>
+    <div class="fg">
+      <label>Type <span class="req">*</span></label>
+      <div style="display:flex;gap:8px">
+        <select class="fc" id="fType" style="flex:1" onchange="onTypeChange()"></select>
+        <button class="btn btn-outline btn-sm" onclick="showAddType()" title="Add custom type">+ Type</button>
+      </div>
+    </div>
+    <div class="frow">
+      <div class="fg">
+        <label>Amount <span class="req">*</span></label>
+        <input class="fc" id="fAmount" type="number" step="0.01" min="0"
+               placeholder="0.00" oninput="scheduleRate()">
+      </div>
+      <div class="fg">
+        <label>Currency</label>
+        <select class="fc" id="fCurrency" onchange="scheduleRate()"></select>
+      </div>
+    </div>
+    <div class="fg">
+      <label>Amount (ILS) &#8362; <span class="req">*</span></label>
+      <input class="fc" id="fILS" type="number" step="0.01" min="0"
+             placeholder="0.00" oninput="onManualILS()">
+      <div class="rate-row" id="rateRow" style="display:none">
+        <span class="badge loading" id="rateBadge">...</span>
+        <span class="rate-text" id="rateText"></span>
+      </div>
+    </div>
+    <!-- Info 2 — dynamic -->
+    <div class="fg" id="info2Wrap" style="display:none">
+      <label id="info2Label">Additional Info</label>
+      <div id="info2Input"></div>
+    </div>
+    <!-- Info 3 -->
+    <div class="fg">
+      <label>Notes (optional)</label>
+      <input class="fc" id="fNotes" type="text" placeholder="Any extra notes...">
+    </div>
+
+    <button class="btn btn-primary" id="saveExpBtn" onclick="saveExpense()">
+      &#128190; Save Expense
+    </button>
+    <div style="height:10px"></div>
+    <button class="btn btn-outline" onclick="goBack()">Cancel</button>
+    <div id="delExpWrap" style="display:none;margin-top:14px">
+      <hr style="border:none;border-top:1px solid var(--border);margin-bottom:14px">
+      <button class="btn btn-danger btn-sm" style="width:auto" onclick="confirmDeleteExpense()">
+        &#128465; Delete This Expense
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+// =======================================================
+// EXPENSE LIST VIEW
+// =======================================================
+
+function loadExpenses() {
+  const el = document.getElementById('expenseList');
+  el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted)">Loading...</div>';
+
+  google.script.run
+    .withSuccessHandler(exps => {
+      S.expenses = exps || [];
+      renderExpenses();
+    })
+    .withFailureHandler(() => {
+      el.innerHTML = '<div style="color:var(--danger);padding:20px">Failed to load expenses</div>';
+    })
+    .getExpenses(S.currentTrip.id);
+
+  // Fetch default rates only if not already cached (reset happens in openTrip on trip switch)
+  if (Object.keys(S.defaultRates).length === 0) {
+    google.script.run
+      .withSuccessHandler(rates => { S.defaultRates = rates || {}; })
+      .withFailureHandler(() => {})
+      .getDefaultRates(S.currentTrip.currency);
+  }
+}
+
+function renderExpenses() {
+  // Summary banner
+  const totalILS = S.expenses.reduce((s, e) => s + (parseFloat(e.amountILS) || 0), 0);
+  document.getElementById('tripSummary').innerHTML = `
+    <div class="summary-banner">
+      <div class="sum-country">📍 ${esc(S.currentTrip.country)} &nbsp;·&nbsp; ${S.currentTrip.currency}</div>
+      <div class="sum-total">&#8362; ${fmt(totalILS)}</div>
+      <div class="sum-meta">${S.expenses.length} expense${S.expenses.length !== 1 ? 's' : ''}
+        &nbsp;·&nbsp; ${dateRange(S.currentTrip.startDate, S.currentTrip.endDate)}</div>
+    </div>`;
+
+  // Filter chips
+  const types = ['All', ...new Set(S.expenses.map(e => e.type))];
+  const chipsEl = document.getElementById('filterChips');
+  chipsEl.innerHTML = types.map(t => `
+    <div class="chip${S.filter === t ? ' on' : ''}" onclick="setFilter('${t}')">
+      ${t === 'All' ? 'All' : ((CAT_ICONS[t] || '') + ' ' + typeLabel(t))}
+    </div>`).join('');
+  chipsEl.scrollLeft = 0;
+  updateChipArrows();
+  chipsEl.onscroll = updateChipArrows;
+
+  // Filtered + sorted
+  const filtered = S.filter === 'All' ? S.expenses : S.expenses.filter(e => e.type === S.filter);
+  const el = document.getElementById('expenseList');
+
+  if (filtered.length === 0) {
+    el.innerHTML = `
+      <div class="empty">
+        <div class="empty-icon">💸</div>
+        <div class="empty-title">No expenses ${S.filter !== 'All' ? 'in this category' : 'yet'}</div>
+        <div class="empty-sub">Tap + to add your first expense</div>
+      </div>`;
+    return;
+  }
+
+  // Group by date descending
+  const groups = {};
+  [...filtered]
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+    .forEach(e => {
+      const d = e.date || 'Unknown date';
+      if (!groups[d]) groups[d] = [];
+      groups[d].push(e);
+    });
+
+  el.innerHTML = Object.keys(groups)
+    .sort((a, b) => b.localeCompare(a))
+    .map(d => `
+      <div class="dg-label">${fmtDate(d)}</div>
+      ${groups[d].map(e => expCard(e)).join('')}
+    `).join('');
+}
+
+function expCard(e) {
+  const col  = CAT_COLORS[e.type] || '#9E9E9E';
+  const icon = CAT_ICONS[e.type]  || '📌';
+  const meta = [typeLabel(e.type), e.info2 ? e.info2 : null, e.info3 ? e.info3 : null]
+               .filter(Boolean).join(' · ');
+  return `
+    <div class="exp-card" onclick="editExpense('${e.id}')" title="Tap to edit">
+      <div class="exp-icon" style="background:${col}22;color:${col}">${icon}</div>
+      <div class="exp-body">
+        <div class="exp-name">${esc(e.expense)}</div>
+        <div class="exp-meta">${esc(meta)}</div>
+        <div class="exp-edit-hint">tap to edit</div>
+      </div>
+      <div class="exp-amt">
+        <div class="exp-orig">${e.currency !== 'ILS' ? num(e.amount) + ' ' + e.currency : ''}</div>
+        <div class="exp-ils" style="color:${col}">&#8362;&nbsp;${fmt(e.amountILS)}</div>
+      </div>
+    </div>`;
+}
+
+function setFilter(f) {
+  S.filter = f;
+  renderExpenses();
+}
+
+function scrollChips(dx) {
+  const el = document.getElementById('filterChips');
+  if (el) { el.scrollLeft += dx; updateChipArrows(); }
+}
+
+function updateChipArrows() {
+  const el   = document.getElementById('filterChips');
+  const prev = document.getElementById('chipsPrev');
+  const next = document.getElementById('chipsNext');
+  if (!el || !prev || !next) return;
+  prev.classList.toggle('hide', el.scrollLeft <= 2);
+  next.classList.toggle('hide', el.scrollLeft + el.clientWidth >= el.scrollWidth - 2);
+}
+
+// =======================================================
+// ADD / EDIT EXPENSE FORM
+// =======================================================
+
+function showAddExpense() {
+  S.currentExpenseId = null;
+  S.manualILS = false;
+  S.lastRateInfo = null;
+  clearExpForm();
+  document.getElementById('delExpWrap').style.display = 'none';
+  navigate('expense');
+}
+
+function editExpense(id) {
+  const e = S.expenses.find(x => x.id === id);
+  if (!e) return;
+  S.currentExpenseId = id;
+  S.manualILS = false;
+  S.lastRateInfo = null;
+  fillExpForm(e);
+  document.getElementById('delExpWrap').style.display = 'block';
+  navigate('expense');
+}
+
+function clearExpForm() {
+  document.getElementById('fDate').value   = today();
+  document.getElementById('fName').value   = '';
+  document.getElementById('fNotes').value  = '';
+  document.getElementById('fAmount').value = '';
+  document.getElementById('fILS').value    = '';
+  document.getElementById('rateRow').style.display = 'none';
+
+  // Default currency from trip
+  const cur = (S.currentTrip && S.currentTrip.currency) || 'EUR';
+  const sel = document.getElementById('fCurrency');
+  sel.value = CURRENCIES.includes(cur) ? cur : 'EUR';
+
+  // First type
+  document.getElementById('fType').selectedIndex = 0;
+  onTypeChange();
+}
+
+function fillExpForm(e) {
+  document.getElementById('fDate').value   = e.date   || today();
+  document.getElementById('fName').value   = e.expense || '';
+  document.getElementById('fNotes').value  = e.info3  || '';
+  document.getElementById('fAmount').value = e.amount || '';
+  document.getElementById('fILS').value    = e.amountILS || '';
+  document.getElementById('fCurrency').value = e.currency || (S.currentTrip && S.currentTrip.currency) || 'EUR';
+
+  // Set type (may be custom)
+  const typeSel = document.getElementById('fType');
+  typeSel.value = e.type || '';
+  // If not found, add it temporarily
+  if (!typeSel.value && e.type) {
+    const opt = document.createElement('option');
+    opt.value = e.type; opt.textContent = e.type;
+    typeSel.appendChild(opt);
+    typeSel.value = e.type;
+  }
+
+  if (e.rate && e.rateSource) {
+    showRate(e.rate, e.rateSource, e.rateDate, e.currency);
+  }
+
+  onTypeChange(e.info2);
+}
+
+function onTypeChange(existingInfo2 = null) {
+  const type = document.getElementById('fType').value;
+  const wrap  = document.getElementById('info2Wrap');
+  const lbl   = document.getElementById('info2Label');
+  const inp   = document.getElementById('info2Input');
+
+  if (type === 'Lodging') {
+    wrap.style.display = 'block';
+    lbl.textContent = 'Dates of Stay';
+    const parts = existingInfo2 ? existingInfo2.split(' to ') : [];
+    inp.innerHTML = `<div style="display:flex;gap:8px;align-items:center">
+      <input class="fc" id="fInfo2From" type="date" style="flex:1" value="${esc(parts[0]||'')}">
+      <span style="color:var(--muted);flex-shrink:0">to</span>
+      <input class="fc" id="fInfo2To" type="date" style="flex:1" value="${esc(parts[1]||'')}">
+      <input type="hidden" id="fInfo2">
+    </div>`;
+
+  } else if (type === 'Meals') {
+    wrap.style.display = 'block';
+    lbl.textContent = 'Meal Type';
+    const opts = ['Breakfast','Lunch','Dinner','Supermarket','Snack/Coffee'];
+    inp.innerHTML = `<select class="fc" id="fInfo2">
+      <option value="">— Select meal type —</option>
+      ${opts.map(o => `<option value="${o}"${existingInfo2===o?' selected':''}>${o}</option>`).join('')}
+    </select>`;
+
+  } else if (type === 'Petrol') {
+    wrap.style.display = 'block';
+    lbl.textContent = 'Liters';
+    inp.innerHTML = `<input class="fc" id="fInfo2" type="number" step="0.1" min="0"
+      placeholder="e.g., 45.5" value="${esc(existingInfo2 || '')}">`;
+
+  } else {
+    wrap.style.display = 'none';
+    inp.innerHTML = '';
+  }
+}
+
+// ---- Exchange Rate ----
+
+function scheduleRate() {
+  if (S.manualILS) return;
+  clearTimeout(S.rateTimer);
+
+  const amount = parseFloat(document.getElementById('fAmount').value);
+  const cur    = document.getElementById('fCurrency').value;
+  if (!amount || amount <= 0) {
+    document.getElementById('rateRow').style.display = 'none';
+    return;
+  }
+
+  if (cur === 'ILS') {
+    document.getElementById('fILS').value = amount.toFixed(2);
+    showRate(1, 'same', today(), 'ILS');
+    return;
+  }
+
+  // Use pre-fetched today's rate for instant display (no async, no timing issues)
+  const dr = S.defaultRates[cur];
+  if (dr) {
+    document.getElementById('fILS').value = (amount * dr.rate).toFixed(2);
+    showRate(dr.rate, 'default', dr.date, cur);
+    return;
+  }
+
+  // Fallback: async fetch for currencies not pre-loaded
+  showRateLoading();
+  S.rateTimer = setTimeout(() => {
+    const date = document.getElementById('fDate').value || today();
+    const reqCur = cur;
+    google.script.run
+      .withSuccessHandler(result => {
+        if (document.getElementById('fCurrency').value !== reqCur) return;
+        if (result) {
+          S.defaultRates[cur] = result; // cache for future use
+          document.getElementById('fILS').value = (amount * result.rate).toFixed(2);
+          showRate(result.rate, 'default', result.date, cur);
+        } else {
+          showRateFail();
+        }
+      })
+      .withFailureHandler(() => showRateFail())
+      .getExchangeRate(cur, 'ILS', date);
+  }, 650);
+}
+
+function showRateLoading() {
+  const row = document.getElementById('rateRow');
+  const badge = document.getElementById('rateBadge');
+  const txt   = document.getElementById('rateText');
+  row.style.display = 'flex';
+  badge.className = 'badge loading'; badge.textContent = 'fetching rate…';
+  txt.textContent = '';
+}
+
+function showRate(rate, source, date, fromCur) {
+  const row   = document.getElementById('rateRow');
+  const badge = document.getElementById('rateBadge');
+  const txt   = document.getElementById('rateText');
+  row.style.display = 'flex';
+  const cur = fromCur || document.getElementById('fCurrency').value;
+
+  if (source === 'live') {
+    badge.className = 'badge live'; badge.textContent = '✓ live rate';
+    txt.textContent = `1 ${cur} = ${parseFloat(rate).toFixed(4)} ILS${date ? ' ('+fmtDate(date)+')' : ''}`;
+  } else if (source === 'cached') {
+    badge.className = 'badge cached'; badge.textContent = '⚠ cached rate';
+    txt.textContent = `approx. 1 ${cur} = ${parseFloat(rate).toFixed(4)} ILS (${date || 'earlier'})`;
+  } else if (source === 'manual') {
+    badge.className = 'badge manual'; badge.textContent = '✎ manual';
+    txt.textContent = 'You entered the ILS amount manually';
+  } else if (source === 'same') {
+    badge.className = 'badge live'; badge.textContent = '= same currency';
+    txt.textContent = '';
+  } else if (source === 'default') {
+    badge.className = 'badge default'; badge.textContent = '~ today\'s rate';
+    txt.textContent = `est. 1 ${cur} = ${parseFloat(rate).toFixed(4)} ILS (${date ? fmtDate(date) : 'today'})`;
+  } else {
+    badge.className = 'badge cached'; badge.textContent = '✗ unavailable';
+    txt.textContent = 'Enter ILS amount manually';
+  }
+}
+
+function showRateFail() {
+  showRate(null, 'fail', null, null);
+}
+
+function onManualILS() {
+  S.manualILS = true;
+  showRate(null, 'manual', null, null);
+}
+
+// ---- Save Expense ----
+
+function saveExpense() {
+  const date    = document.getElementById('fDate').value;
+  const name    = document.getElementById('fName').value.trim();
+  const type    = document.getElementById('fType').value;
+  const amount  = document.getElementById('fAmount').value;
+  const cur     = document.getElementById('fCurrency').value;
+  const ilsVal  = document.getElementById('fILS').value;
+
+  // Validation
+  let valid = true;
+  const fields = [
+    ['fDate',   !date],
+    ['fName',   !name],
+    ['fAmount', !amount || parseFloat(amount) <= 0],
+    ['fILS',    !ilsVal || parseFloat(ilsVal) <= 0]
+  ];
+  fields.forEach(([id, bad]) => {
+    const el = document.getElementById(id);
+    if (bad) { el.classList.add('bad'); valid = false; }
+    else      { el.classList.remove('bad'); }
+  });
+  if (!type) { toast('Please select an expense type', 'err'); return; }
+  if (!valid) { toast('Please fill in all required fields', 'err'); return; }
+
+  const amtNum = parseFloat(amount);
+  const btn = document.getElementById('saveExpBtn');
+  btn.disabled = true;
+
+  // ILS currency: no conversion needed
+  if (cur === 'ILS') {
+    _doSaveExpense(date, name, type, amtNum, cur, amtNum, 1, 'same', date);
+    return;
+  }
+
+  // Manual ILS entry: use what the user typed
+  if (S.manualILS) {
+    const ilsNum = parseFloat(ilsVal);
+    _doSaveExpense(date, name, type, amtNum, cur, ilsNum, ilsNum / amtNum, 'manual', date);
+    return;
+  }
+
+  // If we already have today's pre-fetched rate AND the expense date matches, skip the API call
+  const dr = S.defaultRates[cur];
+  if (dr && dr.date === date) {
+    _doSaveExpense(date, name, type, amtNum, cur,
+      parseFloat((amtNum * dr.rate).toFixed(2)), dr.rate, dr.source, dr.date);
+    return;
+  }
+
+  // Fetch actual historical rate for the expense date (past-dated expenses)
+  btn.textContent = 'Fetching rate…';
+  google.script.run
+    .withSuccessHandler(result => {
+      const rateInfo = result || S.defaultRates[cur];
+      const ilsNum = rateInfo
+        ? parseFloat((amtNum * rateInfo.rate).toFixed(2))
+        : parseFloat(ilsVal);
+      const rate     = rateInfo ? rateInfo.rate        : (parseFloat(ilsVal) / amtNum);
+      const rateSrc  = rateInfo ? rateInfo.source      : 'manual';
+      const rateDate = rateInfo ? rateInfo.date        : date;
+      _doSaveExpense(date, name, type, amtNum, cur, ilsNum, rate, rateSrc, rateDate);
+    })
+    .withFailureHandler(() => {
+      // Fallback: use the estimated ILS value already shown
+      const ilsNum = parseFloat(ilsVal);
+      _doSaveExpense(date, name, type, amtNum, cur, ilsNum, ilsNum / amtNum, 'manual', date);
+    })
+    .getExchangeRate(cur, 'ILS', date);
+}
+
+function _doSaveExpense(date, name, type, amtNum, cur, ilsNum, rate, rateSrc, rateDate) {
+  const fromEl = document.getElementById('fInfo2From');
+  const toEl   = document.getElementById('fInfo2To');
+  const info2El = document.getElementById('fInfo2');
+  const info2 = fromEl && toEl
+    ? [fromEl.value, toEl.value].filter(Boolean).join(' to ')
+    : (info2El ? info2El.value : '');
+  const info3   = document.getElementById('fNotes').value.trim();
+
+  const data = {
+    tripId: S.currentTrip.id,
+    date, expense: name, type,
+    amount: amtNum, currency: cur,
+    amountILS: ilsNum,
+    rate: rate || 1, rateDate: rateDate || date, rateSource: rateSrc,
+    info2, info3
+  };
+
+  const btn = document.getElementById('saveExpBtn');
+  btn.textContent = 'Saving…';
+
+  const fn = S.currentExpenseId ? 'updateExpense' : 'addExpense';
+  if (S.currentExpenseId) data.id = S.currentExpenseId;
+
+  google.script.run
+    .withSuccessHandler(res => {
+      btn.disabled = false; btn.textContent = '💾 Save Expense';
+      if (res && res.success) {
+        navigate('trip');
+        toast(S.currentExpenseId ? 'Expense updated!' : 'Expense added!', 'ok');
+      } else {
+        toast('Save failed', 'err');
+      }
+    })
+    .withFailureHandler(err => {
+      btn.disabled = false; btn.textContent = '💾 Save Expense';
+      toast('Error: ' + err.message, 'err');
+    })
+    [fn](data);
+}
+
+function confirmDeleteExpense() {
+  showModal('Delete Expense', `
+    <p style="color:var(--muted);margin-bottom:16px">
+      Delete "<strong>${esc((S.expenses.find(e=>e.id===S.currentExpenseId) || {}).expense || '')}</strong>"?
+      This cannot be undone.
+    </p>
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="doDeleteExpense()">Delete</button>
+    </div>`);
+}
+
+function doDeleteExpense() {
+  closeModal();
+  google.script.run
+    .withSuccessHandler(() => {
+      navigate('trip');
+      toast('Expense deleted', 'ok');
+    })
+    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .deleteExpense(S.currentExpenseId, S.currentTrip.id);
+}
+</script>

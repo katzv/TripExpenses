@@ -1,7 +1,7 @@
 # ✈ Trip Expense Manager
 
-A mobile-first web app for tracking family trip expenses in real time.
-Runs entirely on Google Drive — no servers, no subscriptions, no installs.
+A mobile-first web app for tracking family trip expenses, check-ins, and trip planning in real time.
+Runs entirely on Google Apps Script — no servers, no subscriptions, no installs.
 
 ---
 
@@ -9,12 +9,16 @@ Runs entirely on Google Drive — no servers, no subscriptions, no installs.
 
 | Layer | Technology |
 |---|---|
-| Frontend | Single-page app (SPA) in `Index.html` — vanilla JS, no framework |
+| Frontend | SPA split across 12 HTML files, assembled server-side via `HtmlService` template `include()` |
 | Backend | Google Apps Script (`Code.gs`) |
-| Storage | `PropertiesService.getScriptProperties()` — shared JSON blobs |
+| Storage | `PropertiesService.getScriptProperties()` — JSON blobs, shared across all users |
 | Exchange rates | [frankfurter.app](https://frankfurter.app) — free, ECB official rates, no API key |
-| Charts | Chart.js 4.4 (CDN) |
-| Deployment | Google Apps Script Web App |
+| Maps | Google Maps JavaScript API (Places, Autocomplete, Maps) |
+| Charts | Chart.js 4.4 (CDN, lazy-loaded) |
+| Deployment | Google Apps Script Web App (standalone project, not bound to a Sheet) |
+| Dev tooling | [clasp](https://github.com/google/clasp) v3 — push/pull local files to/from GAS |
+
+> **Note:** Google Sheets is **not** the primary data store. Sheets is used only for the calendar export feature (`exportCalendarToSheet`). All trip, expense, tracker, and planner data lives in `PropertiesService`.
 
 ---
 
@@ -23,146 +27,179 @@ Runs entirely on Google Drive — no servers, no subscriptions, no installs.
 - **Execution**: `executeAs: USER_DEPLOYING` — script always runs as the owner
 - **Access**: `ANYONE` — any signed-in Google account can use the URL
 - **Data sharing**: PropertiesService is shared across all visitors; owner and wife see the same data
-- **OAuth scope**: `script.external_request` only (for UrlFetchApp exchange rate calls)
+- **OAuth scopes**: `script.external_request` (UrlFetchApp for exchange rates) + `spreadsheets` (calendar export only)
 - **GCP setup**: Custom GCP project required (not "Default"); OAuth consent screen configured as External with owner added as test user
 
 ---
 
 ## Requirements
 
-- A Google account
-- A web browser (Chrome recommended on Pixel 6)
-- No coding knowledge needed beyond copy-paste
+- A Google account (owner)
+- Node.js (for clasp) — or manual copy-paste as fallback
+- A web browser (Chrome recommended on mobile)
 
 ---
 
-## Setup (one-time, ~5 minutes)
+## Local Dev Setup
 
-### Step 1 — Create the Google Spreadsheet
+### Prerequisites
 
-1. Go to [sheets.google.com](https://sheets.google.com)
-2. Click **Blank** to create a new spreadsheet
-3. Rename it to **Trip Expenses** (click the title at the top)
+1. Install [Node.js](https://nodejs.org) (v18+)
+2. Install clasp globally:
+   ```
+   npm install -g @google/clasp
+   ```
+3. Log in to clasp:
+   ```
+   clasp login
+   ```
+   This opens a browser for Google OAuth. Auth stored at `C:\Users\User\.clasprc.json`.
 
-> This spreadsheet is your database. All trips and expenses are stored here automatically.
+### VS Code Terminal
 
----
-
-### Step 2 — Open the Script Editor
-
-1. In the spreadsheet, click the menu: **Extensions → Apps Script**
-2. A new tab opens with the script editor
-3. You'll see a default file called `Code.gs` with an empty function
-
----
-
-### Step 3 — Add the Backend (Code.gs)
-
-1. In the script editor, click on `Code.gs` in the left panel
-2. **Select all** the existing code and **delete it**
-3. Open the file `Code.gs` from this folder and **copy its entire contents**
-4. Paste it into the script editor's `Code.gs` tab
-5. Click the **Save** button (floppy disk icon, or Ctrl+S)
+clasp and git commands work from the VS Code integrated terminal. Node.js and npm bin paths are configured in `.vscode/settings.json`. If commands aren't found after setup, do a full VS Code restart (not just terminal close).
 
 ---
 
-### Step 4 — Add the Frontend (Index.html)
+## First-Time Deployment (new GAS project)
 
-1. In the script editor, click the **+** button next to "Files" in the left panel
-2. Choose **HTML**
-3. Name it exactly: `Index` (no capital H, no .html extension — the editor adds it)
-4. **Select all** the placeholder code and **delete it**
-5. Open the file `Index.html` from this folder and **copy its entire contents**
-6. Paste it into the `Index.html` tab in the script editor
-7. Click **Save**
+1. **Create a standalone Apps Script project:**
+   - Go to [script.google.com](https://script.google.com) → click **New project**
+   - Note the Script ID from the URL: `https://script.google.com/home/projects/{SCRIPT_ID}/edit`
 
-You should now have two files in the left panel:
+2. **Configure `.clasp.json`** in the project root:
+   ```json
+   { "scriptId": "YOUR_SCRIPT_ID", "rootDir": "." }
+   ```
+
+3. **Configure GCP project** (required for Google Maps API):
+   - In the GAS editor: **Project Settings → Change project** → enter your GCP project number
+   - See [Google API Configuration](#google-api-configuration) below
+
+4. **Push all files:**
+   ```
+   clasp push --force
+   ```
+
+5. **Deploy as Web App:**
+   - In the GAS editor: **Deploy → New deployment**
+   - Type: **Web app**
+   - Execute as: **Me**
+   - Who has access: **Anyone with Google account**
+   - Click **Deploy** → authorize if prompted → copy the Web App URL
+
+---
+
+## Updating the App
+
+After making local code changes:
+
 ```
-Code.gs
-Index.html
+clasp push
 ```
 
----
+Then redeploy:
+- GAS editor → **Deploy → Manage deployments** → pencil icon → **New version** → **Deploy**
 
-### Step 5 — Deploy as a Web App
-
-1. Click **Deploy** (top right) → **New deployment**
-2. Click the gear icon next to "Type" → select **Web app**
-3. Fill in the settings:
-   - **Description:** Trip Expenses v1
-   - **Execute as:** Me (your Google account)
-   - **Who has access:** Anyone with Google account
-4. Click **Deploy**
-5. Google will ask you to **authorize** the app — click through and allow it
-6. Copy the **Web app URL** that appears — this is your app's permanent link
-
-> Save this URL somewhere. It looks like:
-> `https://script.google.com/macros/s/AKfycb.../exec`
+> Without a new deployment version, live users continue to see the old code.
 
 ---
 
-### Step 6 — Add to Phone Home Screen
+## Google API Configuration
 
-On your Pixel 6:
-1. Open **Chrome** and navigate to your web app URL
-2. Tap the **three-dot menu** (top right)
-3. Tap **Add to Home screen**
-4. Name it "Trip Expenses" → tap **Add**
+The app uses the **Google Maps JavaScript API** (Places, Autocomplete, Maps). This requires:
 
-It will appear on your home screen like a native app.
+### Step 1 — Create a GCP Project (if not already done)
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com)
+2. Click **Select a project** → **New Project** → name it (e.g. "TripExpenses")
+3. Note the **Project Number** (shown on the project dashboard)
+
+### Step 2 — Enable Required APIs
+
+In GCP Console → **APIs & Services → Library**, enable:
+- **Maps JavaScript API**
+- **Places API**
+
+### Step 3 — Create an API Key
+
+1. GCP Console → **APIs & Services → Credentials → Create Credentials → API key**
+2. Copy the key
+3. Paste it into [MapService.html](MapService.html) — the `loadGoogleMaps()` function builds the Maps script URL with this key
+
+### Step 4 — Restrict the API Key (recommended)
+
+In the API key settings:
+- **Application restrictions**: HTTP referrers → add your Web App URL (`https://script.google.com/macros/s/...`)
+- **API restrictions**: Restrict to Maps JavaScript API + Places API
+
+### Step 5 — Link GCP Project to GAS
+
+1. GAS editor → **Project Settings → Google Cloud Platform (GCP) Project**
+2. Click **Change project** → enter the GCP **Project Number**
+3. This links the GAS project so it uses your GCP APIs and OAuth consent screen
+
+### Step 6 — OAuth Consent Screen
+
+1. GCP Console → **APIs & Services → OAuth consent screen**
+2. User type: **External**
+3. Add the owner's Google account as a **Test user**
+4. Required scopes will be auto-detected on first deploy
+
+### Step 7 — Authorize the App
+
+When first opening the Web App URL:
+- Click through Google's authorization prompts
+- Grant the requested permissions (UrlFetchApp, Spreadsheets for calendar export)
 
 ---
 
-### Step 7 — Share with Your Wife
+## Add to Phone Home Screen
 
-**Option A — Share the web app URL** (simplest):
-- Send her the web app URL. She can open it in Chrome and add to her home screen too.
+On Android (Chrome):
+1. Open the Web App URL in Chrome
+2. Tap the **three-dot menu** → **Add to Home screen**
+3. Name it "Trip Expenses" → tap **Add**
 
-**Option B — Share the spreadsheet** (for direct data access):
-1. In the Google Spreadsheet, click **Share** (top right)
-2. Enter her Google account email
-3. Set her role to **Editor**
-4. Click **Send**
-
-> The app runs as your Google account, so she can use the web app URL freely.
-> If you want her to see/edit the raw spreadsheet data too, use Option B.
+On iOS (Safari):
+1. Open the URL in Safari
+2. Tap **Share** → **Add to Home Screen**
 
 ---
 
-## How to Update the App in the Future
+## Share with Partner
 
-If you make changes to `Code.gs` or `Index.html`:
-1. Save the files in the script editor
-2. Click **Deploy → Manage deployments**
-3. Click the **pencil/edit** icon on your deployment
-4. Change **Version** to **New version**
-5. Click **Deploy**
+**Share the Web App URL** — send the URL. She opens it in Chrome, adds to home screen. No Google account access needed.
 
-> Without deploying a new version, changes won't appear in the live app.
+> Data is shared automatically — both users read/write the same PropertiesService data via the same deployed URL.
 
 ---
 
 ## Data Storage
 
-The app automatically creates three sheets in your spreadsheet:
+All data lives in `PropertiesService.getScriptProperties()` (script-level properties, shared across all deployments):
 
-| Sheet | Contents |
-|-------|----------|
-| **Trips** | One row per trip (ID, title, country, currency, dates) |
-| **Expenses** | One row per expense (all fields including ILS amount and exchange rate) |
-| **Settings** | Cached exchange rates, custom expense types |
+| Key | Type | Contents |
+|-----|------|----------|
+| `trips` | JSON array | All trip objects |
+| `exp_{tripId}` | JSON array | Expense objects for that trip |
+| `checkins_{tripId}` | JSON object | Check-in map `{id → object}` |
+| `caldesc_{tripId}` | JSON object | Calendar day notes `{YYYY-MM-DD → text}` |
+| `plan_{tripId}` | JSON object | `{ bank: [...], assignments: {...} }` |
+| `settings` | JSON object | `{ customTypes: [...] }` |
+| `ratecache` | JSON object | Exchange rate cache `{FROM_TO → {rate, date}}` |
 
-You can view, sort, and filter the raw data directly in the spreadsheet at any time.
+> Google Sheets is used **only** for the calendar export feature — it creates a new Sheet on demand via `SpreadsheetApp.create()`. It is **not** the primary database.
 
 ---
 
 ## Exchange Rates
 
-- Rates are fetched from [frankfurter.app](https://frankfurter.app) — free, no API key, uses ECB official rates
-- Historical rates are used (matched to the expense date)
-- If the live rate is unavailable (offline, weekend, etc.), the last cached rate is used with a warning
-- You can always override the ILS amount manually
-- Supported currencies include: ILS, EUR, USD, GBP, JPY, THB, CHF, and 30+ more
+- Rates from [frankfurter.app](https://frankfurter.app) — free, no API key, ECB official rates
+- Historical rates used (matched to expense date)
+- Last cached rate used if API unavailable (weekends, holidays)
+- Manual ILS override always available
+- 39 supported currencies: ILS, EUR, USD, GBP, JPY, THB, CHF, and more
 
 ---
 
@@ -171,10 +208,13 @@ You can view, sort, and filter the raw data directly in the spreadsheet at any t
 | Problem | Solution |
 |---------|----------|
 | "Authorization required" on first open | Click through Google's authorization prompts |
-| Exchange rate shows "cached" | Normal for weekends/holidays — ECB doesn't publish on non-business days |
-| App not updating after code change | Re-deploy as a new version (see "How to Update" above) |
-| Blank screen on phone | Hard-refresh: hold the browser back button → refresh |
-| Wife can't open the app | Make sure "Who has access" is set to "Anyone with Google account" in deployment |
+| Exchange rate shows "cached" | Normal for weekends/holidays — ECB doesn't publish daily |
+| App not updating after code change | Re-deploy as a new version |
+| Blank screen on phone | Hard-refresh: hold browser back → refresh |
+| Partner can't open the app | Confirm "Who has access" = "Anyone with Google account" in deployment |
+| clasp not found in VS Code terminal | Full VS Code restart required after PATH change in settings.json |
+| clasp push "Conflicting files found" | Ensure `appsscript.json` exists locally; run `clasp push --force` |
+| Maps not loading | Check API key in MapService.html; confirm Maps JS API + Places API are enabled in GCP |
 
 ---
 
@@ -182,7 +222,24 @@ You can view, sort, and filter the raw data directly in the spreadsheet at any t
 
 ```
 TripExpenses/
-├── Code.gs       ← Paste into Google Apps Script editor
-├── Index.html    ← Paste as new HTML file in script editor
-└── README.md     ← This file
+├── Code.gs              ← Backend: all server-side functions
+├── Index.html           ← Shell template: assembles the SPA via <?!= include('...') ?>
+├── Shared.html          ← Global CSS styles
+├── Constants.html       ← PLAN_TYPES, CI_COLORS, CI_ICONS, CURRENCIES, COUNTRIES maps
+├── State.html           ← Global state object S + MapService tokens
+├── MapService.html      ← Google Maps lazy-loader, PlacesService helper
+├── Core.html            ← init(), navigate(), goBack(), modal, toast, helpers
+├── TripsScreen.html     ← Trips list, New Trip form, Edit Trip modal, Date Range Picker
+├── ExpenseScreen.html   ← Expense list, Add/Edit Expense form
+├── ReportScreen.html    ← Expense report, pie chart, breakdown table
+├── TrackerScreen.html   ← Check-in form, List/Calendar/Map tabs, KML export
+├── PlannerScreen.html   ← Place bank, Planner Calendar, Planner Map
+├── MapPicker.html       ← Full-screen map picker overlay (used by tracker + planner)
+├── appsscript.json      ← GAS manifest (timezone, webapp config, OAuth scopes)
+├── .clasp.json          ← clasp config: scriptId + rootDir
+├── .claspignore         ← Files to exclude from clasp push (currently empty = push all)
+├── .vscode/
+│   └── settings.json   ← VS Code: terminal PATH (Node.js + npm), git decorations
+├── README.md            ← This file
+└── Requirements.md      ← Full technical spec and architecture reference
 ```

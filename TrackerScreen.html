@@ -1,0 +1,762 @@
+<!-- VIEW: TRACKER -->
+<div class="view" id="view-tracker">
+  <div class="tracker-tabs">
+    <button class="tracker-tab on" id="tab-list" onclick="switchTrackerTab('list')">📋 List</button>
+    <button class="tracker-tab"    id="tab-cal"  onclick="switchTrackerTab('cal')">📅 Calendar</button>
+    <button class="tracker-tab"    id="tab-map"  onclick="switchTrackerTab('map')">🗺 Map</button>
+  </div>
+
+  <div class="ci-form" id="ci-form-wrap" style="display:none">
+    <div class="ci-form-title">📍 Check-in</div>
+    <div class="fg" style="margin-bottom:10px">
+      <label>Place Name <span class="req">*</span></label>
+      <div class="suggest-wrap">
+        <input class="fc" id="ciName" type="text" placeholder="Start typing a place name…"
+               autocomplete="off" oninput="onCiNameInput()" onfocus="onCiNameFocus()" onkeydown="onCiNameKeydown(event)">
+        <div class="suggest-list" id="ciSuggest" style="display:none"></div>
+      </div>
+      <div class="gps-status" id="gpsStatus">
+        <div class="gps-dot spin-dot" id="gpsDot"></div>
+        <span id="gpsText" style="flex:1">Acquiring GPS…</span>
+        <button onclick="openMapPicker()" style="background:none;border:1.5px solid var(--primary);color:var(--primary);border-radius:7px;padding:3px 9px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0">&#128205; Pick on Map</button>
+      </div>
+    </div>
+    <div class="frow" style="margin-bottom:10px">
+      <div class="fg" style="margin-bottom:0">
+        <label>Date</label>
+        <input class="fc" id="ciDate" type="date">
+      </div>
+      <div class="fg" style="margin-bottom:0">
+        <label>Time</label>
+        <input class="fc" id="ciTime" type="time">
+      </div>
+    </div>
+    <div class="fg" style="margin-bottom:12px">
+      <label>Type</label>
+      <select class="fc" id="ciType">
+        <option value="place">📌 Place</option>
+        <option value="hotel">🏨 Hotel</option>
+        <option value="restaurant">🍽 Restaurant</option>
+        <option value="attraction">🎡 Attraction</option>
+        <option value="transport">🚗 Transport</option>
+        <option value="flight-in">🛬 Flight In</option>
+        <option value="flight-out">🛫 Flight Out</option>
+        <option value="hike">🥾 Hike</option>
+        <option value="groceries">🛒 Groceries</option>
+        <option value="other">🗂 Other</option>
+      </select>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-outline btn-sm" onclick="cancelCheckin()">Cancel</button>
+      <button class="btn btn-accent btn-sm" id="ciSaveBtn" onclick="saveCheckinUI()">📍 Check In</button>
+    </div>
+  </div>
+
+  <div id="panel-list">
+    <div id="ciList"></div>
+    <div style="height:80px"></div>
+  </div>
+
+  <div id="panel-cal" style="display:none">
+    <div id="calContent" style="background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:10px 8px;margin-bottom:14px"></div>
+    <div style="height:30px"></div>
+  </div>
+
+  <div id="panel-map" style="display:none">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+      <button class="btn btn-outline btn-sm" style="padding:5px 10px;min-height:32px;font-size:11px;white-space:nowrap" onclick="exportTrackerKml()">&#128229; Export KML</button>
+    </div>
+    <div style="border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);margin-bottom:14px">
+      <div id="tracker-map"></div>
+    </div>
+    <div style="height:30px"></div>
+  </div>
+</div>
+
+<script>
+// =======================================================
+// TRACKER
+// =======================================================
+
+function showCheckinForm() {
+  S.editingCheckinId = null;
+  S.gpsCoords = null;
+  S.gpsSource = 'none';
+  const _now = new Date();
+  document.getElementById('ciName').value = '';
+  document.getElementById('ciDate').value = today();
+  document.getElementById('ciTime').value = String(_now.getHours()).padStart(2,'0') + ':' + String(_now.getMinutes()).padStart(2,'0');
+  document.getElementById('ciType').value = 'place';
+  document.getElementById('ciSaveBtn').textContent = '📍 Check In';
+  hideSuggestions();
+  document.getElementById('ci-form-wrap').style.display = 'block';
+  acquireGPS();
+  setTimeout(() => document.getElementById('ciName').focus(), 100);
+}
+
+function cancelCheckin() {
+  S.editingCheckinId = null;
+  document.getElementById('ci-form-wrap').style.display = 'none';
+  hideSuggestions();
+}
+
+function acquireGPS() {
+  setGpsStatus('spin', 'Acquiring GPS…');
+  if (!navigator.geolocation) { setGpsStatus('err', 'GPS not available'); return; }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      S.gpsCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      S.gpsSource = 'gps';
+      setGpsStatus('ok', 'GPS: ' + S.gpsCoords.lat.toFixed(5) + ', ' + S.gpsCoords.lng.toFixed(5));
+      if (!document.getElementById('ciName').value.trim()) fetchNearbySuggestions();
+    },
+    () => {
+      S.gpsCoords = null;
+      S.gpsSource = 'none';
+      setGpsStatus('err', 'GPS unavailable — type a place name');
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
+function setGpsStatus(state, text) {
+  const dot = document.getElementById('gpsDot');
+  const txt = document.getElementById('gpsText');
+  if (!dot || !txt) return;
+  dot.className = 'gps-dot' + (state === 'ok' ? ' ok' : state === 'spin' ? ' spin-dot' : state === 'err' ? ' err' : '');
+  txt.textContent = text;
+}
+
+function onCiNameFocus() {
+  const q = (document.getElementById('ciName').value || '').trim();
+  if (!q && S.gpsCoords) fetchNearbySuggestions();
+}
+
+function onCiNameInput() {
+  const q = (document.getElementById('ciName').value || '').trim();
+  clearTimeout(S.suggestTimer);
+  if (!q) {
+    if (S.gpsCoords) fetchNearbySuggestions();
+    else hideSuggestions();
+    return;
+  }
+  S.suggestTimer = setTimeout(() => searchByName(q), 600);
+}
+
+var _ciSuggestIdx = -1;
+
+function onCiNameKeydown(e) {
+  const list = document.getElementById('ciSuggest');
+  const open = list && list.style.display !== 'none';
+  if (!open) return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); _ciSuggestIdx = _navigateSuggest('ciSuggest', _ciSuggestIdx, 1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); _ciSuggestIdx = _navigateSuggest('ciSuggest', _ciSuggestIdx, -1); }
+  else if (e.key === 'Enter' && _ciSuggestIdx >= 0) {
+    e.preventDefault();
+    const el = list.querySelectorAll('.suggest-item')[_ciSuggestIdx];
+    if (el) selectSuggestion(el);
+    _ciSuggestIdx = -1;
+  } else if (e.key === 'Escape') { e.stopPropagation(); hideSuggestions(); _ciSuggestIdx = -1; }
+}
+
+function fetchNearbySuggestions() {
+  if (!S.gpsCoords) return;
+  const { lat, lng } = S.gpsCoords;
+  loadGoogleMaps(() => {
+    const svc = _getPlacesService();
+    if (!svc) return;
+    svc.nearbySearch({ location: { lat, lng }, radius: 600 }, (results, status) => {
+      if (status !== google.maps.places.PlacesServiceStatus.OK || !results) return;
+      const items = results.slice(0, 8).map(r => ({
+        place_id: r.place_id,
+        name: r.name,
+        sub: (r.types || []).slice(0, 2).join(', ').replace(/_/g, ' '),
+        lat: r.geometry.location.lat(), lng: r.geometry.location.lng()
+      }));
+      if (items.length) showSuggestions(items);
+    });
+  });
+}
+
+function searchByName(q) {
+  loadGoogleMaps(() => {
+    const svc = new google.maps.places.AutocompleteService();
+    svc.getPlacePredictions({ input: q, sessionToken: _trackerToken(), language: 'en' }, (predictions, status) => {
+      if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions) { hideSuggestions(); return; }
+      const items = predictions.slice(0, 8).map(p => ({
+        place_id: p.place_id,
+        name: p.structured_formatting.main_text,
+        sub: p.structured_formatting.secondary_text || '',
+        lat: null, lng: null
+      }));
+      showSuggestions(items);
+    });
+  });
+}
+
+function showSuggestions(items) {
+  _ciSuggestIdx = -1;
+  const list = document.getElementById('ciSuggest');
+  if (!list) return;
+  list.innerHTML = items.map(item => `
+    <div class="suggest-item"
+         data-name="${esc(item.name)}"
+         data-lat="${item.lat || ''}"
+         data-lng="${item.lng || ''}"
+         data-place-id="${item.place_id || ''}"
+         onclick="selectSuggestion(this)">
+      <div class="si-name">${esc(item.name)}</div>
+      ${item.sub ? `<div class="si-sub">${esc(item.sub)}</div>` : ''}
+    </div>`).join('');
+  list.style.display = 'block';
+}
+
+function hideSuggestions() {
+  _ciSuggestIdx = -1;
+  const list = document.getElementById('ciSuggest');
+  if (list) list.style.display = 'none';
+}
+
+function selectSuggestion(el) {
+  const name = el.getAttribute('data-name');
+  const lat  = parseFloat(el.getAttribute('data-lat')) || null;
+  const lng  = parseFloat(el.getAttribute('data-lng')) || null;
+  const placeId = el.getAttribute('data-place-id');
+  document.getElementById('ciName').value = name;
+  hideSuggestions();
+  if (lat && lng) {
+    S.gpsCoords = { lat, lng };
+    S.gpsSource = 'nominatim';
+    setGpsStatus('ok', 'Location: ' + lat.toFixed(5) + ', ' + lng.toFixed(5));
+  } else if (placeId && window.google) {
+    setGpsStatus('spin', 'Getting location...');
+    _getPlacesService().getDetails({ placeId, fields: ['geometry'], sessionToken: _trackerToken() }, (place, status) => {
+      _trackerAcToken = null;
+      if (status === 'OK' && place.geometry) {
+        const loc = place.geometry.location;
+        S.gpsCoords = { lat: loc.lat(), lng: loc.lng() };
+        S.gpsSource = 'nominatim';
+        setGpsStatus('ok', 'Location: ' + S.gpsCoords.lat.toFixed(5) + ', ' + S.gpsCoords.lng.toFixed(5));
+      } else { setGpsStatus('err', 'Could not get location — pick on map'); }
+    });
+  }
+}
+
+function saveCheckinUI() {
+  const name = (document.getElementById('ciName').value || '').trim();
+  if (!name) { toast('Enter a place name', 'err'); return; }
+  const type = document.getElementById('ciType').value;
+  const btn  = document.getElementById('ciSaveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  const dateVal = document.getElementById('ciDate').value;
+  const timeVal = document.getElementById('ciTime').value;
+  const timestamp = (dateVal && timeVal)
+    ? new Date(dateVal + 'T' + timeVal + ':00').toISOString()
+    : new Date().toISOString();
+
+  const data = {
+    tripId:    S.currentTrip.id,
+    timestamp,
+    name, type,
+    lat:       S.gpsCoords ? S.gpsCoords.lat : null,
+    lng:       S.gpsCoords ? S.gpsCoords.lng : null,
+    gpsSource: S.gpsSource || 'none'
+  };
+
+  const onErr = err => {
+    btn.disabled = false; btn.textContent = S.editingCheckinId ? '✓ Update' : '📍 Check In';
+    toast('Error: ' + err.message, 'err');
+  };
+
+  if (S.editingCheckinId) {
+    data.id = S.editingCheckinId;
+    btn.disabled = false; btn.textContent = '✓ Update';
+    const idx = S.checkins.findIndex(c => c.id === S.editingCheckinId);
+    if (idx !== -1) S.checkins[idx] = Object.assign({}, S.checkins[idx], data);
+    cancelCheckin();
+    if (S.trackerTab === 'list') renderCheckinList();
+    if (S.trackerTab === 'cal')  buildCalendar();
+    toast('Check-in updated!', 'ok');
+    google.script.run.withFailureHandler(onErr).updateCheckin(data);
+  } else {
+    google.script.run
+      .withSuccessHandler(res => {
+        btn.disabled = false; btn.textContent = '📍 Check In';
+        if (res && res.success) {
+          S.checkins.push(Object.assign({ id: res.id, createdAt: new Date().toISOString() }, data));
+          cancelCheckin();
+          if (S.trackerTab === 'list') renderCheckinList();
+          if (S.trackerTab === 'cal')  buildCalendar();
+          if (S.trackerTab === 'map')  setTimeout(initTrackerMap, 50);
+          toast('Checked in!', 'ok');
+        } else toast('Save failed', 'err');
+      })
+      .withFailureHandler(onErr)
+      .saveCheckin(data);
+  }
+}
+
+function loadCheckins() {
+  const el = document.getElementById('ciList');
+  if (el) el.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted)">Loading…</div>';
+  let _cis = null, _descs = null;
+  function _onBoth() {
+    if (_cis === null || _descs === null) return;
+    S.checkins = _cis;
+    S.calDescs = _descs;
+    if (S.trackerTab === 'list') renderCheckinList();
+    if (S.trackerTab === 'cal')  buildCalendar();
+    if (S.trackerTab === 'map')  setTimeout(initTrackerMap, 50);
+  }
+  google.script.run
+    .withSuccessHandler(cis => { _cis = cis || []; _onBoth(); })
+    .withFailureHandler(() => {
+      if (el) el.innerHTML = '<div style="color:var(--danger);padding:20px">Failed to load check-ins</div>';
+    })
+    .loadCheckins(S.currentTrip.id);
+  google.script.run
+    .withSuccessHandler(descs => { _descs = descs || {}; _onBoth(); })
+    .withFailureHandler(() => { _descs = {}; _onBoth(); })
+    .getCalDescs(S.currentTrip.id);
+}
+
+function renderCheckinList() {
+  const el = document.getElementById('ciList');
+  if (!el) return;
+  if (!S.checkins.length) {
+    el.innerHTML = `
+      <div class="empty">
+        <div class="empty-icon">📍</div>
+        <div class="empty-title">No check-ins yet</div>
+        <div class="empty-sub">Tap "+ Check-in" to record your first location</div>
+      </div>`;
+    return;
+  }
+  const groups = {};
+  [...S.checkins].forEach(c => {
+    const d = localDateStr(c.timestamp);
+    if (!groups[d]) groups[d] = [];
+    groups[d].push(c);
+  });
+  el.innerHTML = Object.keys(groups).sort().map(d => {
+    const _di = new Date(d + 'T12:00:00Z').getDay();
+    const _dowLabel = CAL_DOW_EN[_di] + ' (יום ' + CAL_DOW_HE[_di] + ')';
+    return `
+      <div class="dg-label">${fmtDate(d)} · ${_dowLabel}</div>
+      ${groups[d].map(c => checkinCard(c)).join('')}
+    `;
+  }).join('');
+}
+
+function checkinCard(c) {
+  const col  = CI_COLORS[c.type]  || '#9E9E9E';
+  const icon = CI_ICONS[c.type]   || '📌';
+  const gpsInfo = (c.lat && c.lng) ? '📡 ' + parseFloat(c.lat).toFixed(4) + ', ' + parseFloat(c.lng).toFixed(4) : '';
+  return `
+    <div class="ci-card" onclick="editCheckinUI('${c.id}')">
+      <div class="ci-icon" style="background:${col}22;color:${col}">${icon}</div>
+      <div class="ci-body">
+        <div class="ci-name">${esc(c.name)}</div>
+        <div class="ci-time">${fmtCheckinTime(c.timestamp)}</div>
+        ${gpsInfo ? `<div class="ci-gps">${gpsInfo}</div>` : ''}
+      </div>
+      <button class="btn btn-outline btn-sm" style="width:auto;flex-shrink:0;margin-right:4px"
+              onclick="event.stopPropagation();editCheckinUI('${c.id}')">&#9998;</button>
+      <button class="btn btn-danger btn-sm" style="width:auto;flex-shrink:0"
+              onclick="event.stopPropagation();confirmDeleteCheckin('${c.id}')">🗑</button>
+    </div>`;
+}
+
+function editCheckinUI(id) {
+  const c = S.checkins.find(x => x.id === id);
+  if (!c) return;
+  S.editingCheckinId = id;
+  S.gpsCoords = (c.lat && c.lng) ? { lat: parseFloat(c.lat), lng: parseFloat(c.lng) } : null;
+  S.gpsSource = c.gpsSource || 'none';
+  const _d = new Date(c.timestamp);
+  document.getElementById('ciName').value = c.name || '';
+  document.getElementById('ciDate').value = localDateStr(c.timestamp);
+  document.getElementById('ciTime').value = String(_d.getHours()).padStart(2,'0') + ':' + String(_d.getMinutes()).padStart(2,'0');
+  document.getElementById('ciType').value = c.type || 'place';
+  document.getElementById('ciSaveBtn').textContent = '✓ Update';
+  hideSuggestions();
+  if (S.gpsCoords) {
+    setGpsStatus('ok', 'Location: ' + S.gpsCoords.lat.toFixed(5) + ', ' + S.gpsCoords.lng.toFixed(5));
+  } else {
+    setGpsStatus('err', 'No GPS — type to search');
+  }
+  document.getElementById('ci-form-wrap').style.display = 'block';
+  setTimeout(() => {
+    document.getElementById('ci-form-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('ciName').focus();
+  }, 100);
+}
+
+function confirmDeleteCheckin(id) {
+  const c = S.checkins.find(x => x.id === id);
+  showModal('Delete Check-in', `
+    <p style="color:var(--muted);margin-bottom:16px">
+      Delete "<strong>${esc(c ? c.name : '')}</strong>"? This cannot be undone.
+    </p>
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="doDeleteCheckin('${id}')">Delete</button>
+    </div>`);
+}
+
+function doDeleteCheckin(id) {
+  closeModal();
+  S.checkins = S.checkins.filter(c => c.id !== id);
+  renderCheckinList();
+  if (S.trackerTab === 'cal') buildCalendar();
+  if (S.trackerTab === 'map') initTrackerMap();
+  toast('Check-in deleted', 'ok');
+  google.script.run
+    .withFailureHandler(err => toast('Error deleting check-in: ' + err.message, 'err'))
+    .deleteCheckin(id, S.currentTrip.id);
+}
+
+function switchTrackerTab(tab) {
+  const formWrap = document.getElementById('ci-form-wrap');
+  if (S.trackerTab === 'list') {
+    S._listFormVisible = formWrap.style.display !== 'none';
+  }
+  S.trackerTab = tab;
+  ['list','cal','map'].forEach(t => {
+    document.getElementById('tab-' + t).classList.toggle('on', t === tab);
+    document.getElementById('panel-' + t).style.display = t === tab ? 'block' : 'none';
+  });
+  formWrap.style.display = (tab === 'list' && S._listFormVisible) ? 'block' : 'none';
+  if (tab === 'list') renderCheckinList();
+  if (tab === 'cal') buildCalendar();
+  if (tab === 'map') setTimeout(initTrackerMap, 50);
+}
+
+const CAL_DOW_EN = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const CAL_DOW_HE = ['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','ש׳'];
+
+function toggleCalLang() {
+  S.calLang = S.calLang === 'he' ? 'en' : 'he';
+  buildCalendar();
+}
+
+function buildCalendar() {
+  const el = document.getElementById('calContent');
+  if (!el) return;
+  if (!S.checkins.length) {
+    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:32px">No check-ins yet</div>';
+    return;
+  }
+
+  const groups = {};
+  [...S.checkins].forEach(c => {
+    const d = localDateStr(c.timestamp);
+    if (!groups[d]) groups[d] = [];
+    groups[d].push(c);
+  });
+
+  const allDates = Object.keys(groups).sort();
+  const dataFirst = allDates[0];
+  const dataLast  = allDates[allDates.length - 1];
+
+  let fFrom = S.calFilterFrom || dataFirst;
+  let fTo   = S.calFilterTo   || dataLast;
+  if (fFrom > fTo) { const tmp = fFrom; fFrom = fTo; fTo = tmp; }
+
+  const fd = new Date(fFrom + 'T12:00:00Z');
+  const gStart = new Date(fd); gStart.setUTCDate(fd.getUTCDate() - fd.getUTCDay());
+
+  const ld = new Date(fTo + 'T12:00:00Z');
+  const gEnd = new Date(ld); gEnd.setUTCDate(ld.getUTCDate() + (6 - ld.getUTCDay()));
+
+  const DOW_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  const weeks = [];
+  const cur = new Date(gStart);
+  while (cur <= gEnd) {
+    const week = [];
+    for (let i = 0; i < 7; i++) {
+      const ds    = cur.toISOString().split('T')[0];
+      const cis   = groups[ds] || [];
+      const hotel = [...cis].reverse().find(c => c.type === 'hotel') || null;
+      const dd    = String(cur.getUTCDate()).padStart(2, '0');
+      const mm    = String(cur.getUTCMonth() + 1).padStart(2, '0');
+      const dow   = DOW_SHORT[cur.getUTCDay()];
+      week.push({ ds, dd, mm, dow, inRange: ds >= fFrom && ds <= fTo, cis, hotel });
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    weeks.push(week);
+  }
+  S.calWeeks = weeks;
+
+  const dowRow = '<div class="cal7-dow-sticky"><table class="cal7-dow-table"><thead><tr>' +
+    DOW_SHORT.map(d => '<th class="cal7-th">' + d + '</th>').join('') +
+    '</tr></thead></table></div>';
+
+  const bodyRows = weeks.map(week => {
+    const tds = week.map(day => {
+      const cls   = 'cal7-cell' + (day.inRange ? '' : ' vacant');
+      const pills = day.cis.map(c => {
+        const col = CI_COLORS[c.type] || '#9E9E9E';
+        return '<span class="cal7-pill" style="background:' + col + '18;color:' + col + '">' + (CI_ICONS[c.type] || '') + ' ' + esc(c.name) + '</span>';
+      }).join('');
+      const foot = (day.hotel && day.inRange) ? '<div class="cal7-foot">🏨 ' + esc(day.hotel.name) + '</div>' : '';
+      const descText = (S.calDescs && S.calDescs[day.ds]) || '';
+      const hdrCls = day.inRange ? ' cal7-hdr-edit' : '';
+      const hdrClick = day.inRange ? ' onclick="editCalDesc(\'' + day.ds + '\')"' : '';
+      const descSpan = (descText && day.inRange) ? ' <span class="cal7-hdr-desc">' + esc(descText) + '</span>' : '';
+      return '<td class="' + cls + '"><div class="cal7-inner">' +
+             '<div class="cal7-hdr' + hdrCls + '"' + hdrClick + '>' + day.dd + '/' + day.mm + descSpan + '</div>' +
+             '<div class="cal7-body">' + pills + '</div>' +
+             foot + '</div></td>';
+    }).join('');
+    return '<tr>' + tds + '</tr>';
+  }).join('');
+
+  const fv = S.calFilterFrom || '';
+  const tv = S.calFilterTo   || '';
+  const hasFilter = fv || tv;
+  let filterBar = '<div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">' +
+    '<span style="font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap">From</span>' +
+    '<input type="date" class="fc" style="width:132px;padding:5px 8px;font-size:12px;min-height:32px" value="' + fv + '" onblur="S.calFilterFrom=this.value||null;buildCalendar()">' +
+    '<span style="font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap">To</span>' +
+    '<input type="date" class="fc" style="width:132px;padding:5px 8px;font-size:12px;min-height:32px" value="' + tv + '" onblur="S.calFilterTo=this.value||null;buildCalendar()">';
+  if (hasFilter) {
+    filterBar += '<button class="btn btn-outline btn-sm" style="padding:5px 10px;min-height:32px;font-size:11px;white-space:nowrap" onclick="S.calFilterFrom=null;S.calFilterTo=null;buildCalendar()">&#10005; Clear</button>';
+  }
+  filterBar += '<button class="btn btn-outline btn-sm" style="padding:5px 10px;min-height:32px;font-size:11px;white-space:nowrap;margin-left:auto" onclick="exportCalendar()">&#128229; Export</button>';
+  filterBar += '</div>';
+
+  el.innerHTML = filterBar + dowRow +
+    '<div class="cal7-wrap"><table class="cal7-table"><tbody>' + bodyRows + '</tbody></table></div>';
+
+  const calWrap = el.querySelector('.cal7-wrap');
+  const dowTable = el.querySelector('.cal7-dow-table');
+  if (calWrap && dowTable) {
+    calWrap.addEventListener('scroll', function() {
+      dowTable.style.transform = 'translateX(-' + calWrap.scrollLeft + 'px)';
+    });
+  }
+}
+
+function editCalDesc(dateStr) {
+  const current = S.calDescs[dateStr] || '';
+  const label = new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  showModal('Note — ' + label,
+    '<div class="fg"><textarea class="fc" id="calDescText" rows="4" placeholder="Add a note for this day…" style="resize:vertical;font-size:14px">' + esc(current) + '</textarea></div>' +
+    '<div class="btn-row">' +
+    (current ? '<button class="btn btn-danger btn-sm" style="flex:0;white-space:nowrap" onclick="_doSaveCalDesc(\'' + dateStr + '\',\'\')">Clear</button>' : '') +
+    '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="_doSaveCalDesc(\'' + dateStr + '\',document.getElementById(\'calDescText\').value)">Save</button>' +
+    '</div>');
+  setTimeout(() => { const t = document.getElementById('calDescText'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 150);
+}
+
+function _doSaveCalDesc(dateStr, text) {
+  const trimmed = (text || '').trim();
+  closeModal();
+  if (trimmed) S.calDescs[dateStr] = trimmed;
+  else delete S.calDescs[dateStr];
+  buildCalendar();
+  google.script.run
+    .withSuccessHandler(() => toast(trimmed ? 'Note saved' : 'Note cleared', 'ok'))
+    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .saveCalDesc(S.currentTrip.id, dateStr, trimmed);
+}
+
+function exportCalendar() {
+  if (!S.calWeeks || !S.calWeeks.length) { toast('Build the calendar first', 'err'); return; }
+  toast('Creating Google Sheet…', '');
+  const params = {
+    tripTitle: S.currentTrip.title,
+    weeks: S.calWeeks.map(week => week.map(day => ({
+      dd:       day.dd,
+      mm:       day.mm,
+      inRange:  day.inRange,
+      desc:     (S.calDescs && S.calDescs[day.ds]) || '',
+      cis:      day.cis.map(c => ({ name: c.name, type: c.type })),
+      hasHotel: !!day.hotel
+    })))
+  };
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success) {
+        window.open(res.url, '_blank');
+        toast('Sheet created!', 'ok');
+      } else {
+        toast('Export failed: ' + (res && res.error || 'unknown'), 'err');
+      }
+    })
+    .withFailureHandler(err => toast('Export error: ' + err.message, 'err'))
+    .exportCalendarToSheet(params);
+}
+
+function exportTrackerKml() {
+  const withGPS = S.checkins.filter(c => c.lat && c.lng);
+  if (!withGPS.length) { toast('No GPS check-ins to export', 'err'); return; }
+
+  const _S = 'https://maps.google.com/mapfiles/kml/shapes/';
+  const KML_ICONS = {
+    'place':      'https://maps.google.com/mapfiles/kml/paddle/blu-blank.png',
+    'hotel':      _S + 'lodging.png',
+    'restaurant': _S + 'dining.png',
+    'attraction': _S + 'arts.png',
+    'transport':  _S + 'cabs.png',
+    'flight-in':  _S + 'airports.png',
+    'flight-out': _S + 'airports.png',
+    'hike':       _S + 'hiker.png',
+    'groceries':  _S + 'grocery.png',
+    'other':      _S + 'info_circle.png'
+  };
+  const CI_TYPE_LABELS = {
+    'place':'Places','hotel':'Hotels','restaurant':'Restaurants',
+    'attraction':'Attractions','transport':'Transport',
+    'flight-in':'Flights In','flight-out':'Flights Out',
+    'hike':'Hikes','groceries':'Groceries','other':'Other'
+  };
+
+  function toKmlColor(hex) {
+    const r = hex.slice(1,3), g = hex.slice(3,5), b = hex.slice(5,7);
+    return 'ff' + b + g + r;
+  }
+
+  const types = [...new Set(withGPS.map(c => c.type))];
+
+  function kx(s) {
+    return String(s || '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  const KML_BLUE   = toKmlColor('#1A73E8');
+  const KML_PURPLE = toKmlColor('#7B1FA2');
+  const KML_TYPE_COLORS = { 'hotel': KML_PURPLE };
+
+  const styles = types.map(type => {
+    const col  = KML_TYPE_COLORS[type] || KML_BLUE;
+    const icon = KML_ICONS[type] || KML_ICONS['other'];
+    const id   = 'ci-' + type;
+    return '    <Style id="' + id + '-normal">' +
+      '<IconStyle><color>' + col + '</color><scale>1</scale><Icon><href>' + icon + '</href></Icon></IconStyle>' +
+      '<LabelStyle><scale>0</scale></LabelStyle></Style>' +
+      '    <Style id="' + id + '-highlight">' +
+      '<IconStyle><color>' + col + '</color><scale>1</scale><Icon><href>' + icon + '</href></Icon></IconStyle>' +
+      '<LabelStyle><scale>1</scale></LabelStyle></Style>' +
+      '    <StyleMap id="' + id + '">' +
+      '<Pair><key>normal</key><styleUrl>#' + id + '-normal</styleUrl></Pair>' +
+      '<Pair><key>highlight</key><styleUrl>#' + id + '-highlight</styleUrl></Pair>' +
+      '</StyleMap>';
+  }).join('\n');
+
+  const placemarks = [...withGPS]
+    .sort((a, b) => (a.timestamp < b.timestamp ? -1 : 1))
+    .map(c => '    <Placemark>' +
+      '<name>' + kx(c.name) + '</name>' +
+      '<description>' + kx((CI_ICONS[c.type] || '') + ' ' + (CI_TYPE_LABELS[c.type] || c.type) + ' · ' + fmtCheckinTime(c.timestamp)) + '</description>' +
+      '<styleUrl>#ci-' + c.type + '</styleUrl>' +
+      '<Point><coordinates>' + parseFloat(c.lng).toFixed(7) + ',' + parseFloat(c.lat).toFixed(7) + ',0</coordinates></Point>' +
+      '</Placemark>')
+    .join('\n');
+
+  const kml = '<?xml version="1.0" encoding="UTF-8"?>' + '\n' +
+    '<kml xmlns="http://www.opengis.net/kml/2.2">' + '\n' +
+    '  <Document>' + '\n' +
+    '    <name>' + kx(S.currentTrip.title) + '</name>' + '\n' +
+    styles + '\n' +
+    '  <Folder><name>' + kx(S.currentTrip.title) + '</name>\n' +
+    placemarks + '\n' +
+    '  </Folder>\n' +
+    '  </Document>' + '\n' +
+    '</kml>';
+
+  const blob = new Blob([kml], { type: 'application/vnd.google-earth.kml+xml' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = S.currentTrip.title.replace(/[^\w\s-]/g, '') + '.kml';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('KML exported!', 'ok');
+}
+
+function initTrackerMap() {
+  const container = document.getElementById('tracker-map');
+  if (!container) return;
+  const withGPS = S.checkins.filter(c => c.lat && c.lng);
+  if (!withGPS.length) {
+    if (S.leafletMap) { (S.leafletMarkers || []).forEach(m => m.setMap(null)); S.leafletMarkers = []; if (S._routeLine) { S._routeLine.setMap(null); S._routeLine = null; } S.leafletMap = null; }
+    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:14px;padding:20px">No GPS data yet</div>';
+    return;
+  }
+  if (!S.leafletMap) {
+    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:13px">Loading map…</div>';
+  }
+  loadGoogleMaps(() => _renderLeafletMap());
+}
+
+function _renderLeafletMap() {
+  const container = document.getElementById('tracker-map');
+  if (!container) return;
+  const withGPS = [...S.checkins].filter(c => c.lat && c.lng).sort((a, b) => a.timestamp < b.timestamp ? -1 : 1);
+  (S.leafletMarkers || []).forEach(m => m.setMap(null));
+  S.leafletMarkers = [];
+  if (S._routeLine) { S._routeLine.setMap(null); S._routeLine = null; }
+  if (!S.leafletMap) {
+    container.innerHTML = '';
+    S.leafletMap = new google.maps.Map(container, {
+      center: { lat: parseFloat(withGPS[0].lat), lng: parseFloat(withGPS[0].lng) },
+      zoom: 10, mapTypeControl: false, streetViewControl: false, fullscreenControl: false, gestureHandling: 'greedy'
+    });
+    S.leafletMap.addListener('click', function() {
+      if (S._trackerInfoWindow) S._trackerInfoWindow.close();
+    });
+  }
+  if (withGPS.length > 1) {
+    S._routeLine = new google.maps.Polyline({
+      path: withGPS.map(c => ({ lat: parseFloat(c.lat), lng: parseFloat(c.lng) })),
+      strokeColor: '#1565C0', strokeOpacity: 0.55, strokeWeight: 2.5, map: S.leafletMap
+    });
+  }
+  S._trackerInfoWindow = new google.maps.InfoWindow();
+  const infoWindow = S._trackerInfoWindow;
+  const bounds = new google.maps.LatLngBounds();
+  withGPS.forEach((c, i) => {
+    const col = CI_COLORS[c.type] || '#9E9E9E';
+    const marker = new google.maps.Marker({
+      position: { lat: parseFloat(c.lat), lng: parseFloat(c.lng) },
+      map: S.leafletMap,
+      icon: { path: google.maps.SymbolPath.CIRCLE, fillColor: col, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2.5, scale: 14 },
+      label: { text: String(i + 1), color: '#fff', fontSize: '11px', fontWeight: '700' },
+      title: c.name
+    });
+    marker.addListener('click', () => {
+      infoWindow.setContent('<div style="font-weight:700;font-size:13px;margin-bottom:3px">' + esc(c.name) + '</div><div style="font-size:11px;color:#6B7280">' + (CI_ICONS[c.type] || '') + ' ' + c.type + ' · ' + fmtCheckinTime(c.timestamp) + '</div>');
+      infoWindow.open(S.leafletMap, marker);
+    });
+    S.leafletMarkers.push(marker);
+    bounds.extend({ lat: parseFloat(c.lat), lng: parseFloat(c.lng) });
+  });
+  S.leafletMap.fitBounds(bounds);
+  google.maps.event.addListenerOnce(S.leafletMap, 'bounds_changed', () => {
+    if (S.leafletMap.getZoom() > 14) S.leafletMap.setZoom(14);
+  });
+}
+
+function localDateStr(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0');
+}
+
+function fmtCheckinTime(ts) {
+  if (!ts) return '';
+  try {
+    return new Date(ts).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+  } catch(e) { return ts; }
+}
+</script>

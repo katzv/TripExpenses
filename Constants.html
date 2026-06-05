@@ -1,0 +1,112 @@
+<script>
+// =======================================================
+// DATA & CONSTANTS
+// =======================================================
+
+const CAT_COLORS = {
+  'Flight':           '#2196F3',
+  'Lodging':          '#9C27B0',
+  'Car Rental':       '#FF9800',
+  'Insurance':        '#607D8B',
+  'Petrol':           '#F44336',
+  'Toll Roads':       '#795548',
+  'Parking':          '#FF5722',
+  'Transportation': '#00BCD4',
+  'Meals':            '#4CAF50',
+  'Souvenirs':        '#E91E63',
+  'Attractions':      '#FFC107',
+  'Phone':            '#2196F3',
+  'Other':            '#9E9E9E'
+};
+
+const CAT_ICONS = {
+  'Flight': '✈️', 'Lodging': '🏨', 'Car Rental': '🚗',
+  'Insurance': '🛡️', 'Petrol': '⛽', 'Toll Roads': '🛣️',
+  'Parking': '🅿️', 'Transportation': '🚌', 'Meals': '🍽️',
+  'Souvenirs': '🎁', 'Attractions': '🎡', 'Phone': '📱', 'Other': '📌'
+};
+
+const TYPE_LABELS = { 'Lodging': 'Lodging/Hotel' };
+function typeLabel(t) { return TYPE_LABELS[t] || t; }
+
+const PLAN_TYPES = {
+  'place':       { icon: '📍', color: '#1565C0', label: 'Place' },
+  'nature-hike': { icon: '🥾', color: '#2E7D32', label: 'Nature Hike' },
+  'lake-river':  { icon: '🏞️', color: '#0288D1', label: 'Lake/River' },
+  'cablecar':    { icon: '🚡', color: '#7B1FA2', label: 'Cablecar' },
+  'restaurant':  { icon: '🍽️', color: '#4CAF50', label: 'Restaurant' },
+  'coffee':      { icon: '☕', color: '#795548', label: 'Coffee' },
+  'sweet':       { icon: '🍦', color: '#E91E63', label: 'Sweet' },
+  'beer':        { icon: '🍺', color: '#F57F17', label: 'Beer' },
+  'market':      { icon: '🏪', color: '#FF6D00', label: 'Market' },
+  'supermarket': { icon: '🛒', color: '#F57C00', label: 'Supermarket' },
+  'shop':        { icon: '🛍️', color: '#9C27B0', label: 'Shop' },
+  'petrol':      { icon: '⛽', color: '#616161', label: 'Petrol Station' },
+  'hotel':       { icon: '🏨', color: '#9C27B0', label: 'Hotel' },
+  'attraction':  { icon: '🎡', color: '#FF9800', label: 'Attraction' },
+  'cave':        { icon: '🦇', color: '#4E342E', label: 'Cave' },
+  'fortress':    { icon: '🏰', color: '#8D6E63', label: 'Fortress/Temple' },
+  'museum':      { icon: '🏛️', color: '#5D4037', label: 'Museum' },
+  'viewpoint':   { icon: '👁️', color: '#00BCD4', label: 'Viewpoint' },
+  'airport':     { icon: '✈️', color: '#0288D1', label: 'Airport' },
+  'car-rental':  { icon: '🚗', color: '#F44336', label: 'Car Rental' },
+  'city-walk':   { icon: '🚶', color: '#1565C0', label: 'City Walk' },
+  'village':     { icon: '🏘️', color: '#558B2F', label: 'Village' },
+  'parking':     { icon: '🅿️', color: '#37474F', label: 'Parking' }
+};
+
+const CI_COLORS = {
+  'place':'#1565C0','hotel':'#9C27B0','restaurant':'#4CAF50',
+  'attraction':'#FF9800','transport':'#F44336','other':'#9E9E9E',
+  'flight-in':'#0288D1','flight-out':'#1565C0',
+  'hike':'#2E7D32','groceries':'#F57C00'
+};
+const CI_ICONS = {
+  'place':'📌','hotel':'🏨','restaurant':'🍽️',
+  'attraction':'🎡','transport':'🚗','other':'🗂️',
+  'flight-in':'🛬','flight-out':'🛫',
+  'hike':'🥾','groceries':'🛒'
+};
+
+const CURRENCIES = [
+  'ILS','EUR','USD','GBP','JPY','THB','CHF','NOK','SEK','DKK',
+  'PLN','CZK','HUF','RON','BGN','AUD','CAD','NZD','SGD','HKD',
+  'CNY','INR','KRW','MXN','BRL','TRY','ZAR','IDR','MYR','PHP',
+  'ISK','AED','QAR','SAR','KWD','BHD','OMR','JOD','EGP'
+];
+
+const COUNTRY_CURRENCY = {
+  'france':'EUR','germany':'EUR','italy':'EUR','spain':'EUR','portugal':'EUR',
+  'netherlands':'EUR','belgium':'EUR','austria':'EUR','greece':'EUR','finland':'EUR',
+  'ireland':'EUR','luxembourg':'EUR','malta':'EUR','slovakia':'EUR','slovenia':'EUR',
+  'estonia':'EUR','latvia':'EUR','lithuania':'EUR','croatia':'EUR','cyprus':'EUR',
+  'united states':'USD','usa':'USD','us':'USD',
+  'united kingdom':'GBP','uk':'GBP','england':'GBP','scotland':'GBP','wales':'GBP',
+  'israel':'ILS',
+  'japan':'JPY','thailand':'THB','switzerland':'CHF','norway':'NOK','sweden':'SEK',
+  'denmark':'DKK','poland':'PLN','czech republic':'CZK','czechia':'CZK',
+  'hungary':'HUF','romania':'RON','bulgaria':'BGN','australia':'AUD',
+  'canada':'CAD','new zealand':'NZD','singapore':'SGD','hong kong':'HKD',
+  'china':'CNY','india':'INR','south korea':'KRW','mexico':'MXN',
+  'brazil':'BRL','turkey':'TRY','south africa':'ZAR','indonesia':'IDR',
+  'malaysia':'MYR','philippines':'PHP','iceland':'ISK',
+  'uae':'AED','qatar':'QAR','saudi arabia':'SAR','kuwait':'KWD',
+  'bahrain':'BHD','oman':'OMR','jordan':'JOD','egypt':'EGP'
+};
+
+const COUNTRIES = [
+  'Afghanistan','Albania','Algeria','Andorra','Angola','Argentina','Armenia','Australia',
+  'Austria','Azerbaijan','Bahrain','Bangladesh','Belarus','Belgium','Bolivia','Bosnia',
+  'Brazil','Bulgaria','Cambodia','Canada','Chile','China','Colombia','Croatia','Cyprus',
+  'Czech Republic','Czechia','Denmark','Ecuador','Egypt','Estonia','Ethiopia','Finland',
+  'France','Georgia','Germany','Ghana','Greece','Guatemala','Hong Kong','Hungary',
+  'Iceland','India','Indonesia','Iran','Iraq','Ireland','Israel','Italy','Jamaica',
+  'Japan','Jordan','Kazakhstan','Kenya','Kuwait','Latvia','Lebanon','Libya','Lithuania',
+  'Luxembourg','Malaysia','Malta','Mexico','Morocco','Nepal','Netherlands','New Zealand',
+  'Nigeria','Norway','Oman','Pakistan','Palestine','Panama','Peru','Philippines',
+  'Poland','Portugal','Qatar','Romania','Russia','Saudi Arabia','Serbia','Singapore',
+  'Slovakia','Slovenia','South Africa','South Korea','Spain','Sri Lanka','Sweden',
+  'Switzerland','Taiwan','Thailand','Tunisia','Turkey','UAE','Uganda','Ukraine',
+  'United Kingdom','United States','Uruguay','USA','UK','Uzbekistan','Vietnam','Zimbabwe'
+];
+</script>

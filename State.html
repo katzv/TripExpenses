@@ -1,0 +1,50 @@
+<script>
+// =======================================================
+// APP STATE
+// =======================================================
+
+const S = {
+  trips: [],
+  expenses: [],
+  expenseTypes: [],
+  currentTrip: null,
+  currentExpenseId: null,  // null = add new, string = editing existing
+  filter: 'All',
+  rateTimer: null,
+  manualILS: false,
+  lastRateInfo: null,
+  defaultRates: {},
+  pieChart: null,
+  // Tracker
+  checkins: [],
+  trackerTab: 'list',
+  editingCheckinId: null,
+  gpsCoords: null,
+  gpsSource: 'none',
+  leafletMap: null,
+  leafletMarkers: [],
+  _routeLine: null,
+  suggestTimer: null,
+  calLang: 'en',
+  calFilterFrom: null,
+  calFilterTo:   null,
+  calDescs: {},
+  // Planner
+  planBank: [],
+  planAssignments: {},
+  plannerTab: 'bank',
+  plannerMap: null,
+  plannerMarkers: [],
+  planGpsCoords: null,
+  planGpsSource: 'none',
+  planSuggestTimer: null,
+  editingPlaceId: null,
+  _planFormVisible: false,
+  planCalFilterFrom: null,
+  planCalFilterTo: null,
+  _planInfoWindow: null
+};
+
+// History stack for back navigation
+const navStack = [];
+</script>

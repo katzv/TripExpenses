@@ -13,26 +13,24 @@ All data is stored in Google Apps Script `PropertiesService` (script properties,
 
 ```json
 {
-  "timeZone": "UTC",
+  "timeZone": "Asia/Jerusalem",
   "dependencies": {},
   "exceptionLogging": "STACKDRIVER",
   "runtimeVersion": "V8",
   "webapp": {
     "executeAs": "USER_DEPLOYING",
     "access": "ANYONE"
-  },
-  "oauthScopes": [
-    "https://www.googleapis.com/auth/script.external_request",
-    "https://www.googleapis.com/auth/spreadsheets"
-  ]
+  }
 }
 ```
+
+> OAuth scopes (`script.external_request` for UrlFetchApp rates; `spreadsheets` for calendar export) are auto-detected by GAS from the code — no need to declare them manually in `appsscript.json`.
 
 ---
 
 ## Architecture
 
-- **Single file frontend**: `Index.html` — all CSS, HTML, and JavaScript in one file, served via `HtmlService.createHtmlOutputFromFile('Index')`
+- **Modular frontend**: 12 HTML files assembled server-side. `Index.html` is a GAS template shell using `<?!= include('FileName') ?>` directives. `include(filename)` in `Code.gs` calls `HtmlService.createHtmlOutputFromFile(filename).getContent()`. Script execution order: `<head>` files (Constants → State → MapService → Core) define globals; `<body>` screen files define view functions; `<script>init();</script>` at end of body triggers startup.
 - **Backend**: `Code.gs` — all server-side logic called from the frontend via `google.script.run`
 - **Data storage**: `PropertiesService.getScriptProperties()` — JSON-serialized objects stored as string values
 - **No external database, no Sheets for data** (Sheets used only for calendar export)
@@ -72,7 +70,7 @@ Stored as `{id → entry}` object (not array) to give O(1) lookup/update/delete 
 ### Trips
 - `getTrips()` — returns array of trip objects
 - `createTrip(d)` — creates trip with `{id, title, country, currency, startDate, endDate, createdAt}`, returns `{success, id}`
-- `updateTrip(d)` — updates `title`, `country`, `startDate`, `endDate` for trip by id; preserves existing `country` if `d.country` is empty
+- `updateTrip(d)` — updates `title`, `country`, `startDate`, `endDate`, `defaultView` for trip by id; preserves existing `country` if `d.country` is empty
 - `deleteTrip(id)` — deletes trip, its expenses (`exp_{id}`), its check-ins (`checkins_{id}`), its calendar descriptions (`caldesc_{id}`), and its plan data (`plan_{id}`)
 
 ### Calendar Day Descriptions
@@ -160,7 +158,8 @@ const S = {
   // Tracker:
   checkins, trackerTab, editingCheckinId,
   gpsCoords, gpsSource, leafletMap, leafletMarkers,
-  _routeLine, suggestTimer, calLang,
+  _routeLine, _trackerInfoWindow,  // InfoWindow stored so map click listener can close it
+  suggestTimer, calLang,
   calFilterFrom, calFilterTo, calDescs,
   calWeeks,           // stored for export
   _listFormVisible,   // persists form state across tab switches
@@ -205,15 +204,20 @@ Seven views, only one active at a time (CSS `display:none`/`display:block` + `fa
 - Title (`htitle`) — ellipsis overflow
 - Action buttons (`hActions`) — injected per view:
   - trips: "↓ Import" + "+ New Trip"
-  - trip: "✎ Edit", "📋 Plan", "📍 Track", "📊 Report"
-  - tracker: "+ Check-in"
-  - planner: "+ Add Place"
-  - expense/report/new-trip: none (back button only)
+  - trip (expenses): "✎ Edit", "📋 Plan", "📍 Track", "📊 Report"
+  - tracker: "💰 Exp" (navigate to expenses), "+ Check-in"
+  - planner: "💰 Exp" (navigate to expenses), "+ Add Place"
+  - report: "💰 Exp" (navigate to expenses)
+  - expense/new-trip: none (back button only)
 
 ### Navigation
 - `navigate(view)` — sets active view, updates header, triggers data loads
-- `goBack()` — deterministic: `expense/report/tracker/planner → trip`; everything else → `trips`
+- `goBack()` — deterministic, reads active view from DOM:
+  - `expense` → always `trip` (back to expense list)
+  - `trip | tracker | planner | report` → if current view is `S.currentTrip.defaultView`, goes to `trips`; otherwise goes to `defaultView`
+  - everything else → `trips`
 - **Back button does NOT use a navigation stack** — reads current active view from DOM
+- **Default View**: stored on each trip as `S.currentTrip.defaultView` (values: `'trip'`, `'tracker'`, `'planner'`, `'report'`); defaults to `'trip'` (expenses) if not set. `openTrip()` navigates directly to the defaultView.
 
 ### FAB
 - Orange circle, bottom-right, only visible on `view-trip`
@@ -236,8 +240,9 @@ Seven views, only one active at a time (CSS `display:none`/`display:block` + `fa
 
 ### Trip Object
 ```javascript
-{ id, title, country, currency, startDate, endDate, createdAt }
+{ id, title, country, currency, startDate, endDate, defaultView, createdAt }
 ```
+`defaultView`: optional; one of `'trip'` (expenses), `'tracker'`, `'planner'`, `'report'`. Defaults to `'trip'` if absent.
 
 ### Trip List View
 - Shows all trips with: title, country+currency, date range, day count
@@ -254,10 +259,11 @@ Seven views, only one active at a time (CSS `display:none`/`display:block` + `fa
 - On create: calls `createTrip`, then re-fetches trips, navigates to `view-trip`
 
 ### Edit Trip
-- Modal with Title, Countries (plain comma-separated text input), Travel Dates (date range picker)
-- Optimistic update: reflects title, country, and dates immediately in UI, then calls `updateTrip` in background
+- Modal with Title, Countries (plain comma-separated text input), Travel Dates (date range picker), Default View (select)
+- **Default View** dropdown: options Expenses / Tracker / Planner / Report (values `trip/tracker/planner/report`). Pre-selected from `t.defaultView`. Controls which view opens when tapping the trip card and where the back button leads from non-default trip views.
+- Optimistic update: reflects title, country, dates, and defaultView immediately in `S.trips` and `S.currentTrip` (if that trip is currently open); then calls `updateTrip` in background
 - View-aware render: only calls `renderExpenses()` (and updates `hTitle`) if `view-trip` is the active DOM view; otherwise calls `renderTrips()`. This prevents a stale `S.currentTrip` (which persists after going back to the trips list) from routing the re-render to the wrong view.
-- **Re-rate button**: "↻ Re-rate expenses with historical rates" at the bottom of the modal (below Save/Cancel). Calls `rerateImportedExpenses(tripId)`; shows "Fetching historical rates…" while running; on success closes the modal, reloads expenses, and shows a toast with the count of re-rated expenses.
+- **Re-rate button**: small muted text button on the left of the Save/Cancel row. Calls `rerateImportedExpenses(tripId)`; shows "Fetching historical rates…" while running; on success closes the modal, reloads expenses, and shows a toast with the count of re-rated expenses.
 
 ### Date Range Picker
 - Single-window calendar overlay (`#drpOverlay`), fixed full-screen with semi-transparent backdrop
@@ -569,7 +575,7 @@ Three tabs: **List**, **Calendar**, **Map**
 - On tab switch: `setTimeout(initTrackerMap, 50)`
 - Markers: `SymbolPath.CIRCLE`, colored fill (per CI_COLORS), white stroke 2.5px, scale 14; label = sequence number (white, 11px bold)
 - Route polyline: `google.maps.Polyline`, strokeColor #1565C0, strokeOpacity 0.55, strokeWeight 2.5, chronological order
-- InfoWindow: shared single instance, shows name (bold) + type icon + type label + formatted time
+- InfoWindow (`S._trackerInfoWindow`): shared single instance (re-created on each `_renderLeafletMap` call), shows name (bold) + type icon + type label + formatted time; clicking map background closes it (map `click` listener, registered once on first map creation)
 - `fitBounds`, maxZoom 14 enforced via `bounds_changed` one-time listener
 - Map instance (`S.leafletMap`) reused; markers (`S.leafletMarkers`) and polyline (`S._routeLine`) removed and re-added on each render
 
@@ -626,6 +632,39 @@ Three tabs: **List**, **Calendar**, **Map**
 **Style structure**: one `<StyleMap>` per type, referencing normal (scale 1, label hidden) and highlight (scale 1, label shown) styles.
 
 **Download**: `Blob` + `URL.createObjectURL` + programmatic `<a>` click, filename = trip title (sanitized) + `.kml`
+
+---
+
+## Places View — UI Component Vocabulary
+
+Use these names in conversations to avoid long descriptions.
+
+| Name | What it is |
+|---|---|
+| **Tab bar** | The `Places` / `Calendar` tab switcher |
+| **FAB** | The `+` floating action button (bottom-right) |
+| **Ribbon** | The full strip of place chips above the map |
+| **Chip** | A single place badge in the ribbon |
+| **Chip ×** | The `×` delete button inside a chip |
+| **Ribbon toggle** | The `▼ Bank (N)` collapse/expand button |
+| **Map** | The Google Maps canvas |
+| **Pin** | A marker on the map for a saved place |
+| **Pin label** | The emoji icon rendered inside a pin |
+| **Place Menu** | Right-click context menu on an *unknown* map location — shows "Add to Bank" |
+| **Pin Menu** | Right-click context menu on a *saved* pin — shows Assign / Edit / Remove |
+| **Add Form** | The floating sheet for adding or editing a place |
+| **Day Picker** | The modal calendar for assigning a place to trip days |
+| **Delete Confirm** | The inline popover that confirms place deletion |
+
+### Chip Interaction Behaviour
+- **Left-click**: focus (pan map to matching Pin, highlight Chip in Ribbon)
+- **Right-click**: open Pin Menu at mouse position
+
+### Add Form Open Behaviour
+- Closes any open Pin Menu or Place Menu before showing
+
+### Map Picker (Pick Location overlay)
+- Esc key acts as Back button (same as ← in header)
 
 ---
 
@@ -722,10 +761,17 @@ Three tabs: **Bank**, **Calendar**, **Map**
 ### Map Tab (Planner)
 - Google Maps showing all bank places that have GPS coords
 - Markers: `SymbolPath.CIRCLE`, colored per PLAN_TYPES, white stroke 2.5px, scale 14; label = type emoji (13px)
-- InfoWindow (`S._planInfoWindow`, `maxWidth: 240`): place name + type icon/label + description snippet (120 chars) + assigned days list + "📅 Assign to Day" button
+- InfoWindow (`S._planInfoWindow`, `maxWidth: 300`): place name + type icon/label + full description (linkified, `max-height: 120px; overflow-y: auto`) + assigned days list + "📅 Assign to Day" button
+  - Content wrapped in `<div style="min-width:240px">` to prevent narrow/misaligned popup
   - Stored on `S._planInfoWindow` so `openDayPickerForPlace()` can call `.close()` before showing the modal
+  - Clicking map background calls `S._planInfoWindow.close()` (map `click` listener, registered once on first map creation)
   - CSS `!important` overrides: `.gm-style .gm-style-iw-c { max-height: 320px !important }` and `.gm-style .gm-style-iw-d { max-height: 290px !important }` — required because Google Maps sets inline `max-height` that would otherwise clip content
-  - `maxWidth: 240` on InfoWindow constructor
+  - `maxWidth: 300` on InfoWindow constructor
+- **Right-click to add place** (desktop) / **long-press** (mobile): `rightclick` event on `S.plannerMap`
+  - If `e.placeId` present (user clicked a Google Maps POI): calls `PlacesService.getDetails({ fields: ['name', 'geometry', 'types'] })`, maps Google place types to PLAN_TYPES via `_googleTypeToPlanner()`, calls `showPlannerForm(coords, name, type)` pre-filled
+  - If no `placeId` (empty map area): calls `showPlannerForm(coords)` with coordinates only
+  - `_googleTypeToPlanner(types)`: priority-ordered rules mapping Google place types (lodging, cafe, bakery, bar, museum, church, airport, etc.) to PLAN_TYPES keys; falls back to first alphabetical PLAN_TYPES key
+- **URL linkification** in place description: `_linkifyDesc(text)` splits on `https?://...` pattern, wraps URLs in `<a target="_blank">`, escapes plain text with `esc()`; used in InfoWindow `descSnippet`
 - `fitBounds`, maxZoom 14 enforced via `bounds_changed` one-time listener
 - Separate instance `S.plannerMap` (does not share with `S.leafletMap` or `_mpMap`)
 - No GPS data → "No places with GPS data yet" message

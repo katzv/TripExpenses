@@ -4,10 +4,14 @@
 // =============================================
 
 function doGet(e) {
-  return HtmlService.createHtmlOutputFromFile('Index')
+  return HtmlService.createTemplateFromFile('Index').evaluate()
     .setTitle('Trip Expense Manager')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, user-scalable=no')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
 // ---- Storage helpers ----
@@ -62,10 +66,11 @@ function updateTrip(d) {
   var trips = getTrips();
   for (var i = 0; i < trips.length; i++) {
     if (trips[i].id === d.id) {
-      trips[i].title     = d.title;
-      trips[i].country   = d.country   || trips[i].country || '';
-      trips[i].startDate = d.startDate || '';
-      trips[i].endDate   = d.endDate   || '';
+      trips[i].title       = d.title;
+      trips[i].country     = d.country     || trips[i].country || '';
+      trips[i].startDate   = d.startDate   || '';
+      trips[i].endDate     = d.endDate     || '';
+      trips[i].defaultView = d.defaultView || '';
       break;
     }
   }

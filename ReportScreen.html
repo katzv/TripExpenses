@@ -1,0 +1,199 @@
+<!-- VIEW: REPORT -->
+<div class="view" id="view-report">
+  <div id="reportContent"></div>
+  <div style="height:30px"></div>
+</div>
+
+<script>
+function loadReport() {
+  document.getElementById('reportContent').innerHTML =
+    '<div style="text-align:center;padding:48px;color:var(--muted)">Generating report…</div>';
+  google.script.run
+    .withSuccessHandler(renderReport)
+    .withFailureHandler(err => {
+      document.getElementById('reportContent').innerHTML =
+        `<div style="color:var(--danger);padding:20px">Error: ${err.message}</div>`;
+    })
+    .getReport(S.currentTrip.id);
+}
+
+function renderReport(r) {
+  if (!r) { document.getElementById('reportContent').innerHTML = '<p>No data</p>'; return; }
+
+  S._reportData = r;
+  if (!S.reportCurrency) S.reportCurrency = 'ILS';
+  const localCur = r.trip && r.trip.currency;
+  const extraCur = (localCur && !['ILS','USD','EUR'].includes(localCur)) ? localCur : null;
+
+  const usd = r.totalUSD != null ? `$${fmt(r.totalUSD)}` : 'N/A';
+  const eur = r.totalEUR != null ? `€${fmt(r.totalEUR)}` : 'N/A';
+
+  document.getElementById('reportContent').innerHTML = `
+    <div class="report-banner">
+      <div class="rep-title">${esc(r.trip.title)}</div>
+      <div class="rep-meta">
+        📍 ${esc(r.trip.country)} &nbsp;·&nbsp; ${r.days} day${r.days!==1?'s':''} planned
+        &nbsp;·&nbsp; ${r.expenseCount} expense${r.expenseCount!==1?'s':''}
+        &nbsp;·&nbsp; ${dateRange(r.trip.startDate, r.trip.endDate)}
+      </div>
+      <div class="rep-totals">
+        <div class="rep-tot-item">
+          <div class="rep-tot-lbl">ILS &#8362;</div>
+          <div class="rep-tot-val">${fmt(r.totalILS)}</div>
+          ${r.days > 0 ? `<div class="rep-tot-avg">${fmt(r.totalILS / r.days)}/day</div>` : ''}
+        </div>
+        <div class="rep-tot-item">
+          <div class="rep-tot-lbl">USD $</div>
+          <div class="rep-tot-val">${usd}</div>
+          ${r.days > 0 && r.totalUSD != null ? `<div class="rep-tot-avg">${fmt(r.totalUSD / r.days)}/day</div>` : ''}
+        </div>
+        <div class="rep-tot-item">
+          <div class="rep-tot-lbl">EUR €</div>
+          <div class="rep-tot-val">${eur}</div>
+          ${r.days > 0 && r.totalEUR != null ? `<div class="rep-tot-avg">${fmt(r.totalEUR / r.days)}/day</div>` : ''}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div class="sec-label" style="margin:0">Spending by Category</div>
+        <select id="reportCurrSel" class="fc" style="width:auto;padding:5px 28px 5px 10px;font-size:13px;min-height:32px" onchange="S.reportCurrency=this.value;renderPieLegend()">
+          <option value="ILS"${(S.reportCurrency||'ILS')==='ILS'?' selected':''}>ILS ₪</option>
+          <option value="USD"${S.reportCurrency==='USD'?' selected':''}>USD $</option>
+          <option value="EUR"${S.reportCurrency==='EUR'?' selected':''}>EUR €</option>
+          ${extraCur ? `<option value="${extraCur}"${S.reportCurrency===extraCur?' selected':''}>${extraCur}</option>` : ''}
+        </select>
+      </div>
+      <div class="chart-wrap"><canvas id="pieCanvas"></canvas></div>
+      <div id="pieLegend"></div>
+    </div>
+
+    <div class="card">
+      <div class="sec-label">Breakdown Table</div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th style="text-align:center">#</th>
+              <th>ILS &#8362;</th>
+              <th>USD $</th>
+              <th>EUR €</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${r.categories.map(cat => {
+              const col = CAT_COLORS[cat.type] || '#9E9E9E';
+              return `<tr>
+                <td>
+                  <span class="type-dot" style="background:${col}"></span>
+                  ${esc(typeLabel(cat.type))}
+                </td>
+                <td style="text-align:center">${cat.count}</td>
+                <td>&#8362; ${fmt(cat.totalILS)}</td>
+                <td>${cat.totalUSD != null ? '$'+fmt(cat.totalUSD) : '–'}</td>
+                <td>${cat.totalEUR != null ? '€'+fmt(cat.totalEUR) : '–'}</td>
+              </tr>`;
+            }).join('')}
+            <tr class="tot-row">
+              <td>TOTAL</td>
+              <td style="text-align:center">${r.expenseCount}</td>
+              <td>&#8362; ${fmt(r.totalILS)}</td>
+              <td>${r.totalUSD != null ? '$'+fmt(r.totalUSD) : '–'}</td>
+              <td>${r.totalEUR != null ? '€'+fmt(r.totalEUR) : '–'}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="rep-note">
+        Conversion rates from frankfurter.app as of ${r.ratesDate} (ECB official rates)
+      </div>
+    </div>`;
+
+  r.categories.sort((a, b) => b.totalILS - a.totalILS);
+
+  loadChartJs(() => {
+    if (S.pieChart) { S.pieChart.destroy(); S.pieChart = null; }
+    const ctx = document.getElementById('pieCanvas');
+    if (!ctx || !r.categories.length || !window.Chart) return;
+    S.pieChart = new Chart(ctx, {
+      type: 'pie',
+      data: {
+        labels: r.categories.map(c => c.type),
+        datasets: [{
+          data: r.categories.map(c => c.totalILS),
+          backgroundColor: r.categories.map(c => CAT_COLORS[c.type] || '#9E9E9E'),
+          borderWidth: 2, borderColor: '#fff'
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                const pct = ((ctx.raw / r.totalILS) * 100).toFixed(1);
+                const cur = S.reportCurrency || 'ILS';
+                const cat = r.categories[ctx.dataIndex];
+                let val, sym;
+                if (cur === 'ILS')      { val = cat.totalILS; sym = '₪'; }
+                else if (cur === 'USD') { val = cat.totalUSD; sym = '$'; }
+                else if (cur === 'EUR') { val = cat.totalEUR; sym = '€'; }
+                else { const dr = S.defaultRates[cur]; val = dr ? cat.totalILS / dr.rate : null; sym = cur + ' '; }
+                return val != null ? '  ' + sym + fmt(val) + '  (' + pct + '%)' : '  (' + pct + '%)';
+              }
+            }
+          }
+        }
+      }
+    });
+    renderPieLegend();
+  });
+}
+
+function renderPieLegend() {
+  const r = S._reportData;
+  const el = document.getElementById('pieLegend');
+  if (!r || !el) return;
+  const cur = S.reportCurrency || 'ILS';
+  const days = r.days || 1;
+  const sel = document.getElementById('reportCurrSel');
+  if (sel && sel.value !== cur) sel.value = cur;
+
+  function catAmt(cat) {
+    if (cur === 'ILS') return cat.totalILS;
+    if (cur === 'USD') return cat.totalUSD;
+    if (cur === 'EUR') return cat.totalEUR;
+    const dr = S.defaultRates[cur];
+    return dr ? cat.totalILS / dr.rate : null;
+  }
+  function totalAmt() {
+    if (cur === 'ILS') return r.totalILS;
+    if (cur === 'USD') return r.totalUSD;
+    if (cur === 'EUR') return r.totalEUR;
+    const dr = S.defaultRates[cur];
+    return dr ? r.totalILS / dr.rate : null;
+  }
+  const sym = cur === 'ILS' ? '₪' : cur === 'USD' ? '$' : cur === 'EUR' ? '€' : cur + ' ';
+
+  el.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:7px;padding:12px 0 4px">' +
+    r.categories.map(cat => {
+      const col  = CAT_COLORS[cat.type] || '#9E9E9E';
+      const icon = CAT_ICONS[cat.type]  || '📌';
+      const val  = catAmt(cat);
+      const pct  = r.totalILS ? ((cat.totalILS / r.totalILS) * 100).toFixed(1) : '0';
+      const totStr = val != null ? sym + fmt(val) : '–';
+      const avgStr = (val != null && days > 0) ? sym + fmt(val / days) : '–';
+      return '<div style="display:flex;align-items:flex-start;gap:8px;background:#F8F9FB;border-radius:9px;padding:8px 10px;flex:1;min-width:130px">' +
+        '<div style="width:10px;height:10px;border-radius:50%;background:' + col + ';margin-top:4px;flex-shrink:0"></div>' +
+        '<div style="min-width:0">' +
+        '<div style="font-size:12px;font-weight:700;color:' + col + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + icon + ' ' + esc(typeLabel(cat.type)) + '</div>' +
+        '<div style="font-size:14px;font-weight:800;color:var(--text)">' + totStr + ' <span style="font-size:11px;color:var(--muted);font-weight:600">(' + pct + '%)</span></div>' +
+        '<div style="font-size:11px;color:var(--muted)">' + avgStr + ' <span style="opacity:0.7">(avg/day)</span></div>' +
+        '</div></div>';
+    }).join('') +
+    '</div>';
+}
+</script>

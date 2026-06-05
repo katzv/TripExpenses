@@ -1,0 +1,365 @@
+<script>
+// =======================================================
+// INITIALISATION
+// =======================================================
+
+let _loadTicker = null;
+
+function dbg(msg) {
+  console.log('[TripExp]', msg);
+}
+
+function setLoadProgress(pct, msg) {
+  if (_loadTicker) { clearInterval(_loadTicker); _loadTicker = null; }
+  const bar   = document.getElementById('load-bar');
+  const pctEl = document.getElementById('load-pct');
+  const txt   = document.getElementById('load-status');
+  if (bar)   bar.style.width = pct + '%';
+  if (pctEl) pctEl.textContent = Math.round(pct) + '%';
+  if (txt && msg) txt.textContent = msg;
+}
+
+// Slowly advance bar from `from` toward `to` over `ms` ms while waiting for a server call
+function tickLoadProgress(from, to, ms) {
+  const bar   = document.getElementById('load-bar');
+  const pctEl = document.getElementById('load-pct');
+  let cur = from;
+  const step = (to - from) / (ms / 80);
+  _loadTicker = setInterval(() => {
+    cur = Math.min(cur + step, to);
+    if (bar)   bar.style.width = Math.round(cur) + '%';
+    if (pctEl) pctEl.textContent = Math.round(cur) + '%';
+    if (cur >= to) { clearInterval(_loadTicker); _loadTicker = null; }
+  }, 80);
+}
+
+function hideLoading() {
+  if (_loadTicker) { clearInterval(_loadTicker); _loadTicker = null; }
+  const el = document.getElementById('loading');
+  el.style.opacity = '0';
+  setTimeout(() => { el.style.display = 'none'; }, 300);
+}
+
+function init() {
+  dbg('init() started');
+  setLoadProgress(10, 'Initializing…');
+
+  if (typeof google === 'undefined' || !google.script) {
+    dbg('ERROR: google.script not available');
+    setLoadProgress(100, 'Not running inside Google Apps Script');
+    return;
+  }
+  dbg('google.script OK');
+
+  // Populate country datalist
+  const dl = document.getElementById('dl-countries');
+  COUNTRIES.forEach(c => {
+    const o = document.createElement('option'); o.value = c; dl.appendChild(o);
+  });
+  // Populate currency dropdowns
+  populateCurrSel('fCurrency');
+  // Build sorted planner type list
+  _planTypeKeys = Object.keys(PLAN_TYPES).sort((a, b) => PLAN_TYPES[a].label.localeCompare(PLAN_TYPES[b].label));
+  _selectPlanType('place');
+
+  // Track last click for form positioning
+  document.addEventListener('click', function(e) { S._lastClickXY = { x: e.clientX, y: e.clientY }; }, true);
+
+  // Escape key closes overlays in priority order
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if ((document.getElementById('mapPickerOverlay') || {}).style.display !== 'none') {
+      closeMapPicker();
+    } else if (document.getElementById('drpOverlay').classList.contains('open')) {
+      closeDrp();
+    } else if (document.getElementById('modalBg').classList.contains('open')) {
+      closeModal();
+    } else if (document.getElementById('planDeleteConfirm')) {
+      _dismissDeleteConfirm();
+    } else if ((document.getElementById('plannerContextMenu') || {}).style.display !== 'none') {
+      _hideContextMenu();
+    } else if ((document.getElementById('plan-form-wrap') || {}).style.display !== 'none') {
+      cancelPlannerForm();
+    } else if ((document.getElementById('ci-form-wrap') || {}).style.display !== 'none') {
+      cancelCheckin();
+    }
+  });
+
+  // Click outside suggestion lists closes them
+  document.addEventListener('click', e => {
+    const wrap = document.querySelector('.suggest-wrap');
+    if (wrap && !wrap.contains(e.target)) hideSuggestions();
+    const pw = document.querySelector('.plan-suggest-wrap');
+    if (pw && !pw.contains(e.target)) hidePlanSuggestions();
+    const ptl = document.getElementById('planTypeList');
+    if (ptl && e.target !== document.getElementById('planTypeInput') && !ptl.contains(e.target))
+      ptl.style.display = 'none';
+  });
+
+  setLoadProgress(25, 'Connecting to server…');
+  tickLoadProgress(25, 88, 15000); // tick while waiting for both parallel calls
+
+  // Fire both calls simultaneously — resolves when both return
+  let _trips = null, _types = null, _loadErr = null;
+  function _onBothLoaded() {
+    if (_loadErr) {
+      dbg('ERROR from server: ' + _loadErr);
+      setLoadProgress(100, 'Connection failed');
+      toast('Could not connect: ' + _loadErr, 'err');
+      hideLoading();
+      return;
+    }
+    if (_trips === null || _types === null) return; // still waiting for the other
+    dbg('both calls returned OK');
+    S.trips = _trips;
+    const _defaults = defaultTypes();
+    const _custom = _types.filter(t => !_defaults.includes(t));
+    S.expenseTypes = [..._defaults, ..._custom];
+    populateTypeSelect();
+    setLoadProgress(100, 'Ready!');
+    navigate('trips');
+    hideLoading();
+  }
+
+  dbg('calling getTrips…');
+  google.script.run
+    .withSuccessHandler(trips => { dbg('getTrips OK (' + (trips||[]).length + ')'); _trips = trips || []; _onBothLoaded(); })
+    .withFailureHandler(err  => { dbg('getTrips FAIL: ' + err.message); _trips = []; _loadErr = err.message; _onBothLoaded(); })
+    .getTrips();
+
+  dbg('calling getExpenseTypes…');
+  google.script.run
+    .withSuccessHandler(types => { dbg('getExpenseTypes OK'); _types = types || []; _onBothLoaded(); })
+    .withFailureHandler(err  => { dbg('getExpenseTypes FAIL: ' + err.message); _types = defaultTypes(); _onBothLoaded(); })
+    .getExpenseTypes();
+}
+
+function defaultTypes() {
+  return ['Flight','Lodging','Car Rental','Insurance','Petrol','Toll Roads',
+          'Parking','Transportation','Meals','Souvenirs','Attractions','Phone','Other'];
+}
+
+// =======================================================
+// NAVIGATION
+// =======================================================
+
+function navigate(view, params = {}) {
+  // Always close planner overlays when navigating away
+  const _fw = document.getElementById('plan-form-wrap');
+  if (_fw) { _fw.style.display = 'none'; document.body.style.overflow = ''; document.body.style.paddingRight = '0'; }
+  if (typeof _hideContextMenu === 'function') _hideContextMenu();
+
+  // Deactivate all
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-' + view).classList.add('active');
+
+  const fab    = document.getElementById('fab');
+  const hBack  = document.getElementById('hBack');
+  const hActs  = document.getElementById('hActions');
+  const hTitle = document.getElementById('hTitle');
+
+  fab.classList.add('hide');
+  hBack.classList.add('hide');
+  hActs.innerHTML = '';
+
+  if (view === 'trips') {
+    hTitle.textContent = '✈ Trip Expenses';
+    hActs.innerHTML = `<button class="hbtn" onclick="showImportJson()" style="margin-right:6px">&#8595; Import</button><button class="hbtn" onclick="navigate('new-trip')">+ New Trip</button>`;
+    renderTrips();
+
+  } else if (view === 'new-trip') {
+    hTitle.textContent = 'New Trip';
+    hBack.classList.remove('hide');
+    clearTripForm();
+
+  } else if (view === 'trip') {
+    hTitle.textContent = S.currentTrip.title;
+    hBack.classList.remove('hide');
+    hActs.innerHTML = _tripNavBtns('trip');
+    fab.onclick = showAddExpense;
+    fab.title = 'Add expense';
+    fab.classList.remove('hide');
+    S.filter = 'All';
+    loadExpenses();
+
+  } else if (view === 'tracker') {
+    hTitle.textContent = S.currentTrip.title + ' — Tracker';
+    hBack.classList.remove('hide');
+    hActs.innerHTML = _tripNavBtns('tracker');
+    fab.onclick = showCheckinForm;
+    fab.title = 'Add check-in';
+    fab.classList.remove('hide');
+    S.trackerTab = 'list';
+    ['list','cal','map'].forEach(t => {
+      document.getElementById('tab-' + t).classList.toggle('on', t === 'list');
+      document.getElementById('panel-' + t).style.display = t === 'list' ? 'block' : 'none';
+    });
+    document.getElementById('ci-form-wrap').style.display = 'none';
+    loadCheckins();
+
+  } else if (view === 'planner') {
+    hTitle.textContent = S.currentTrip.title + ' — Plan';
+    hBack.classList.remove('hide');
+    hActs.innerHTML = _tripNavBtns('planner');
+    fab.onclick = function(e) {
+      S._formAnchorXY = { x: e.clientX, y: e.clientY };
+      const c = S.plannerMap && S.plannerTab === 'map' ? S.plannerMap.getCenter() : null;
+      showPlannerForm(c ? { lat: c.lat(), lng: c.lng() } : null);
+    };
+    fab.title = 'Add place to plan';
+    fab.classList.remove('hide');
+    S.plannerTab = 'map';
+    ['cal','map'].forEach(t => {
+      document.getElementById('tab-plan-' + t).classList.toggle('on', t === 'map');
+      document.getElementById('panel-plan-' + t).style.display = t === 'map' ? 'block' : 'none';
+    });
+    document.getElementById('plan-form-wrap').style.display = 'none';
+    _hideContextMenu();
+    loadPlan();
+
+  } else if (view === 'expense') {
+    hTitle.textContent = S.currentExpenseId ? 'Edit Expense' : 'Add Expense';
+    hBack.classList.remove('hide');
+
+  } else if (view === 'report') {
+    hTitle.textContent = 'Expense Report';
+    hBack.classList.remove('hide');
+    hActs.innerHTML = _tripNavBtns('report');
+    // no FAB on report — nothing to add
+    loadReport();
+  }
+
+  navStack.push(view);
+  window.scrollTo(0, 0);
+}
+
+function goBack() {
+  const activeEl = document.querySelector('.view.active');
+  const current = activeEl ? activeEl.id.replace('view-', '') : '';
+  if (current === 'expense') {
+    navigate('trip');
+  } else if (['trip', 'tracker', 'planner', 'report'].includes(current)) {
+    const def = (S.currentTrip && S.currentTrip.defaultView) || 'trip';
+    navigate(current === def ? 'trips' : def);
+  } else {
+    navigate('trips');
+  }
+}
+
+function navBtn(view) {
+  const active = document.querySelector('.view.active');
+  if (active && active.id === 'view-' + view) { window.scrollTo(0, 0); return; }
+  navigate(view);
+}
+
+function _tripNavBtns(current) {
+  const btns = [
+    { v: 'trip',    icon: '💰', label: 'Expenses', title: 'Track Expenses - what did I spent on during the trip' },
+    { v: 'planner', icon: '📋', label: 'Plan',   title: 'Plan the trip - where should I go/sleep/eat' },
+    { v: 'tracker', icon: '📍', label: 'Track',  title: 'Track Locations - where did I visit' },
+    { v: 'report',  icon: '📊', label: 'Report', title: 'Expenses Report - how much did the trip cost' }
+  ];
+  return btns.map(b =>
+    `<button class="hbtn hbtn-nav${b.v === current ? ' hbtn-cur' : ''}" onclick="navBtn('${b.v}')" title="${b.title}">${b.icon} ${b.label}</button>`
+  ).join('');
+}
+
+// =======================================================
+// SHARED SUGGEST NAVIGATION (Tracker + Planner)
+// =======================================================
+
+function _navigateSuggest(listId, idx, delta) {
+  const list = document.getElementById(listId);
+  if (!list || list.style.display === 'none') return idx;
+  const items = list.querySelectorAll('.suggest-item');
+  if (!items.length) return idx;
+  items.forEach(el => el.classList.remove('active'));
+  const newIdx = Math.max(-1, Math.min(items.length - 1, idx + delta));
+  if (newIdx >= 0) { items[newIdx].classList.add('active'); items[newIdx].scrollIntoView({ block: 'nearest' }); }
+  return newIdx;
+}
+
+// =======================================================
+// MODAL
+// =======================================================
+
+function showModal(title, body) {
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalBody').innerHTML = body;
+  document.getElementById('modalBg').classList.add('open');
+}
+function closeModal() {
+  document.getElementById('modalBg').classList.remove('open');
+}
+function closeBgModal(e) {
+  if (e.target === document.getElementById('modalBg')) closeModal();
+}
+
+// =======================================================
+// TOAST
+// =======================================================
+
+let toastT;
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (type ? ' ' + type : '');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.classList.remove('show'), 3200);
+}
+
+// =======================================================
+// HELPERS
+// =======================================================
+
+function populateCurrSel(id) {
+  const sel = document.getElementById(id);
+  if (!sel) return;
+  sel.innerHTML = CURRENCIES.map(c => `<option value="${c}">${c}</option>`).join('');
+}
+
+function today() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function fmt(n) {
+  if (n == null || n === '') return '—';
+  return Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+function num(n) {
+  if (n == null || n === '') return '';
+  return Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+function esc(s) {
+  if (!s) return '';
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function fmtDate(d) {
+  if (!d) return '';
+  try {
+    return new Date(d + 'T12:00:00Z')
+      .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch(e) { return d; }
+}
+
+function dateRange(s, e) {
+  if (!s && !e) return 'Dates TBD';
+  if (!e) return fmtDate(s) + ' →';
+  if (!s) return '→ ' + fmtDate(e);
+  return fmtDate(s) + ' – ' + fmtDate(e);
+}
+
+function loadChartJs(cb) {
+  if (window.Chart) { cb(); return; }
+  const script = document.createElement('script');
+  script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+  script.onload = cb;
+  script.onerror = () => cb(); // fail silently — chart just won't render
+  document.head.appendChild(script);
+}
+</script>

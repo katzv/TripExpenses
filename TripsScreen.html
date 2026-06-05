@@ -1,0 +1,666 @@
+<!-- VIEW: TRIPS LIST -->
+<div class="view active" id="view-trips">
+  <div id="trips-list"></div>
+</div>
+
+<!-- VIEW: NEW / EDIT TRIP -->
+<div class="view" id="view-new-trip">
+  <div class="card">
+    <div class="fg">
+      <label>Title <span class="req">*</span></label>
+      <input class="fc" id="fTripTitle" type="text" placeholder="e.g., Europe 2026">
+    </div>
+    <div class="fg">
+      <label>Countries <span class="req">*</span></label>
+      <div class="ctag-wrap" id="ctagWrap" onclick="document.getElementById('ctagInput').focus()">
+        <span id="ctagList"></span>
+        <input id="ctagInput" class="ctag-input" type="text" list="dl-countries"
+               placeholder="Add country…" autocomplete="off"
+               oninput="onCtagInput()" onkeydown="onCtagKeydown(event)">
+      </div>
+      <datalist id="dl-countries"></datalist>
+      <div class="fhint" id="currHint" style="color:var(--primary);font-weight:600"></div>
+    </div>
+    <div class="fg">
+      <label>Travel Dates</label>
+      <div class="drp-display" id="tripDrpDisplay" onclick="openDrp('trip')">
+        <span id="tripDrpLabel" style="color:var(--muted)">Select dates…</span>
+      </div>
+      <input type="hidden" id="fTripStart">
+      <input type="hidden" id="fTripEnd">
+    </div>
+    <button class="btn btn-primary" id="saveTripBtn" onclick="saveTrip()">
+      &#128640; Create Trip
+    </button>
+  </div>
+</div>
+
+<!-- Date Range Picker Overlay -->
+<div id="drpOverlay" onclick="if(event.target===this)closeDrp()">
+  <div class="drp-card">
+    <div class="drp-nav-row">
+      <button class="drp-nav" onclick="drpShiftMonth(-1)">&#8249;</button>
+      <span class="drp-month-label" id="drpMonthLabel"></span>
+      <button class="drp-nav" onclick="drpShiftMonth(1)">&#8250;</button>
+    </div>
+    <table class="drp-grid">
+      <thead><tr id="drpDow"></tr></thead>
+      <tbody id="drpBody"></tbody>
+    </table>
+    <div class="drp-hint" id="drpHint">Tap a start date</div>
+    <div class="drp-btns">
+      <button class="btn btn-outline" style="flex:1" onclick="closeDrp()">Cancel</button>
+      <button class="btn btn-primary" style="flex:1" id="drpConfirmBtn" onclick="drpConfirm()" disabled>Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// =======================================================
+// TRIPS VIEW
+// =======================================================
+
+function renderTrips() {
+  const el = document.getElementById('trips-list');
+  if (S.trips.length === 0) {
+    el.innerHTML = `
+      <div class="empty">
+        <div class="empty-icon">✈️</div>
+        <div class="empty-title">No trips yet</div>
+        <div class="empty-sub">Create your first trip to start tracking expenses</div>
+        <button class="btn btn-primary" style="width:auto;padding:13px 36px" onclick="navigate('new-trip')">
+          + Create Trip
+        </button>
+      </div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div class="sec-label">Your Trips (${S.trips.length})</div>
+    ${S.trips.map(t => {
+      const days = tripDays(t);
+      return `
+      <div class="trip-card" onclick="openTrip('${t.id}')">
+        <div class="trip-card-body">
+          <div class="trip-card-title">${esc(t.title)}</div>
+          <div class="trip-card-sub">📍 ${esc(t.country)} &nbsp;·&nbsp; ${t.currency}</div>
+          <div class="trip-card-dates">📅 ${dateRange(t.startDate, t.endDate)}${days ? ` &nbsp;·&nbsp; ${days} days` : ''}</div>
+        </div>
+        <button class="trip-del-btn" title="Edit trip"
+                onclick="event.stopPropagation();editTripTitle('${t.id}')">&#9998;</button>
+        <button class="trip-del-btn" title="Delete trip"
+                onclick="event.stopPropagation();confirmDelTrip('${t.id}')">🗑</button>
+      </div>`;
+    }).join('')}`;
+}
+
+function openTrip(id) {
+  S.currentTrip = S.trips.find(t => t.id === id);
+  S.defaultRates = {};  // Reset rates only when switching trips
+  navigate(S.currentTrip.defaultView || 'trip');
+}
+
+function editTripTitle(id) {
+  const tripId = id || (S.currentTrip && S.currentTrip.id);
+  const t = S.trips.find(x => x.id === tripId);
+  if (!t) return;
+  S._editingTripId = tripId;
+  const editDrpLabel = (t.startDate || t.endDate)
+    ? (t.startDate || '?') + ' → ' + (t.endDate || '?')
+    : 'Select dates…';
+  showModal('Edit Trip', `
+    <div class="fg">
+      <label>Title <span class="req">*</span></label>
+      <input class="fc" id="fEditTitle" type="text" value="${esc(t.title)}">
+    </div>
+    <div class="fg" style="margin-top:10px">
+      <label>Countries</label>
+      <input class="fc" id="fEditCountry" type="text" value="${esc(t.country || '')}" placeholder="e.g., Austria, Czech Republic">
+      <div class="fhint">Separate multiple countries with commas</div>
+    </div>
+    <div class="fg" style="margin-top:10px">
+      <label>Travel Dates</label>
+      <div class="drp-display" onclick="openDrp('edit')">
+        <span id="editDrpLabel" style="color:${(t.startDate||t.endDate)?'var(--text)':'var(--muted)'}">${esc(editDrpLabel)}</span>
+      </div>
+      <input type="hidden" id="fEditStart" value="${t.startDate || ''}">
+      <input type="hidden" id="fEditEnd" value="${t.endDate || ''}">
+    </div>
+    <div class="fg" style="margin-top:10px">
+      <label>View Mode</label>
+      <select class="fc" id="fEditMode">
+        <option value="trip"${(t.defaultView||'trip')==='trip'?' selected':''}>💰 Expenses</option>
+        <option value="tracker"${t.defaultView==='tracker'?' selected':''}>📍 Tracker</option>
+        <option value="planner"${t.defaultView==='planner'?' selected':''}>📋 Planner</option>
+        <option value="report"${t.defaultView==='report'?' selected':''}>📊 Report</option>
+      </select>
+    </div>
+    <div class="btn-row" style="margin-top:14px">
+      <button id="rerateBtn" onclick="rerateExpenses()" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;padding:0;white-space:nowrap;margin-right:auto">&#8635; Re-rate</button>
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveTripEdits()">&#10003; Save</button>
+    </div>`);
+  setTimeout(() => { var el = document.getElementById('fEditTitle'); if (el) { el.focus(); el.select(); } }, 150);
+}
+
+function saveTripEdits() {
+  const title = (document.getElementById('fEditTitle').value || '').trim();
+  if (!title) { toast('Title is required', 'err'); return; }
+  const country = (document.getElementById('fEditCountry').value || '').trim();
+  const data = {
+    id:          S._editingTripId,
+    title,
+    country,
+    startDate:   document.getElementById('fEditStart').value,
+    endDate:     document.getElementById('fEditEnd').value,
+    defaultView: document.getElementById('fEditMode').value
+  };
+  closeModal();
+  // Optimistic update — reflect immediately without waiting for server
+  const t = S.trips.find(x => x.id === data.id);
+  if (t) { t.title = data.title; t.country = data.country; t.startDate = data.startDate; t.endDate = data.endDate; t.defaultView = data.defaultView; }
+  if (S.currentTrip && S.currentTrip.id === data.id) {
+    S.currentTrip.title       = data.title;
+    S.currentTrip.country     = data.country;
+    S.currentTrip.startDate   = data.startDate;
+    S.currentTrip.endDate     = data.endDate;
+    S.currentTrip.defaultView = data.defaultView;
+  }
+  const inTripView = document.getElementById('view-trip').classList.contains('active');
+  if (inTripView && S.currentTrip && S.currentTrip.id === data.id) {
+    document.getElementById('hTitle').textContent = data.title;
+    renderExpenses();
+  } else {
+    renderTrips();
+  }
+  toast('Trip updated!', 'ok');
+  google.script.run
+    .withFailureHandler(err => toast('Error saving trip: ' + err.message, 'err'))
+    .updateTrip(data);
+}
+
+function rerateExpenses() {
+  const tripId = S._editingTripId;
+  if (!tripId) return;
+  const btn = document.getElementById('rerateBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Fetching historical rates…'; }
+  google.script.run
+    .withSuccessHandler(r => {
+      closeModal();
+      toast('Re-rated ' + r.updated + ' expense' + (r.updated !== 1 ? 's' : '') + ' with historical rates', 'ok');
+      if (S.currentTrip && S.currentTrip.id === tripId) loadExpenses(tripId);
+    })
+    .withFailureHandler(err => {
+      if (btn) { btn.disabled = false; btn.textContent = '↻ Re-rate expenses with historical rates'; }
+      toast('Re-rating failed: ' + err.message, 'err');
+    })
+    .rerateImportedExpenses(tripId);
+}
+
+function tripDays(t) {
+  if (!t.startDate || !t.endDate) return 0;
+  return Math.round((new Date(t.endDate) - new Date(t.startDate)) / 86400000) + 1;
+}
+
+// =======================================================
+// NEW TRIP FORM
+// =======================================================
+
+var _ctagList = [];
+
+function clearTripForm() {
+  document.getElementById('fTripTitle').value = '';
+  _ctagList = [];
+  renderCtags();
+  document.getElementById('ctagInput').value = '';
+  document.getElementById('fTripStart').value = '';
+  document.getElementById('fTripEnd').value   = '';
+  document.getElementById('currHint').textContent = '';
+  document.getElementById('tripDrpLabel').textContent = 'Select dates…';
+  document.getElementById('tripDrpLabel').style.color = 'var(--muted)';
+}
+
+function onCtagInput() {
+  const input = document.getElementById('ctagInput');
+  const val = input.value;
+  if (val.endsWith(',')) {
+    const name = val.slice(0, -1).trim();
+    if (name) addCtag(name);
+    input.value = '';
+    return;
+  }
+  _updateCurrHint();
+}
+
+function onCtagKeydown(e) {
+  const input = document.getElementById('ctagInput');
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault();
+    const name = input.value.trim();
+    if (name) addCtag(name);
+    input.value = '';
+  } else if (e.key === 'Backspace' && !input.value && _ctagList.length) {
+    removeCtag(_ctagList.length - 1);
+  }
+}
+
+function addCtag(name) {
+  if (!name || _ctagList.includes(name)) return;
+  _ctagList.push(name);
+  renderCtags();
+  document.getElementById('ctagInput').value = '';
+  _updateCurrHint();
+}
+
+function removeCtag(idx) {
+  _ctagList.splice(idx, 1);
+  renderCtags();
+  _updateCurrHint();
+}
+
+function renderCtags() {
+  document.getElementById('ctagList').innerHTML = _ctagList.map((n, i) =>
+    `<span class="ctag">${esc(n)}<button type="button" onclick="removeCtag(${i})">&#215;</button></span>`
+  ).join('');
+}
+
+function _updateCurrHint() {
+  const first = _ctagList[0] || document.getElementById('ctagInput').value.trim();
+  const cur = countryToCur(first);
+  document.getElementById('currHint').textContent = first ? `Default currency: ${cur}` : '';
+}
+
+function countryToCur(c) {
+  return COUNTRY_CURRENCY[(c || '').toLowerCase().trim()] || 'EUR';
+}
+
+function saveTrip() {
+  const title   = document.getElementById('fTripTitle').value.trim();
+  // Accept tags, or whatever is still typed in the input
+  const typed = document.getElementById('ctagInput').value.trim();
+  if (typed) addCtag(typed);
+  const country = _ctagList.join(', ');
+  if (!title || !country) { toast('Please fill in Title and Countries', 'err'); return; }
+
+  const btn = document.getElementById('saveTripBtn');
+  btn.disabled = true; btn.textContent = 'Creating...';
+
+  const data = {
+    title, country,
+    currency: countryToCur(_ctagList[0] || country),
+    startDate: document.getElementById('fTripStart').value,
+    endDate:   document.getElementById('fTripEnd').value
+  };
+
+  google.script.run
+    .withSuccessHandler(res => {
+      btn.disabled = false; btn.textContent = '🚀 Create Trip';
+      if (res.success) {
+        google.script.run
+          .withSuccessHandler(trips => {
+            S.trips = trips;
+            S.currentTrip = trips.find(t => t.id === res.id);
+            navigate('trip');
+            toast('Trip created!', 'ok');
+          })
+          .getTrips();
+      }
+    })
+    .withFailureHandler(err => {
+      btn.disabled = false; btn.textContent = '🚀 Create Trip';
+      toast('Error: ' + err.message, 'err');
+    })
+    .createTrip(data);
+}
+
+// =======================================================
+// TRIP DELETE
+// =======================================================
+
+function confirmDelTrip(id) {
+  const t = S.trips.find(x => x.id === id);
+  showModal('Delete Trip', `
+    <p style="color:var(--muted);margin-bottom:8px">
+      Delete trip "<strong>${esc(t ? t.title : '')}</strong>" and all its expenses?
+    </p>
+    <p style="color:var(--danger);font-size:13px;margin-bottom:16px">This cannot be undone.</p>
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="doDelTrip('${id}')">Delete</button>
+    </div>`);
+}
+
+function doDelTrip(id) {
+  closeModal();
+  google.script.run
+    .withSuccessHandler(() => {
+      S.trips = S.trips.filter(t => t.id !== id);
+      renderTrips();
+      toast('Trip deleted', 'ok');
+    })
+    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .deleteTrip(id);
+}
+
+// =======================================================
+// DATE RANGE PICKER
+// =======================================================
+
+var _drp = { year: 0, month: 0, from: '', to: '', ctx: '' };
+
+function openDrp(ctx) {
+  _drp.ctx = ctx;
+  const startEl = document.getElementById(ctx === 'edit' ? 'fEditStart' : 'fTripStart');
+  const endEl   = document.getElementById(ctx === 'edit' ? 'fEditEnd'   : 'fTripEnd');
+  _drp.from = (startEl && startEl.value) || '';
+  _drp.to   = (endEl   && endEl.value)   || '';
+  const base = _drp.from ? new Date(_drp.from + 'T12:00:00Z') : new Date();
+  _drp.year  = base.getUTCFullYear();
+  _drp.month = base.getUTCMonth();
+  document.getElementById('drpOverlay').classList.add('open');
+  _renderDrp();
+}
+
+function closeDrp() {
+  document.getElementById('drpOverlay').classList.remove('open');
+}
+
+function drpShiftMonth(delta) {
+  _drp.month += delta;
+  if (_drp.month < 0)  { _drp.month = 11; _drp.year--; }
+  if (_drp.month > 11) { _drp.month = 0;  _drp.year++; }
+  _renderDrp();
+}
+
+function _renderDrp() {
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const DAYS   = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+  document.getElementById('drpMonthLabel').textContent = MONTHS[_drp.month] + ' ' + _drp.year;
+
+  // DOW header (only render once)
+  const dowEl = document.getElementById('drpDow');
+  if (!dowEl.children.length) {
+    dowEl.innerHTML = DAYS.map(d => `<th>${d}</th>`).join('');
+  }
+
+  const firstDay = new Date(Date.UTC(_drp.year, _drp.month, 1)).getUTCDay();
+  const daysInMonth = new Date(Date.UTC(_drp.year, _drp.month + 1, 0)).getUTCDate();
+  const from = _drp.from, to = _drp.to;
+
+  let cells = [], row = [];
+  for (let i = 0; i < firstDay; i++) row.push('<td class="empty"><span class="drp-day empty"></span></td>');
+  for (let d = 1; d <= daysInMonth; d++) {
+    const iso = _drp.year + '-' + String(_drp.month+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+    const isFrom = iso === from, isTo = iso === to;
+    const inRange = from && to && iso > from && iso < to;
+    const cls = [
+      'drp-day',
+      isFrom ? 'sel-from' : '',
+      isTo   ? 'sel-to'   : '',
+      inRange ? 'in-range' : ''
+    ].filter(Boolean).join(' ');
+    const tdCls = inRange||isFrom||isTo ? (iso===from?'range-start':iso===to?'range-end':'') : '';
+    row.push(`<td class="${tdCls}"><button class="${cls}" onclick="drpClickDay('${iso}')">${d}</button></td>`);
+    if (row.length === 7) { cells.push('<tr>' + row.join('') + '</tr>'); row = []; }
+  }
+  while (row.length && row.length < 7) row.push('<td></td>');
+  if (row.length) cells.push('<tr>' + row.join('') + '</tr>');
+  document.getElementById('drpBody').innerHTML = cells.join('');
+
+  const hint = !from ? 'Tap a start date' : (!to ? 'Tap an end date' : (from + ' → ' + to));
+  document.getElementById('drpHint').textContent = hint;
+  document.getElementById('drpConfirmBtn').disabled = !(from && to);
+}
+
+function drpClickDay(iso) {
+  if (!_drp.from || (_drp.from && _drp.to)) {
+    _drp.from = iso; _drp.to = '';
+  } else {
+    if (iso < _drp.from) { _drp.from = iso; _drp.to = ''; }
+    else if (iso === _drp.from) { _drp.from = ''; _drp.to = ''; }
+    else { _drp.to = iso; }
+  }
+  _renderDrp();
+}
+
+function drpConfirm() {
+  const startId = _drp.ctx === 'edit' ? 'fEditStart' : 'fTripStart';
+  const endId   = _drp.ctx === 'edit' ? 'fEditEnd'   : 'fTripEnd';
+  document.getElementById(startId).value = _drp.from;
+  document.getElementById(endId).value   = _drp.to;
+  const label = _drp.from + ' → ' + _drp.to;
+  if (_drp.ctx === 'edit') {
+    const el = document.getElementById('editDrpLabel');
+    if (el) { el.textContent = label; el.style.color = 'var(--text)'; }
+  } else {
+    const el = document.getElementById('tripDrpLabel');
+    if (el) { el.textContent = label; el.style.color = 'var(--text)'; }
+  }
+  closeDrp();
+}
+
+// =======================================================
+// COUNTRY / MAP HELPERS
+// =======================================================
+
+const COUNTRY_ISO = {
+  'austria':'at','czech republic':'cz','czechia':'cz','germany':'de','france':'fr',
+  'italy':'it','spain':'es','portugal':'pt','greece':'gr','netherlands':'nl',
+  'belgium':'be','switzerland':'ch','poland':'pl','hungary':'hu','croatia':'hr',
+  'slovenia':'si','slovakia':'sk','israel':'il','united states':'us','usa':'us',
+  'united kingdom':'gb','uk':'gb','japan':'jp','thailand':'th','turkey':'tr',
+  'egypt':'eg','norway':'no','sweden':'se','denmark':'dk','finland':'fi',
+  'ireland':'ie','romania':'ro','bulgaria':'bg','australia':'au','new zealand':'nz',
+  'canada':'ca','mexico':'mx','brazil':'br','india':'in','china':'cn',
+  'singapore':'sg','jordan':'jo','uae':'ae','iceland':'is','georgia':'ge',
+  'serbia':'rs','albania':'al','north macedonia':'mk','montenegro':'me'
+};
+
+const COUNTRY_CENTERS = {
+  'austria':{lat:47.5,lng:14.5},'czech republic':{lat:49.8,lng:15.5},'czechia':{lat:49.8,lng:15.5},
+  'germany':{lat:51.2,lng:10.5},'france':{lat:46.2,lng:2.2},'italy':{lat:42.8,lng:12.8},
+  'spain':{lat:40.4,lng:-3.7},'portugal':{lat:39.6,lng:-8.0},'greece':{lat:39.1,lng:21.8},
+  'netherlands':{lat:52.3,lng:5.3},'belgium':{lat:50.5,lng:4.5},'switzerland':{lat:46.8,lng:8.2},
+  'poland':{lat:52.1,lng:19.4},'hungary':{lat:47.2,lng:19.4},'croatia':{lat:45.2,lng:16.4},
+  'slovenia':{lat:46.1,lng:14.8},'slovakia':{lat:48.7,lng:19.7},'israel':{lat:31.5,lng:34.8},
+  'united states':{lat:39.5,lng:-98.4},'usa':{lat:39.5,lng:-98.4},
+  'united kingdom':{lat:54.4,lng:-2.0},'uk':{lat:54.4,lng:-2.0},
+  'japan':{lat:36.2,lng:138.3},'thailand':{lat:13.0,lng:101.0},'turkey':{lat:39.0,lng:35.0},
+  'egypt':{lat:26.8,lng:30.8},'norway':{lat:64.5,lng:17.9},'sweden':{lat:62.0,lng:15.6},
+  'denmark':{lat:56.3,lng:9.5},'finland':{lat:64.9,lng:26.0},'ireland':{lat:53.4,lng:-8.2},
+  'romania':{lat:45.9,lng:24.9},'bulgaria':{lat:42.7,lng:25.5},'australia':{lat:-25.3,lng:133.8},
+  'new zealand':{lat:-40.9,lng:174.9},'canada':{lat:56.1,lng:-106.3},'mexico':{lat:23.6,lng:-102.6},
+  'georgia':{lat:42.3,lng:43.4},'iceland':{lat:64.9,lng:-19.0}
+};
+
+function _getTripCountryCodes() {
+  if (!S.currentTrip) return '';
+  return S.currentTrip.country.split(',')
+    .map(c => COUNTRY_ISO[c.trim().toLowerCase()])
+    .filter(Boolean).join(',');
+}
+
+function _getTripCountryCenter() {
+  if (!S.currentTrip) return null;
+  const first = S.currentTrip.country.split(',')[0].trim().toLowerCase();
+  return COUNTRY_CENTERS[first] || null;
+}
+
+// =======================================================
+// JSON IMPORT
+// =======================================================
+
+function showImportJson() {
+  showModal('Import Trip from File', `
+    <p style="color:var(--muted);font-size:13px;margin-bottom:14px">
+      Select a <strong>.json</strong> export file, or paste JSON below.
+      Use Claude to convert your existing trip data into
+      <a href="#" onclick="showImportFormat();return false" style="color:var(--primary)">this format</a>.
+    </p>
+    <div class="fg" style="margin-bottom:10px">
+      <label>Choose file</label>
+      <input type="file" id="fImportFile" accept=".json,application/json"
+             style="display:block;width:100%;font-size:14px;padding:6px 0"
+             onchange="_handleImportFile(this)">
+    </div>
+    <div style="text-align:center;color:var(--muted);font-size:12px;margin:4px 0 8px">— or paste JSON —</div>
+    <textarea id="fImportPaste" class="fc" rows="5" placeholder='{"title":"...","country":"...","expenses":[...]}'
+              style="font-size:12px;font-family:monospace;resize:vertical"
+              oninput="_handleImportPaste(this)"></textarea>
+    <div id="importPreview" style="margin-top:10px"></div>
+    <div class="btn-row" id="importBtnRow">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+
+function showImportFormat() {
+  const sample = JSON.stringify({
+    title: "Austria 2025",
+    country: "Austria",
+    currency: "EUR",
+    startDate: "2025-04-09",
+    endDate: "2025-04-16",
+    expenses: [
+      { date: "2025-04-09", description: "El Al TLV-VIE", type: "Flight", amount: 850, currency: "ILS", notes: "" },
+      { date: "2025-04-10", description: "Hotel Vienna", type: "Lodging", amount: 120, currency: "EUR", notes: "2 nights" }
+    ]
+  }, null, 2);
+  const types = ['Flight','Lodging','Car Rental','Insurance','Petrol','Toll Roads',
+                 'Parking','Transportation','Meals','Souvenirs','Attractions','Phone','Other'];
+  showModal('Import File Format', `
+    <p style="font-size:13px;color:var(--muted);margin-bottom:8px">
+      Valid <strong>type</strong> values: ${types.map(t => `<code style="font-size:11px;background:var(--bg);padding:1px 4px;border-radius:3px">${t}</code>`).join(' ')}
+    </p>
+    <pre style="background:var(--bg);border-radius:8px;padding:12px;font-size:11px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;margin:0">${esc(sample)}</pre>
+    <div style="margin-top:10px;font-size:12px;color:var(--muted)">
+      Prompt for Claude: <em>"Convert the table below into this JSON format for a trip expense app. Use exact type names from the list above."</em>
+    </div>
+    <div class="btn-row"><button class="btn btn-outline" onclick="closeModal()">Close</button></div>`);
+}
+
+function _handleImportFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => _parseAndPreviewImport(e.target.result);
+  reader.readAsText(file);
+}
+
+function _handleImportPaste(ta) {
+  const val = ta.value.trim();
+  if (val.startsWith('{') || val.startsWith('[')) _parseAndPreviewImport(val);
+  else document.getElementById('importPreview').innerHTML = '';
+}
+
+function _parseAndPreviewImport(text) {
+  const preview = document.getElementById('importPreview');
+  const btnRow  = document.getElementById('importBtnRow');
+  let parsed;
+  try { parsed = JSON.parse(text); } catch(e) {
+    preview.innerHTML = `<div style="color:var(--danger);font-size:13px">Invalid JSON: ${esc(e.message)}</div>`;
+    btnRow.innerHTML = '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>';
+    return;
+  }
+  if (!parsed.title || !parsed.country || !Array.isArray(parsed.expenses)) {
+    preview.innerHTML = `<div style="color:var(--danger);font-size:13px">Missing required fields: title, country, expenses[]</div>`;
+    btnRow.innerHTML = '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>';
+    return;
+  }
+  const valid   = parsed.expenses.filter(e => e.amount && e.date).length;
+  const skipped = parsed.expenses.length - valid;
+  const curs    = [...new Set(parsed.expenses.map(e => (e.currency||'ILS').toUpperCase()))].join(', ');
+  preview.innerHTML = `
+    <div style="background:var(--bg);border-radius:10px;padding:12px;border:1px solid var(--border)">
+      <div style="font-weight:700;font-size:14px;margin-bottom:6px">${esc(parsed.title)}</div>
+      <div style="font-size:13px;color:var(--muted)">📍 ${esc(parsed.country)} &nbsp;·&nbsp; ${esc(parsed.currency||'')}</div>
+      ${parsed.startDate ? `<div style="font-size:13px;color:var(--muted)">📅 ${esc(parsed.startDate)} → ${esc(parsed.endDate||'')}</div>` : ''}
+      <div style="font-size:13px;margin-top:6px"><strong>${valid}</strong> expenses &nbsp;·&nbsp; ${esc(curs)}${skipped ? ` &nbsp;·&nbsp; <span style="color:var(--danger)">${skipped} skipped (no amount/date)</span>` : ''}</div>
+    </div>`;
+  window._importParsed = parsed;
+  btnRow.innerHTML = `<button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" onclick="_doJsonImport()">&#8595; Import ${valid} Expenses</button>`;
+}
+
+function _doJsonImport() {
+  const parsed = window._importParsed;
+  if (!parsed) return;
+  const preview = document.getElementById('importPreview');
+  const btnRow  = document.getElementById('importBtnRow');
+  if (preview) preview.innerHTML = '<div style="text-align:center;padding:12px;color:var(--muted)">Importing & fetching exchange rates...</div>';
+  btnRow.innerHTML = '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>';
+  google.script.run
+    .withSuccessHandler(res => {
+      closeModal();
+      S.trips = res.trips;
+      renderTrips();
+      const msg = 'Imported ' + res.imported + ' expenses' + (res.skipped ? ' (' + res.skipped + ' skipped)' : '');
+      toast(msg, 'ok');
+    })
+    .withFailureHandler(err => {
+      if (preview) preview.innerHTML = `<div style="color:var(--danger);padding:8px">${esc(err.message)}</div>`;
+      btnRow.innerHTML = '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>';
+      toast('Import failed: ' + err.message, 'err');
+    })
+    .importFromJson(parsed);
+}
+
+// =======================================================
+// EXPENSE TYPES
+// =======================================================
+
+function populateTypeSelect() {
+  const sel = document.getElementById('fType');
+  sel.innerHTML = S.expenseTypes
+    .map(t => `<option value="${t}">${typeLabel(t)}</option>`)
+    .join('');
+}
+
+function showAddType() {
+  const custom = S.expenseTypes.filter(t => !defaultTypes().includes(t));
+  const customList = custom.length > 0
+    ? custom.map(t => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+          <span style="font-size:15px">${esc(t)}</span>
+          <button class="btn btn-danger btn-sm" style="width:auto" onclick='deleteType(${JSON.stringify(t)})'>&#10005; Delete</button>
+        </div>`).join('')
+    : '<div style="color:var(--muted);font-size:13px;padding:6px 0">No custom types yet.</div>';
+
+  showModal('Manage Types', `
+    <div class="sec-label" style="margin-top:0">Custom Types</div>
+    <div style="margin-bottom:16px">${customList}</div>
+    <div class="fg">
+      <label>Add New Type</label>
+      <input class="fc" id="newTypeName" type="text" placeholder="e.g., Medical, Activities">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="closeModal()">Close</button>
+      <button class="btn btn-primary" onclick="saveNewType()">&#10003; Add Type</button>
+    </div>`);
+  setTimeout(() => { var el = document.getElementById('newTypeName'); if (el) el.focus(); }, 300);
+}
+
+function deleteType(name) {
+  // Optimistic update
+  S.expenseTypes = S.expenseTypes.filter(t => t !== name);
+  populateTypeSelect();
+  toast('Type "' + name + '" deleted', 'ok');
+  showAddType();
+  google.script.run
+    .withFailureHandler(err => toast('Error deleting type: ' + err.message, 'err'))
+    .deleteExpenseType(name);
+}
+
+function saveNewType() {
+  const name = ((document.getElementById('newTypeName') || {value: ''}).value || '').trim();
+  if (!name) { toast('Enter a type name', 'err'); return; }
+  closeModal();
+  // Optimistic update
+  if (!S.expenseTypes.includes(name)) S.expenseTypes.push(name);
+  populateTypeSelect();
+  document.getElementById('fType').value = name;
+  onTypeChange();
+  toast('Type "' + name + '" added', 'ok');
+  google.script.run
+    .withFailureHandler(err => toast('Error adding type: ' + err.message, 'err'))
+    .addExpenseType(name);
+}
+</script>

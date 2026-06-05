@@ -1,0 +1,126 @@
+<script>
+// =======================================================
+// GOOGLE MAPS LOADER & PLACES HELPERS
+// =======================================================
+
+var _gmapsLoaded = false, _gmapsCallbacks = [];
+function loadGoogleMaps(cb) {
+  if (window.google && window.google.maps && window.google.maps.places) { cb(); return; }
+  _gmapsCallbacks.push(cb);
+  if (_gmapsLoaded) return;
+  _gmapsLoaded = true;
+  window._gmapsReady = function() {
+    var cbs = _gmapsCallbacks.slice(); _gmapsCallbacks = [];
+    cbs.forEach(function(fn) { fn(); });
+  };
+  var s = document.createElement('script');
+  s.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyD_DRzG7TqWgNiQMdeyOzk4MLW2pezem6U&libraries=places&callback=_gmapsReady';
+  s.async = true;
+  s.onerror = function() {
+    var c = document.getElementById('tracker-map');
+    if (c) c.innerHTML = '<div style="padding:20px;color:var(--danger)">Could not load map library</div>';
+  };
+  document.head.appendChild(s);
+}
+
+var _placesService = null;
+function _getPlacesService() {
+  if (!_placesService && window.google && google.maps)
+    _placesService = new google.maps.places.PlacesService(document.getElementById('placesServiceDiv'));
+  return _placesService;
+}
+
+var _trackerAcToken = null, _plannerAcToken = null;
+function _trackerToken() {
+  if (!_trackerAcToken && window.google && google.maps)
+    _trackerAcToken = new google.maps.places.AutocompleteSessionToken();
+  return _trackerAcToken;
+}
+function _plannerToken() {
+  if (!_plannerAcToken && window.google && google.maps)
+    _plannerAcToken = new google.maps.places.AutocompleteSessionToken();
+  return _plannerAcToken;
+}
+
+// =======================================================
+// MAP SERVICE ABSTRACTION
+// Swap `const MapService = MapServiceGoogle` → `MapServiceNominatim`
+// to change the map backend without touching screen code.
+// =======================================================
+
+const MapServiceGoogle = {
+  // Load the map library, then invoke cb()
+  load: loadGoogleMaps,
+
+  // Create a new map instance inside `container`
+  newMap: function(container, opts) {
+    return new google.maps.Map(container, opts);
+  },
+
+  // Create a marker
+  newMarker: function(opts) {
+    return new google.maps.Marker(opts);
+  },
+
+  // Create a polyline
+  newPolyline: function(opts) {
+    return new google.maps.Polyline(opts);
+  },
+
+  // Create an InfoWindow
+  newInfoWindow: function(opts) {
+    return new google.maps.InfoWindow(opts || {});
+  },
+
+  // Create a LatLngBounds object
+  newBounds: function() {
+    return new google.maps.LatLngBounds();
+  },
+
+  // Fit map to bounds
+  fitBounds: function(map, bounds) {
+    map.fitBounds(bounds);
+  },
+
+  // Set map center
+  setCenter: function(map, center) {
+    map.setCenter(center);
+  },
+
+  // Set map zoom
+  setZoom: function(map, zoom) {
+    map.setZoom(zoom);
+  },
+
+  // Get current zoom level
+  getZoom: function(map) {
+    return map.getZoom();
+  },
+
+  // Register a one-time bounds_changed listener
+  onBoundsChanged: function(map, fn) {
+    google.maps.event.addListenerOnce(map, 'bounds_changed', fn);
+  },
+
+  // Remove a marker from the map (pass null to detach)
+  clearMarker: function(marker) {
+    if (marker) marker.setMap(null);
+  },
+
+  // Extend a bounds object with a LatLng literal
+  extendBounds: function(bounds, latLng) {
+    bounds.extend(latLng);
+  },
+
+  // The CIRCLE symbol path for marker icons
+  circleSymbol: function() {
+    return google.maps.SymbolPath.CIRCLE;
+  }
+};
+
+// Placeholder — a real Leaflet/Nominatim implementation would go here
+const MapServiceNominatim = MapServiceGoogle;
+
+// ← Change this one line to switch map backends
+const MapService = MapServiceGoogle;
+</script>
