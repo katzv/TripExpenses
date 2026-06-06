@@ -11,12 +11,12 @@
     <div id="planBankBar" style="display:none">
       <div style="display:flex;align-items:center;justify-content:flex-start;gap:8px;padding:6px 0 4px">
         <span style="font-size:11px;font-weight:800;letter-spacing:0.5px;color:var(--muted);text-transform:uppercase">Bank</span>
-        <button onclick="togglePlanBankBar()" style="background:none;border:none;font-size:11px;color:var(--muted);cursor:pointer;padding:0;font-weight:600">▲ Hide</button>
+        <button onclick="togglePlanBankBar()" style="background:none;border:none;font-size:13px;color:var(--muted);cursor:pointer;padding:2px 0;font-weight:600">▲ Hide</button>
       </div>
       <div id="planBankBarChips" style="display:flex;flex-wrap:wrap;gap:6px;padding-bottom:8px"></div>
     </div>
     <div id="planBankBarCollapsed" style="display:none;padding:2px 0 8px">
-      <button id="planBankBarShowBtn" onclick="togglePlanBankBar()" style="background:none;border:1.5px solid var(--border);border-radius:8px;font-size:11px;color:var(--muted);cursor:pointer;padding:3px 10px;font-weight:600">▼ Bank</button>
+      <button id="planBankBarShowBtn" onclick="togglePlanBankBar()" style="background:none;border:1.5px solid var(--border);border-radius:8px;font-size:13px;color:var(--muted);cursor:pointer;padding:4px 12px;font-weight:600">▼ Bank</button>
     </div>
     <!-- Map -->
     <div style="border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);margin-bottom:14px">
@@ -127,14 +127,14 @@ function _positionFormSheet() {
   sheet.style.transform = 'none';
 }
 
-function showPlannerForm(presetCoords, presetName, presetType) {
+function showPlannerForm(presetCoords, presetName, presetType, presetDesc) {
   _hideContextMenu();
   S.editingPlaceId = null;
   S.planGpsCoords = presetCoords || null;
   S.planGpsSource = presetCoords ? 'manual' : 'none';
   document.getElementById('planName').value = presetName || '';
   _selectPlanType(presetType || 'place');
-  document.getElementById('planDesc').value = '';
+  document.getElementById('planDesc').value = presetDesc || '';
   if (presetCoords) {
     setPlanGpsStatus('ok', 'Map pin: ' + presetCoords.lat.toFixed(5) + ', ' + presetCoords.lng.toFixed(5));
   } else {
@@ -337,7 +337,12 @@ function savePlanPlaceUI() {
 }
 
 function ctxMenuDelete(id, evt) {
-  if (evt) S._lastClickXY = { x: evt.clientX, y: evt.clientY };
+  const menu = document.getElementById('plannerContextMenu');
+  if (menu && menu.style.display !== 'none') {
+    S._lastClickXY = { x: parseInt(menu.style.left) + 125, y: parseInt(menu.style.top) };
+  } else if (evt) {
+    S._lastClickXY = { x: evt.clientX, y: evt.clientY };
+  }
   _hideContextMenu();
   confirmDeletePlanPlace(id);
 }
@@ -364,15 +369,21 @@ function confirmDeletePlanPlace(id) {
     '</div>';
   document.body.appendChild(div);
   setTimeout(() => {
-    document.addEventListener('click', function _dc(e) {
-      if (!div.contains(e.target)) { _dismissDeleteConfirm(); document.removeEventListener('click', _dc); }
-    });
+    if (_deleteConfirmOutsideHandler) document.removeEventListener('click', _deleteConfirmOutsideHandler);
+    _deleteConfirmOutsideHandler = function(e) {
+      if (!div.contains(e.target)) _dismissDeleteConfirm();
+    };
+    document.addEventListener('click', _deleteConfirmOutsideHandler);
   }, 80);
 }
 
 function _dismissDeleteConfirm() {
   const el = document.getElementById('planDeleteConfirm');
   if (el) el.remove();
+  if (_deleteConfirmOutsideHandler) {
+    document.removeEventListener('click', _deleteConfirmOutsideHandler);
+    _deleteConfirmOutsideHandler = null;
+  }
 }
 
 function doDeletePlanPlace(id) {
@@ -673,8 +684,9 @@ function toggleDayCell(placeId, ds, color, el) {
 
 // ---- Planner map ----
 
-var _rcTimer = null;
-var _markerRCTime = 0; // timestamp of last bank-marker rightclick; checked by map & DOM handlers
+var _markerRCTime = 0;    // timestamp of last bank-marker rightclick
+var _markerClickTime = 0; // timestamp of last bank-marker left-click
+var _deleteConfirmOutsideHandler = null;
 
 function initPlannerMap() {
   const container = document.getElementById('planner-map');
@@ -710,49 +722,56 @@ function _renderPlannerLeaflet() {
     // Click on map: suppress Google's POI info card; deselect chip + close context menu
     S.plannerMap.addListener('click', function(e) {
       if (e.placeId) e.stop(); // prevent Google's built-in POI popup on left-click
+      if (Date.now() - _markerClickTime < 300) return; // bank marker click already opened Pin Menu
       if (S._planInfoWindow) S._planInfoWindow.close();
       _hideContextMenu();
       S._highlightedPlaceId = null;
       renderBankBarChips();
     });
 
-    // DOM contextmenu: prevent browser menu and act as fallback for POI overlays
-    // that don't bubble to the Maps API rightclick event.
+    // DOM contextmenu: sole right-click handler (Maps API rightclick/contextmenu events don't fire
+    // reliably in this embed context, so we detect POIs ourselves via nearbySearch)
     container.addEventListener('contextmenu', function(domEvt) {
+      console.log('[CTX] contextmenu fired at', domEvt.clientX, domEvt.clientY);
       domEvt.preventDefault();
-      const cx = domEvt.clientX, cy = domEvt.clientY;
-      const savedCenter = S.plannerMap ? S.plannerMap.getCenter() : null;
-      clearTimeout(_rcTimer);
-      _rcTimer = setTimeout(function() {
-        _rcTimer = null;
-        if (Date.now() - _markerRCTime < 300) return; // bank marker handled it — discard stale timer
-        const coords = _pixelToLatLng(S.plannerMap, cx, cy);
-        if (coords) {
-          _showContextMenu(cx, cy, coords, null);
-          if (savedCenter) setTimeout(() => { if (S.plannerMap) S.plannerMap.setCenter(savedCenter); }, 30);
-        }
-      }, 40);
-    });
-
-    // Maps API rightclick: fires for empty space and for most POIs
-    S.plannerMap.addListener('rightclick', function(e) {
-      if (Date.now() - _markerRCTime < 300) return; // bank marker handled it within 300 ms
-      clearTimeout(_rcTimer); _rcTimer = null; // cancel DOM fallback
+      if (Date.now() - _markerRCTime < 300) return; // bank marker already showed Pin Menu
       if (S._planInfoWindow) S._planInfoWindow.close();
-      const savedCenter = S.plannerMap.getCenter();
-      const de = e.domEvent;
-      let cx = window.innerWidth / 2, cy = window.innerHeight / 3;
-      if (de) {
-        if (de.clientX !== undefined) { cx = de.clientX; cy = de.clientY; }
-        else if (de.changedTouches && de.changedTouches.length) {
-          cx = de.changedTouches[0].clientX; cy = de.changedTouches[0].clientY;
-        }
+      const savedCenter = S.plannerMap ? S.plannerMap.getCenter() : null;
+      const cx = domEvt.clientX, cy = domEvt.clientY;
+      const coords = _pixelToLatLng(S.plannerMap, cx, cy);
+      if (!coords) return;
+      if (savedCenter) setTimeout(() => { if (S.plannerMap) S.plannerMap.setCenter(savedCenter); }, 30);
+
+      // Show loading immediately, then nearbySearch to detect any POI at this location
+      const menu = document.getElementById('plannerContextMenu');
+      if (menu) {
+        menu.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:var(--muted)">Loading…</div>';
+        const menuW = 250, vw = window.innerWidth;
+        menu.style.left = (cx + menuW > vw - 8 ? Math.max(8, cx - menuW) : cx) + 'px';
+        menu.style.top  = Math.min(cy, window.innerHeight - 140) + 'px';
+        menu.style.display = 'block';
       }
-      if (e.placeId) e.stop(); // suppress native Google info card
-      // e.latLng may be null when e.placeId is set (Maps API behaviour)
-      const coords = e.latLng ? { lat: e.latLng.lat(), lng: e.latLng.lng() } : null;
-      _showContextMenu(cx, cy, coords, e.placeId || null);
-      setTimeout(() => { if (S.plannerMap) S.plannerMap.setCenter(savedCenter); }, 30);
+      loadGoogleMaps(() => {
+        const svc = _getPlacesService();
+        if (!svc) { _showContextMenu(cx, cy, coords, null); return; }
+        // Radius in metres scales with zoom: ~50m at z14, ~25m at z16
+        const zoom = S.plannerMap.getZoom() || 14;
+        const radius = Math.max(20, Math.min(120, Math.round(800 / Math.pow(2, zoom - 12))));
+        svc.nearbySearch({ location: coords, radius: radius }, function(results, status) {
+          let placeId = null;
+          if (status === google.maps.places.PlacesServiceStatus.OK && results) {
+            // Skip administrative areas, roads, and street addresses — not useful POIs
+            const skipTypes = new Set(['locality','political','country','colloquial_area',
+              'administrative_area_level_1','administrative_area_level_2',
+              'administrative_area_level_3','administrative_area_level_4','natural_feature',
+              'route','street_address','postal_code']);
+            const poi = results.find(r => r.types && !r.types.some(t => skipTypes.has(t)));
+            placeId = poi ? poi.place_id : null;
+          }
+          console.log('[NEARBY] status:', status, '| results:', results ? results.length : 0, '| placeId:', placeId, '| radius:', radius);
+          _showContextMenu(cx, cy, coords, placeId);
+        });
+      });
     });
   }
 
@@ -771,17 +790,20 @@ function _renderPlannerLeaflet() {
     });
     marker._placeId = p.id; // bank place id for bar highlight
 
-    marker.addListener('click', () => {
-      _hideContextMenu();
-      S._highlightedPlaceId = p.id;
-      renderBankBarChips();
-      const chip = document.getElementById('bankbar-' + p.id);
-      if (chip) chip.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    marker.addListener('click', (e) => {
+      _markerClickTime = Date.now(); // prevent map click handler from closing the menu we're about to open
+      if (S._planInfoWindow) S._planInfoWindow.close();
+      const de = e.domEvent;
+      let cx = window.innerWidth / 2, cy = window.innerHeight / 3;
+      if (de) {
+        if (de.clientX !== undefined) { cx = de.clientX; cy = de.clientY; }
+        else if (de.changedTouches && de.changedTouches.length) { cx = de.changedTouches[0].clientX; cy = de.changedTouches[0].clientY; }
+      }
+      showPinMenu(p.id, cx, cy);
     });
 
     marker.addListener('rightclick', (e) => {
-      _markerRCTime = Date.now(); // stamp BEFORE clearing timer so map/DOM handlers bail out
-      clearTimeout(_rcTimer); _rcTimer = null;
+      _markerRCTime = Date.now();
       if (S._planInfoWindow) S._planInfoWindow.close();
       const de = e.domEvent;
       let cx = window.innerWidth / 2, cy = window.innerHeight / 3;
@@ -823,21 +845,37 @@ function _showContextMenu(x, y, coords, placeId) {
   if (placeId) {
     loadGoogleMaps(() => {
       _getPlacesService().getDetails(
-        { placeId, fields: ['name', 'formatted_address', 'url', 'types', 'geometry'], sessionToken: _plannerToken() },
+        { placeId, fields: ['name', 'formatted_address', 'url', 'types', 'geometry', 'website', 'formatted_phone_number', 'editorial_summary', 'business_status', 'photos'] },
         function(place, status) {
-          _plannerAcToken = null;
-          if (status === 'OK' && place) {
+          console.log('[DETAIL] status:', status, '| name:', place ? place.name : null);
+          if (status === 'OK' && place && place.geometry) {
             const loc = place.geometry.location;
             const typeKey = _googleTypeToPlanner(place.types || []);
             const pt = PLAN_TYPES[typeKey] || { icon: '📍', label: typeKey || 'Place' };
+            const photoUrl = (place.photos && place.photos.length)
+              ? place.photos[0].getUrl({ maxWidth: 320, maxHeight: 160 }) : null;
+            const bizStatus = place.business_status || 'OPERATIONAL';
             S._ctxMenuData = {
               coords: { lat: loc.lat(), lng: loc.lng() },
               name: place.name || '',
               type: typeKey,
               placeId: placeId,
-              address: place.formatted_address || ''
+              address: place.formatted_address || '',
+              website: place.website || '',
+              phone: place.formatted_phone_number || '',
+              summary: (place.editorial_summary && place.editorial_summary.overview) || '',
+              photoUrl, bizStatus
             };
-            _renderContextMenu(menu, { name: place.name, typeLine: pt.icon + ' ' + pt.label, address: place.formatted_address, mapsUrl: place.url || null });
+            _renderContextMenu(menu, {
+              name: place.name,
+              typeLine: pt.icon + ' ' + pt.label,
+              address: place.formatted_address,
+              website: place.website || null,
+              phone: place.formatted_phone_number || null,
+              summary: (place.editorial_summary && place.editorial_summary.overview) || null,
+              mapsUrl: place.url || null,
+              photoUrl, bizStatus
+            });
           } else {
             S._ctxMenuData = { coords, name: '', type: '', placeId: null, address: null };
             _geocodeAndRenderMenu(menu, coords);
@@ -854,34 +892,51 @@ function _showContextMenu(x, y, coords, placeId) {
 }
 
 function _geocodeAndRenderMenu(menu, coords) {
-  if (!window.google) {
-    _renderContextMenu(menu, { address: coords.lat.toFixed(5) + ', ' + coords.lng.toFixed(5) });
-    return;
-  }
-  new google.maps.Geocoder().geocode({ location: coords }, function(results, status) {
-    const addr = (status === 'OK' && results && results[0])
-      ? results[0].formatted_address
-      : coords.lat.toFixed(5) + ', ' + coords.lng.toFixed(5);
-    _renderContextMenu(menu, { address: addr });
-  });
+  if (!coords) { menu.style.display = 'none'; return; }
+  _renderContextMenu(menu, { address: coords.lat.toFixed(5) + ', ' + coords.lng.toFixed(5) });
 }
 
 function _renderContextMenu(menu, opts) {
-  const name     = opts.name     || null;
-  const typeLine = opts.typeLine || null;
-  const address  = opts.address  || null;
-  const mapsUrl  = opts.mapsUrl  || null;
+  const { name, typeLine, address, website, phone, summary, mapsUrl,
+          photoUrl, bizStatus } = opts;
   const data = S._ctxMenuData || {};
   const c = data.coords || {};
   const gmUrl = mapsUrl || ('https://maps.google.com/?q=' + (c.lat || 0) + ',' + (c.lng || 0));
-  menu.innerHTML =
+
+  // Business status badge
+  let statusBadge = '';
+  if (bizStatus === 'CLOSED_PERMANENTLY')
+    statusBadge = ' <span style="background:#FEE2E2;color:#DC2626;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:700">⛔ Permanently closed</span>';
+  else if (bizStatus === 'CLOSED_TEMPORARILY')
+    statusBadge = ' <span style="background:#FEF3C7;color:#D97706;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:700">⚠️ Temp. closed</span>';
+
+  const webShort = website ? website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '').substring(0, 34) : null;
+
+  const infoHtml =
     (name     ? '<div style="padding:10px 14px 2px;font-weight:700;font-size:13px;color:var(--text)">' + esc(name) + '</div>' : '') +
-    (typeLine ? '<div style="padding:0 14px 2px;font-size:11px;color:var(--primary)">' + typeLine + '</div>' : '') +
-    (address  ? '<div style="padding:' + (name||typeLine ? '0' : '10px') + ' 14px 8px;font-size:11px;color:var(--muted)">' + esc(address) + '</div>' : '') +
+    (typeLine ? '<div style="padding:0 14px 3px;font-size:11px;color:var(--primary)">' + typeLine + statusBadge + '</div>' : statusBadge) +
+    (summary  ? '<div style="padding:3px 14px 3px;font-size:11px;color:var(--text);font-style:italic">' + esc(summary) + '</div>' : '') +
+    (address  ? '<div style="padding:3px 14px 2px;font-size:11px;color:var(--muted)">📍 ' + esc(address) + '</div>' : '') +
+    (webShort ? '<div style="padding:2px 14px 2px;font-size:11px"><a href="' + esc(website) + '" target="_blank" rel="noopener" style="color:var(--primary);text-decoration:none">🌐 ' + esc(webShort) + '</a></div>' : '') +
+    (phone    ? '<div style="padding:2px 14px 7px;font-size:11px;color:var(--muted)">📞 ' + esc(phone) + '</div>' : '');
+
+  // Info section max-height: leave room for photo (120px if present) + buttons (~90px) + margin (40px)
+  const infoMaxH = 'calc(100vh - ' + (photoUrl ? 250 : 130) + 'px)';
+
+  menu.innerHTML =
+    (photoUrl ? '<div style="height:120px;overflow:hidden;background:#e5e7eb"><img src="' + esc(photoUrl) + '" style="width:100%;height:100%;object-fit:cover" loading="lazy" onerror="this.parentNode.style.display=\'none\'"></div>' : '') +
+    '<div style="max-height:' + infoMaxH + ';overflow-y:auto">' + infoHtml + '</div>' +
     '<div style="border-top:1px solid var(--border)">' +
     '<button onclick="_contextMenuAddToBank()" style="display:block;width:100%;padding:10px 14px;text-align:left;background:none;border:none;cursor:pointer;font-size:13px;font-weight:600;color:var(--primary)">+ Add to Bank</button>' +
     '<a href="' + esc(gmUrl) + '" target="_blank" rel="noopener" style="display:block;padding:10px 14px;font-size:13px;font-weight:600;color:var(--muted);text-decoration:none;border-top:1px solid var(--border)">&#127758; View on Google Maps</a>' +
     '</div>';
+
+  // Post-render: clamp position so menu stays fully in viewport
+  setTimeout(() => {
+    const rect = menu.getBoundingClientRect();
+    if (rect.bottom > window.innerHeight - 4)
+      menu.style.top = Math.max(4, window.innerHeight - rect.height - 4) + 'px';
+  }, 0);
 }
 
 function _contextMenuAddToBank() {
@@ -893,7 +948,12 @@ function _contextMenuAddToBank() {
   }
   _hideContextMenu();
   if (!data) return;
-  showPlannerForm(data.coords, data.name, data.type);
+  // Build description from available Google Places fields
+  const _descParts = [];
+  if (data.summary) _descParts.push(data.summary);
+  if (data.website) _descParts.push(data.website);
+  if (data.phone)   _descParts.push(data.phone);
+  showPlannerForm(data.coords, data.name, data.type, _descParts.join('\n'));
   if (data.placeId && data.name) {
     // Pre-populate the name field's suggestion list with the exact Google place
     setTimeout(() => {
