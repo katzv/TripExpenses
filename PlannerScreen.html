@@ -687,6 +687,7 @@ function toggleDayCell(placeId, ds, color, el) {
 var _markerRCTime = 0;    // timestamp of last bank-marker rightclick
 var _markerClickTime = 0; // timestamp of last bank-marker left-click
 var _deleteConfirmOutsideHandler = null;
+var _lpTimer = null, _lpTouch = null, _lpFired = false; // long-press state
 
 function initPlannerMap() {
   const container = document.getElementById('planner-map');
@@ -719,33 +720,31 @@ function _renderPlannerLeaflet() {
       zoom: 10, mapTypeControl: false, streetViewControl: false, fullscreenControl: false, gestureHandling: 'greedy'
     });
 
-    // Click on map: suppress Google's POI info card; deselect chip + close context menu
+    // Click on map: suppress Google's POI info card, deselect chip, open context menu
     S.plannerMap.addListener('click', function(e) {
-      if (e.placeId) e.stop(); // prevent Google's built-in POI popup on left-click
+      if (e.placeId) e.stop(); // prevent Google's built-in POI popup
       if (Date.now() - _markerClickTime < 300) return; // bank marker click already opened Pin Menu
       if (S._planInfoWindow) S._planInfoWindow.close();
-      _hideContextMenu();
       S._highlightedPlaceId = null;
       renderBankBarChips();
+      const de = e.domEvent;
+      if (!de) return;
+      const cx = de.clientX !== undefined ? de.clientX : (de.changedTouches && de.changedTouches[0] ? de.changedTouches[0].clientX : null);
+      const cy = de.clientY !== undefined ? de.clientY : (de.changedTouches && de.changedTouches[0] ? de.changedTouches[0].clientY : null);
+      if (cx !== null) _handleMapContextAt(cx, cy);
     });
 
-    // DOM contextmenu: sole right-click handler (Maps API rightclick/contextmenu events don't fire
-    // reliably in this embed context, so we detect POIs ourselves via nearbySearch)
-    container.addEventListener('contextmenu', function(domEvt) {
-      console.log('[CTX] contextmenu fired at', domEvt.clientX, domEvt.clientY);
-      domEvt.preventDefault();
+    // Shared handler for right-click and long-press: detect POI via nearbySearch then show menu
+    function _handleMapContextAt(cx, cy) {
       if (Date.now() - _markerRCTime < 300) return; // bank marker already showed Pin Menu
       if (S._planInfoWindow) S._planInfoWindow.close();
       const savedCenter = S.plannerMap ? S.plannerMap.getCenter() : null;
-      const cx = domEvt.clientX, cy = domEvt.clientY;
       const coords = _pixelToLatLng(S.plannerMap, cx, cy);
       if (!coords) return;
       if (savedCenter) setTimeout(() => { if (S.plannerMap) S.plannerMap.setCenter(savedCenter); }, 30);
-
-      // Show loading immediately, then nearbySearch to detect any POI at this location
       const menu = document.getElementById('plannerContextMenu');
       if (menu) {
-        menu.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:var(--muted)">Loading…</div>';
+        menu.innerHTML = '<button onclick="_hideContextMenu()" style="position:absolute;top:6px;right:8px;background:none;border:none;font-size:18px;line-height:1;cursor:pointer;color:var(--muted)">×</button><div style="padding:10px 14px;font-size:12px;color:var(--muted)">Loading…</div>';
         const menuW = 250, vw = window.innerWidth;
         menu.style.left = (cx + menuW > vw - 8 ? Math.max(8, cx - menuW) : cx) + 'px';
         menu.style.top  = Math.min(cy, window.innerHeight - 140) + 'px';
@@ -754,13 +753,11 @@ function _renderPlannerLeaflet() {
       loadGoogleMaps(() => {
         const svc = _getPlacesService();
         if (!svc) { _showContextMenu(cx, cy, coords, null); return; }
-        // Radius in metres scales with zoom: ~50m at z14, ~25m at z16
         const zoom = S.plannerMap.getZoom() || 14;
         const radius = Math.max(20, Math.min(120, Math.round(800 / Math.pow(2, zoom - 12))));
         svc.nearbySearch({ location: coords, radius: radius }, function(results, status) {
           let placeId = null;
           if (status === google.maps.places.PlacesServiceStatus.OK && results) {
-            // Skip administrative areas, roads, and street addresses — not useful POIs
             const skipTypes = new Set(['locality','political','country','colloquial_area',
               'administrative_area_level_1','administrative_area_level_2',
               'administrative_area_level_3','administrative_area_level_4','natural_feature',
@@ -772,6 +769,39 @@ function _renderPlannerLeaflet() {
           _showContextMenu(cx, cy, coords, placeId);
         });
       });
+    }
+
+    // Desktop: right-click fires contextmenu
+    container.addEventListener('contextmenu', function(domEvt) {
+      domEvt.preventDefault();
+      _handleMapContextAt(domEvt.clientX, domEvt.clientY);
+    });
+
+    // Mobile: long press (600ms hold without moving) fires the same menu
+    container.addEventListener('touchstart', function(e) {
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      _lpTouch = { x: t.clientX, y: t.clientY };
+      _lpFired = false;
+      _lpTimer = setTimeout(function() {
+        if (!_lpTouch) return;
+        _lpFired = true;
+        if ('vibrate' in navigator) navigator.vibrate(50); // haptic feedback
+        _handleMapContextAt(_lpTouch.x, _lpTouch.y);
+      }, 600);
+    }, { passive: true });
+
+    container.addEventListener('touchmove', function(e) {
+      if (!_lpTimer || !_lpTouch) return;
+      const t = e.touches[0];
+      if (Math.abs(t.clientX - _lpTouch.x) > 10 || Math.abs(t.clientY - _lpTouch.y) > 10) {
+        clearTimeout(_lpTimer); _lpTimer = null; _lpTouch = null;
+      }
+    }, { passive: true });
+
+    container.addEventListener('touchend', function(e) {
+      clearTimeout(_lpTimer); _lpTimer = null; _lpTouch = null;
+      if (_lpFired) { e.preventDefault(); _lpFired = false; } // suppress ghost click after long press
     });
   }
 
@@ -924,6 +954,7 @@ function _renderContextMenu(menu, opts) {
   const infoMaxH = 'calc(100vh - ' + (photoUrl ? 250 : 130) + 'px)';
 
   menu.innerHTML =
+    '<button onclick="_hideContextMenu()" style="position:absolute;top:6px;right:8px;background:none;border:none;font-size:18px;line-height:1;cursor:pointer;color:var(--muted);z-index:1">×</button>' +
     (photoUrl ? '<div style="height:120px;overflow:hidden;background:#e5e7eb"><img src="' + esc(photoUrl) + '" style="width:100%;height:100%;object-fit:cover" loading="lazy" onerror="this.parentNode.style.display=\'none\'"></div>' : '') +
     '<div style="max-height:' + infoMaxH + ';overflow-y:auto">' + infoHtml + '</div>' +
     '<div style="border-top:1px solid var(--border)">' +
