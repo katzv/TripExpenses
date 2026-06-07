@@ -9,6 +9,7 @@ const S = {
   expenseTypes: [],
   currentTrip: null,
   currentExpenseId: null,  // null = add new, string = editing existing
+  expenseTab: 'list',
   filter: 'All',
   rateTimer: null,
   manualILS: false,
@@ -42,7 +43,10 @@ const S = {
   _planFormVisible: false,
   planCalFilterFrom: null,
   planCalFilterTo: null,
-  _planInfoWindow: null
+  _planInfoWindow: null,
+  _planPhotoCache: {},
+  _ctxMenuPhotoUrl: null,
+  _planPendingPhotoAssign: null
 };
 
 // History stack for back navigation

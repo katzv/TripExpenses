@@ -1,13 +1,27 @@
-<!-- VIEW: TRIP DETAIL (Expense List) -->
+<!-- VIEW: TRIP DETAIL (Expense List + Report) -->
 <div class="view" id="view-trip">
-  <div id="tripSummary"></div>
-  <div class="chips-outer">
-    <button class="chips-arrow hide" id="chipsPrev" onclick="scrollChips(-140)" aria-label="Scroll left">&#8249;</button>
-    <div class="chips" id="filterChips"></div>
-    <button class="chips-arrow hide" id="chipsNext" onclick="scrollChips(140)" aria-label="Scroll right">&#8250;</button>
+  <div class="tracker-tabs">
+    <button class="tracker-tab on" id="tab-exp-list"   onclick="switchExpenseTab('list')">💰 Expenses</button>
+    <button class="tracker-tab"    id="tab-exp-report" onclick="switchExpenseTab('report')">📊 Report</button>
   </div>
-  <div id="expenseList"></div>
-  <div style="height:80px"></div>
+
+  <!-- Expenses panel -->
+  <div id="panel-exp-list">
+    <div id="tripSummary"></div>
+    <div class="chips-outer">
+      <button class="chips-arrow hide" id="chipsPrev" onclick="scrollChips(-140)" aria-label="Scroll left">&#8249;</button>
+      <div class="chips" id="filterChips"></div>
+      <button class="chips-arrow hide" id="chipsNext" onclick="scrollChips(140)" aria-label="Scroll right">&#8250;</button>
+    </div>
+    <div id="expenseList"></div>
+    <div style="height:80px"></div>
+  </div>
+
+  <!-- Report panel -->
+  <div id="panel-exp-report" style="display:none">
+    <div id="reportContent"></div>
+    <div style="height:30px"></div>
+  </div>
 </div>
 
 <!-- VIEW: ADD / EDIT EXPENSE -->
@@ -192,6 +206,22 @@ function updateChipArrows() {
   if (!el || !prev || !next) return;
   prev.classList.toggle('hide', el.scrollLeft <= 2);
   next.classList.toggle('hide', el.scrollLeft + el.clientWidth >= el.scrollWidth - 2);
+}
+
+function switchExpenseTab(tab) {
+  S.expenseTab = tab;
+  ['list','report'].forEach(t => {
+    document.getElementById('tab-exp-' + t).classList.toggle('on', t === tab);
+    document.getElementById('panel-exp-' + t).style.display = t === tab ? 'block' : 'none';
+  });
+  const fab = document.getElementById('fab');
+  if (tab === 'list') {
+    fab.classList.remove('hide');
+  } else {
+    fab.classList.add('hide');
+    if (!S._reportData) loadReport();
+    else renderReport(S._reportData);
+  }
 }
 
 // =======================================================

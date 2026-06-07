@@ -153,6 +153,7 @@ Stored as `{id → entry}` object (not array) to give O(1) lookup/update/delete 
 const S = {
   trips, expenses, expenseTypes, currentTrip,
   currentExpenseId,  // null = new, string = editing
+  expenseTab,        // 'list' | 'report' — active sub-tab of view-trip
   filter, rateTimer, manualILS, lastRateInfo,
   defaultRates, pieChart,
   // Tracker:
@@ -167,7 +168,7 @@ const S = {
   // Planner:
   planBank,           // array of place objects
   planAssignments,    // { "YYYY-MM-DD": [...placeIds] }
-  plannerTab,         // 'bank' | 'cal' | 'map'
+  plannerTab,         // 'cal' | 'map'
   plannerMap,         // google.maps.Map instance for planner map (separate from leafletMap)
   plannerMarkers,     // array of google.maps.Marker instances for planner
   _planInfoWindow,    // google.maps.InfoWindow for planner map (stored to allow .close() from openDayPickerForPlace)
@@ -177,7 +178,10 @@ const S = {
   editingPlaceId,     // null = adding new, string = editing existing
   _planFormVisible,   // persists form state across tab switches
   planCalFilterFrom,
-  planCalFilterTo
+  planCalFilterTo,
+  _planPhotoCache,    // { [bankPlaceId]: null | url } — undefined = not yet fetched, null = no photo, string = URL
+  _ctxMenuPhotoUrl,   // photo URL captured from context menu when adding a new place; propagated to pin cache
+  _planPendingPhotoAssign  // { name, photoUrl } — pending after savePlanPlace; matched by name in loadPlan
 }
 ```
 
@@ -189,14 +193,13 @@ const S = {
 - Parallel init: fires `getTrips` and `getExpenseTypes` simultaneously; `navigate('trips')` only after both return
 
 ### Views
-Seven views, only one active at a time (CSS `display:none`/`display:block` + `fadeIn` animation):
+Six views, only one active at a time (CSS `display:none`/`display:block` + `fadeIn` animation):
 1. `view-trips` — trip list
 2. `view-new-trip` — create new trip
-3. `view-trip` — expense list for current trip
+3. `view-trip` — expenses + report tabs (was two separate views; report is now a sub-tab)
 4. `view-expense` — add/edit expense form
-5. `view-report` — expense report
-6. `view-tracker` — tracker (list/calendar/map tabs)
-7. `view-planner` — trip planner (bank/calendar/map tabs)
+5. `view-tracker` — tracker (list/calendar/map tabs)
+6. `view-planner` — trip planner (calendar/map tabs)
 
 ### Header
 - Fixed top, 58px height, blue gradient background
@@ -204,23 +207,25 @@ Seven views, only one active at a time (CSS `display:none`/`display:block` + `fa
 - Title (`htitle`) — ellipsis overflow
 - Action buttons (`hActions`) — injected per view:
   - trips: "↓ Import" + "+ New Trip"
-  - trip (expenses): "✎ Edit", "📋 Plan", "📍 Track", "📊 Report"
+  - trip (expenses): "✎ Edit", "📋 Plan", "📍 Track"
   - tracker: "💰 Exp" (navigate to expenses), "+ Check-in"
   - planner: "💰 Exp" (navigate to expenses), "+ Add Place"
-  - report: "💰 Exp" (navigate to expenses)
   - expense/new-trip: none (back button only)
+  - Note: "📊 Report" is no longer a separate header button — it is a sub-tab within the Expenses view
 
 ### Navigation
 - `navigate(view)` — sets active view, updates header, triggers data loads
 - `goBack()` — deterministic, reads active view from DOM:
   - `expense` → always `trip` (back to expense list)
-  - `trip | tracker | planner | report` → if current view is `S.currentTrip.defaultView`, goes to `trips`; otherwise goes to `defaultView`
+  - `trip | tracker | planner` → if current view is `S.currentTrip.defaultView`, goes to `trips`; otherwise goes to `defaultView`
   - everything else → `trips`
 - **Back button does NOT use a navigation stack** — reads current active view from DOM
+- Note: `report` is no longer a standalone view, so it is not listed in the goBack dispatch
 - **Default View**: stored on each trip as `S.currentTrip.defaultView` (values: `'trip'`, `'tracker'`, `'planner'`, `'report'`); defaults to `'trip'` (expenses) if not set. `openTrip()` navigates directly to the defaultView.
 
 ### FAB
-- Orange circle, bottom-right, only visible on `view-trip`
+- Orange circle, bottom-right, visible on `view-trip` **only when the Expenses sub-tab is active** (`S.expenseTab === 'list'`)
+- Hidden when the Report sub-tab is active
 - Calls `showAddExpense()`
 
 ### Toast
@@ -400,6 +405,15 @@ Table data:
 
 ## Expenses Feature
 
+### Sub-Tabs (view-trip)
+`view-trip` contains two sub-tabs rendered by a `.tracker-tabs` tab bar:
+- **💰 Expenses** (`id="tab-exp-list"`) — the expense list + summary banner; active by default (`S.expenseTab = 'list'`)
+- **📊 Report** (`id="tab-exp-report"`) — the expense report (pie chart + breakdown); formerly a standalone `view-report`
+
+`switchExpenseTab(tab)` sets `S.expenseTab`, toggles `.on` class on tab buttons, shows/hides `#exp-list-panel` / `#exp-report-panel`, loads report data on first switch to 'report', updates FAB visibility.
+
+Tab bar CSS: `.tracker-tabs` inside `#view-trip` uses `padding: 0 14px` (same as Tracker and Planner) — overrides base `.tracker-tabs { padding: 4px }` to remove vertical white gap above/below active tab and add consistent side margins. See [Responsive / Tab Bar Alignment](#tab-bar-alignment).
+
 ### Expense Object
 ```javascript
 { id, tripId, date, expense, type, amount, currency, amountILS, rate, rateDate, rateSource, info2, info3, createdAt }
@@ -485,6 +499,8 @@ Fields:
 
 ## Report Feature
 
+> The Report is now the **📊 Report sub-tab** within `view-trip`, not a standalone view. It is lazy-loaded on the first switch to that tab.
+
 - Requires `getReport(tripId)` — one server call, includes everything
 - **Banner** (blue gradient header):
   - Trip title, country, planned days, expense count, date range
@@ -537,12 +553,18 @@ Three tabs: **List**, **Calendar**, **Map**
 - Form persists visibility state when switching tabs (`S._listFormVisible`)
 
 ### Place Name Autocomplete
-- **Nearby suggestions** (when GPS available, no text typed): `PlacesService.nearbySearch()`, 600m radius, max 8 results
-  - Returns name, type subtitle, and coords from `geometry.location`
+- **Nearby suggestions** (when GPS available, no text typed): `PlacesService.nearbySearch()`, **300m radius**, max 8 results
+  - Filters out generic result types with `skipTypes` (same list as Planner: `route`, `street_address`, `locality`, `sublocality`, `country`, `political`, `geocode`, `postal_code`)
+  - Returns name, type subtitle (from `_googleTypeToCheckin(result.types)`), and coords from `geometry.location`
+  - `gpsSource: 'google'` set when a nearby suggestion is selected
 - **Name search** (when user types): `AutocompleteService.getPlacePredictions()`, `language: 'en'`, session token (`_trackerToken()`)
   - `structured_formatting.main_text` as name, `.secondary_text` as subtitle; no coords in predictions
-- **Selection with `place_id`**: `PlacesService.getDetails({ placeId, fields: ['geometry'], sessionToken: _trackerToken() })` resolves lat/lng; `_trackerAcToken = null` cleared after call
-- Selecting a suggestion: fills name field, updates `S.gpsCoords` and GPS status to "ok"
+- **Selection with `place_id`**: `PlacesService.getDetails({ placeId, fields: ['geometry', 'types'], sessionToken: _trackerToken() })` resolves lat/lng AND place types; `_trackerAcToken = null` cleared after call
+  - `types` field: passed to `_googleTypeToCheckin(types)` to auto-set the check-in type dropdown
+  - `gpsSource: 'google'` set on selection
+- **`_googleTypeToCheckin(types)`**: maps Google place `types[]` → check-in type key (lodging→hotel, restaurant/food→restaurant, etc.). Falls back to `'place'`.
+- **`CI_TYPE_LABELS`**: global map `{ place:'Place', hotel:'Hotel', restaurant:'Restaurant', ... }` — used in map InfoWindow to display readable type name
+- Selecting a suggestion: fills name field, updates `S.gpsCoords`, GPS status to "ok", auto-sets type dropdown
 - Click outside suggestion list closes it (via `document.addEventListener('click')`)
 
 ### List Tab
@@ -551,7 +573,7 @@ Three tabs: **List**, **Calendar**, **Map**
 - Each card: colored icon, name, formatted time, GPS coordinates (if available)
 - Edit (✎) and Delete (🗑) buttons on each card
 - Edit: pre-fills form, shows GPS status based on stored coords
-- Delete: confirms via modal, optimistic update
+- Delete: confirms via modal, optimistic update; `doDeleteCheckin` uses `setTimeout(fn, 0)` to close the modal before calling `google.script.run` (prevents UI freeze if delete is slow)
 
 ### Calendar Tab (7-column grid)
 - Columns: Sun–Mon–Tue–Wed–Thu–Fri–Sat
@@ -575,7 +597,7 @@ Three tabs: **List**, **Calendar**, **Map**
 - On tab switch: `setTimeout(initTrackerMap, 50)`
 - Markers: `SymbolPath.CIRCLE`, colored fill (per CI_COLORS), white stroke 2.5px, scale 14; label = sequence number (white, 11px bold)
 - Route polyline: `google.maps.Polyline`, strokeColor #1565C0, strokeOpacity 0.55, strokeWeight 2.5, chronological order
-- InfoWindow (`S._trackerInfoWindow`): shared single instance (re-created on each `_renderLeafletMap` call), shows name (bold) + type icon + type label + formatted time; clicking map background closes it (map `click` listener, registered once on first map creation)
+- InfoWindow (`S._trackerInfoWindow`): shared single instance (re-created on each `_renderLeafletMap` call), shows name (bold) + type icon + **type label** (from `CI_TYPE_LABELS[checkin.type]`) + formatted time + **"✏️ Edit" button** (calls `editCheckin(id)`, closes InfoWindow); clicking map background closes it (map `click` listener, registered once on first map creation)
 - `fitBounds`, maxZoom 14 enforced via `bounds_changed` one-time listener
 - Map instance (`S.leafletMap`) reused; markers (`S.leafletMarkers`) and polyline (`S._routeLine`) removed and re-added on each render
 
@@ -650,8 +672,8 @@ Use these names in conversations to avoid long descriptions.
 | **Map** | The Google Maps canvas |
 | **Pin** | A marker on the map for a saved place |
 | **Pin label** | The emoji icon rendered inside a pin |
-| **Place Menu** | Right-click context menu on an *unknown* map location — shows "Add to Bank" |
-| **Pin Menu** | Right-click context menu on a *saved* pin — shows Assign / Edit / Remove |
+| **Place Menu** | Right-click (desktop) or long-press (mobile) context menu on an *unknown* map location — shows "Add to Bank". Has 120px photo strip, website link, and 44×44 × button. |
+| **Pin Menu** | Right-click (desktop) or long-press (mobile) context menu on a *saved* pin — shows Assign / Edit / Remove. Has lazy-loaded 80px photo strip (via `findPlaceFromQuery`), linkified description, and 44×44 × button. |
 | **Add Form** | The floating sheet for adding or editing a place |
 | **Day Picker** | The modal calendar for assigning a place to trip days |
 | **Delete Confirm** | The inline popover that confirms place deletion |
@@ -686,7 +708,7 @@ Three tabs: **Bank**, **Calendar**, **Map**
 }
 ```
 
-### PLAN_TYPES (22 types)
+### PLAN_TYPES (23 types)
 | Key | Icon | Color | Label |
 |---|---|---|---|
 | nature-hike | 🥾 | #2E7D32 | Nature Hike |
@@ -700,6 +722,7 @@ Three tabs: **Bank**, **Calendar**, **Map**
 | supermarket | 🛒 | #F57C00 | Supermarket |
 | shop | 🛍️ | #9C27B0 | Shop |
 | petrol | ⛽ | #616161 | Petrol Station |
+| gas-station | ⛽ | #FF6F00 | Gas Station |
 | hotel | 🏨 | #9C27B0 | Hotel |
 | attraction | 🎡 | #FF9800 | Attraction |
 | cave | 🦇 | #4E342E | Cave |
@@ -711,6 +734,8 @@ Three tabs: **Bank**, **Calendar**, **Map**
 | city-walk | 🚶 | #1565C0 | City Walk |
 | village | 🏘️ | #558B2F | Village |
 | parking | 🅿️ | #37474F | Parking |
+
+Note: `petrol` (Petrol Station) and `gas-station` (Gas Station) are distinct types kept for backward compatibility. `gas-station` was added later to match Google Maps `gas_station` POI type.
 
 ### Bank Tab
 - Lists all places with icon, name, type label, GPS indicator (📡 if coords present)
@@ -741,7 +766,8 @@ Three tabs: **Bank**, **Calendar**, **Map**
 - Same mechanisms as Tracker: `PlacesService.nearbySearch()` for nearby (600m) + `AutocompleteService.getPlacePredictions()` for name search
 - No country-scoping — Google Places returns globally relevant results by default
 - Separate suggestion element (`#planSuggest`), separate state (`S.planSuggestTimer`), separate session token (`_plannerToken()` / `_plannerAcToken`)
-- Selection with `place_id`: `PlacesService.getDetails({ placeId, fields: ['geometry'], sessionToken: _plannerToken() })` resolves coords; `_plannerAcToken = null` cleared after call
+- Selection with `place_id`: `PlacesService.getDetails({ placeId, fields: ['geometry', 'photos'], sessionToken: _plannerToken() })` resolves coords and fetches photo; `_plannerAcToken = null` cleared after call
+  - If `photos[0]` available: stores photo URL in `S._ctxMenuPhotoUrl` (same propagation path as context menu)
 - Selecting fills `#planName` and sets `S.planGpsCoords` + `setPlanGpsStatus('ok', ...)` if coords available
 
 ### Calendar Tab (Planner)
@@ -767,14 +793,114 @@ Three tabs: **Bank**, **Calendar**, **Map**
   - Clicking map background calls `S._planInfoWindow.close()` (map `click` listener, registered once on first map creation)
   - CSS `!important` overrides: `.gm-style .gm-style-iw-c { max-height: 320px !important }` and `.gm-style .gm-style-iw-d { max-height: 290px !important }` — required because Google Maps sets inline `max-height` that would otherwise clip content
   - `maxWidth: 300` on InfoWindow constructor
-- **Right-click to add place** (desktop) / **long-press** (mobile): `rightclick` event on `S.plannerMap`
-  - If `e.placeId` present (user clicked a Google Maps POI): calls `PlacesService.getDetails({ fields: ['name', 'geometry', 'types'] })`, maps Google place types to PLAN_TYPES via `_googleTypeToPlanner()`, calls `showPlannerForm(coords, name, type)` pre-filled
-  - If no `placeId` (empty map area): calls `showPlannerForm(coords)` with coordinates only
-  - `_googleTypeToPlanner(types)`: priority-ordered rules mapping Google place types (lodging, cafe, bakery, bar, museum, church, airport, etc.) to PLAN_TYPES keys; falls back to first alphabetical PLAN_TYPES key
-- **URL linkification** in place description: `_linkifyDesc(text)` splits on `https?://...` pattern, wraps URLs in `<a target="_blank">`, escapes plain text with `esc()`; used in InfoWindow `descSnippet`
 - `fitBounds`, maxZoom 14 enforced via `bounds_changed` one-time listener
 - Separate instance `S.plannerMap` (does not share with `S.leafletMap` or `_mpMap`)
 - No GPS data → "No places with GPS data yet" message
+
+#### Right-click / Long-press Context Menu (Place Menu)
+
+**CRITICAL**: `google.maps.Map` `rightclick` and `contextmenu` events are **dead in GAS iframe** — they never fire. Use DOM `contextmenu` event on the map container instead.
+
+**Entry points**:
+- Desktop: `container.addEventListener('contextmenu', fn)` — fired on right-click. `e.preventDefault()` suppresses browser context menu. Pixel coords from `e.clientX / e.clientY`. Calls `_handleMapContextAt(cx, cy)`.
+- Mobile: `touchstart` → 600ms timer → `_lpFired = true` + vibrate(30ms) → `touchend` handler. Pixel coords from first touch in `touchstart` (`e.changedTouches[0].clientX/Y`). Also calls `_handleMapContextAt(cx, cy)`.
+
+**Long-press mobile mechanics** (`_lpTimer`, `_lpFired`, `_lpTouch`, `_lpTime`):
+- `touchstart`: record `_lpTouch = {cx, cy}`, stamp `_lpTime = Date.now()`, start `_lpTimer = setTimeout(600ms)`
+- Timer fires: `_lpFired = true`, vibrate, call `_handleMapContextAt(_lpTouch.cx, _lpTouch.cy)`
+- `touchmove`: if finger moved more than 10px, `clearTimeout`, cancel (`_lpFired` stays false)
+- `touchend`: `clearTimeout`. If `_lpFired`:
+  - **Re-stamp `_lpTime = Date.now()`** — this is the critical fix: re-measures 800ms guard from the actual finger-lift moment, not the 600ms timer fire
+  - `e.preventDefault()`
+  - `_lpFired = false`
+- Map `click` handler: guard `if (Date.now() - _lpTime < 800) return` — suppresses the synthetic click that Maps API fires on `touchend` for named POIs even after `preventDefault()`
+
+**`_pixelToLatLng(cx, cy)`**: converts viewport pixel coords to `google.maps.LatLng` using map projection — `overlay.getProjection().fromContainerPixelToLatLng(new google.maps.Point(cx, cy))`. `_overlayView` is a lazily-created `google.maps.OverlayView` attached to the map once and never removed.
+
+**`_handleMapContextAt(cx, cy)`**:
+1. Converts pixel → LatLng via `_pixelToLatLng(cx, cy)`
+2. Shows loading state in `#plannerContextMenu`: positioned at `(cx, cy)`, contains only × button + "Loading…" text
+3. Calls `PlacesService.nearbySearch({ location, radius: 300, rankBy: PROMINENCE })` to find if there's a known POI at the tap point
+   - `skipTypes`: filters out overly generic result types: `'route'`, `'street_address'`, `'locality'`, `'sublocality'`, `'country'`, `'political'`, `'geocode'`, `'postal_code'`
+   - If nearbySearch returns a result not in skipTypes: calls `getDetails({ placeId, fields: ['name','geometry','types','photos','website','formatted_address','editorial_summary'] })`
+     - `photos[0].getUrl({ maxWidth: 320, maxHeight: 120 })` for the photo strip (120px height)
+     - `website` shown as a clickable link if present
+     - `editorial_summary.overview` or `formatted_address` used as description suggestion
+     - `types` → `_googleTypeToPlanner(types)` → PLAN_TYPES key
+     - Stores result in `S._ctxMenuData = { lat, lng, name, type, description, photoUrl, website }`
+   - If no POI found / all results in skipTypes: uses geocoded coords only, `S._ctxMenuData = { lat, lng }`; shows "Add a Place" menu without name/photo
+4. Renders the full Place Menu (see below)
+
+**`_googleTypeToPlanner(types)`**: priority-ordered mapping from Google place `types[]` array → PLAN_TYPES key:
+- `lodging` → `hotel`; `campground` → `nature-hike`; `cafe` / `bakery` / `coffee_shop` → `coffee`
+- `bar` / `night_club` → `beer`; `restaurant` / `food` → `restaurant`; `supermarket` / `grocery_or_supermarket` → `supermarket`
+- `museum` → `museum`; `church` / `mosque` / `synagogue` / `place_of_worship` → `fortress`
+- `airport` / `transit_station` → `airport`; `car_rental` → `car-rental`; `parking` → `parking`
+- `gas_station` → `gas-station`; `shopping_mall` / `clothing_store` → `shop`; `store` / `market` → `market`
+- `natural_feature` / `park` → `nature-hike`; `viewpoint` → `viewpoint`; `tourist_attraction` / `amusement_park` → `attraction`
+- Falls back to first key in `Object.keys(PLAN_TYPES)[0]`
+
+**Place Menu HTML** (`#plannerContextMenu`, `position:absolute; z-index:200; width:260px; border-radius:12px; box-shadow; background:white`):
+- **Photo strip** (if available): `height:120px; overflow:hidden; background:#e5e7eb` — `<img>` with `object-fit:cover`; `onerror` hides the strip
+- **× button**: `position:absolute; top:0; right:0; font-size:22px; padding:10px 12px; min-width:44px; min-height:44px; display:flex; align-items:center; justify-content:center; z-index:1` — tap target is 44×44px to meet mobile accessibility guidelines
+- **Name** (bold 13px): `padding:10px 14px 2px; padding-right:40px` — right-padding avoids overlap with × button
+- **Type chip** (11px, primary color): icon + label
+- **Website link** (if present): rendered as clickable `<a target="_blank">`, truncated to 40 chars for display
+- **Description/address snippet** (11px, 2 lines max)
+- **Action row**: "📍 Add to Bank" button spanning full width
+- Positioned at `(cx+4, cy)` if room to the right of tap point; otherwise `(cx - menuW - 4, cy)`. Y clamped to viewport. After render: setTimeout repositions if `bottom > innerHeight - 4`.
+- Menu dismissed by: × button, tapping outside (`document.addEventListener('click')`, one-shot), or long-press map click guard
+
+**`_contextMenuAddToBank()`**: called by "Add to Bank" action button:
+- Hides menu, reads `S._ctxMenuData`
+- Stores `S._ctxMenuPhotoUrl = data.photoUrl || null` — carries photo URL into the new place
+- Builds `descParts` from website + description/address; passes as prefill to `showPlannerForm(coords, name, type, descParts.join('\n'))`
+- `showPlannerForm` pre-fills all form fields with the suggestion data
+
+**Photo propagation path (context menu → pin cache)**:
+1. `_contextMenuAddToBank()` sets `S._ctxMenuPhotoUrl = photoUrl`
+2. User submits form → `savePlanPlaceUI` success handler: `S._planPendingPhotoAssign = { name, photoUrl: S._ctxMenuPhotoUrl }`; clears `S._ctxMenuPhotoUrl`
+3. `loadPlan` success handler: finds `S.planBank` entry whose `name` matches `S._planPendingPhotoAssign.name` and whose id is not yet in `S._planPhotoCache`; sets `S._planPhotoCache[found.id] = photoUrl`
+4. `cancelPlannerForm()` also clears `S._ctxMenuPhotoUrl` in case user cancels
+
+#### Pin Menu (right-click on a saved marker)
+
+Separate from Place Menu. Triggered by `rightclick` on a `google.maps.Marker` (desktop) or marker long-press (mobile, same `_lpTimer` logic). Shows info and actions for an existing bank place.
+
+**HTML structure** (`#plannerContextMenu` reused):
+- **Photo strip** (80px height, lazy-loaded): `<div id="pin-photo-wrap">` — `display:none` until photo loads
+- **× button**: same 44×44px style as Place Menu; `position:absolute; top:0; right:0; z-index:1`
+- **Name** (bold 13px): `padding-right:40px` to clear × button
+- **Type chip** (11px, primary color)
+- **Description** (11px, max 100 chars, linkified via `_linkifyDesc()`): `max-height:56px; overflow:hidden; line-height:1.5`
+- **Day assignment** list (if any assigned days)
+- **Action row** (3 buttons, `flex`): "📅 Assign" | "✏️ Edit" | "✕ Remove"
+- **Google Maps link**: `<a>` to `https://maps.google.com/?q=lat,lng`
+
+`showPinMenu(placeId, cx, cy)`:
+- Looks up place in `S.planBank` by id
+- Sets `menu._pinId = placeId` (used by async photo callback to check if menu is still open for this place)
+- Renders full HTML
+- If `S._planPhotoCache[placeId] === undefined` (never fetched) and `p.name` exists: sets cache to `null` (prevents re-fetch), calls `_fetchPinPhoto(placeId, name, lat, lng)`
+- If cached URL already: renders photo in strip immediately
+- If cached `null`: leaves strip hidden
+
+**`_fetchPinPhoto(bankPlaceId, name, lat, lng)`**:
+- Calls `loadGoogleMaps(() => { ... })` to ensure API loaded
+- `PlacesService.findPlaceFromQuery({ query: name, fields: ['photos'], locationBias: { lat, lng } })`
+- On result: stores URL (or `null`) in `S._planPhotoCache[bankPlaceId]`
+- If photo found AND `#plannerContextMenu` is still visible AND `menu._pinId === bankPlaceId`: updates `#pin-photo-wrap` DOM in place (no full re-render)
+
+**`_linkifyDesc(text)`**: splits text on `/(https?:\/\/[^\s]+)/g`, wraps URL parts in `<a href="..." target="_blank" rel="noopener">`, passes non-URL parts through `esc()`. Used in both Pin Menu description and Planner map InfoWindow.
+
+#### Add Place via + Button (photo fetch)
+
+When user taps the "+ Add Place" header button:
+1. `showPlannerForm()` opens with empty fields
+2. On form submit (`savePlanPlaceUI`): no `S._ctxMenuPhotoUrl` available (path bypassed context menu)
+3. Photo is fetched lazily when the Pin Menu is first opened for that place (via `_fetchPinPhoto`)
+
+When user adds via context menu "Add to Bank" (see above): photo is already available from `getDetails` and gets cached immediately via `S._planPendingPhotoAssign` propagation path.
 
 ### Planner Layout
 - Full viewport width (`width:100vw; margin-left:calc(50% - 50vw)`) — same as Tracker
@@ -861,6 +987,15 @@ No template literals may contain `<?`, `<![CDATA[`, or `]]>`.
 **Problem:** Google My Maps does not support nested `<Folder>` elements — it creates one layer per `<Folder>` in the `<Document>` regardless of nesting depth. Per-type sub-folders created many layers that had to be toggled individually.
 **Fix:** All placemarks placed in a single `<Folder>` named after the trip. Icons/styles still differentiate types visually, but the entire trip is one toggleable layer.
 
+### Bug 13 — Maps API `rightclick`/`contextmenu` events dead in GAS iframe
+**Problem:** `google.maps.Map` fires `rightclick` and `contextmenu` events in normal web pages, but these events **never fire** when the app runs inside a Google Apps Script HtmlService iframe.
+**Fix:** Attach a DOM `contextmenu` listener directly to the map container `div` (not to the `google.maps.Map` object). `e.preventDefault()` suppresses the browser menu. Convert pixel coords `(e.clientX, e.clientY)` → LatLng via `_pixelToLatLng()` using a lazily-created `OverlayView`. This is the **only reliable approach** for right-click in GAS; do not revert to Maps API events.
+
+### Bug 14 — Mobile long-press on named Google Maps POI closes Place Menu immediately
+**Problem:** After the 600ms long-press timer fires and opens the Place Menu, lifting the finger caused the menu to disappear. Root cause: `_lpTime` was stamped at timer fire (600ms after touch start). If the user held for, say, 900ms, `Date.now() - _lpTime` was already > 800ms when the Maps API fired a synthetic `click` event on `touchend` for named POIs. The map `click` handler's 800ms guard (`if (Date.now() - _lpTime < 800) return`) did not suppress it, so `_hideContextMenu()` ran.
+**Fix:** Re-stamp `_lpTime = Date.now()` inside the `touchend` handler (only when `_lpFired === true`). This resets the 800ms window to the actual finger-lift moment, so the guard reliably catches the synthetic click regardless of how long the user held.
+**Note:** For empty map areas, Maps respects `touchend.preventDefault()` and does not fire a synthetic click — only named POIs trigger this problem.
+
 ### Bug 11 — "Assign to Day" button in planner map InfoWindow does nothing
 **Problem:** `openDayPickerForPlace()` called `S.plannerMap.closePopup()` — a Leaflet method — to dismiss the popup before opening the modal. After migration to Google Maps this became a no-op / TypeError.
 **Fix:** Stored the InfoWindow reference as `S._planInfoWindow` when created in `_renderPlannerLeaflet()`. `openDayPickerForPlace()` now calls `if (S._planInfoWindow) S._planInfoWindow.close()`.
@@ -932,6 +1067,17 @@ Also set `maxWidth: 240` on the `InfoWindow` constructor to constrain width.
 - Tracker view: full viewport width (`width:100vw; margin-left:calc(50% - 50vw)`)
 - Tracker tabs/form/list panels: max-width 620px, centered within tracker view
 - No horizontal scroll on main content
+
+### Tab Bar Alignment
+Base rule: `.tracker-tabs { padding: 4px }` — this creates a 4px white gap above and below the active tab indicator, which looks misaligned against the surrounding layout.
+
+Override applied to all three tab-bar hosts:
+```css
+#view-tracker .tracker-tabs { padding: 0 14px; }
+#view-planner .tracker-tabs { padding: 0 14px; }
+#view-trip    .tracker-tabs { padding: 0 14px; }
+```
+Effect: `padding: 0 14px` removes the vertical gap (blue active tab fills edge-to-edge) and widens side margins to 14px. All three views must have this override — if `#view-trip` is missing it, the Expenses/Report tab bar will have visible white margins that the other views do not.
 
 ---
 

@@ -180,6 +180,12 @@ function navigate(view, params = {}) {
     fab.title = 'Add expense';
     fab.classList.remove('hide');
     S.filter = 'All';
+    S._reportData = null; // reset so Report tab re-fetches for this trip
+    S.expenseTab = 'list';
+    ['list','report'].forEach(t => {
+      document.getElementById('tab-exp-' + t).classList.toggle('on', t === 'list');
+      document.getElementById('panel-exp-' + t).style.display = t === 'list' ? 'block' : 'none';
+    });
     loadExpenses();
 
   } else if (view === 'tracker') {
@@ -221,12 +227,6 @@ function navigate(view, params = {}) {
     hTitle.textContent = S.currentExpenseId ? 'Edit Expense' : 'Add Expense';
     hBack.classList.remove('hide');
 
-  } else if (view === 'report') {
-    hTitle.textContent = 'Expense Report';
-    hBack.classList.remove('hide');
-    hActs.innerHTML = _tripNavBtns('report');
-    // no FAB on report — nothing to add
-    loadReport();
   }
 
   navStack.push(view);
@@ -238,7 +238,7 @@ function goBack() {
   const current = activeEl ? activeEl.id.replace('view-', '') : '';
   if (current === 'expense') {
     navigate('trip');
-  } else if (['trip', 'tracker', 'planner', 'report'].includes(current)) {
+  } else if (['trip', 'tracker', 'planner'].includes(current)) {
     const def = (S.currentTrip && S.currentTrip.defaultView) || 'trip';
     navigate(current === def ? 'trips' : def);
   } else {
@@ -255,9 +255,8 @@ function navBtn(view) {
 function _tripNavBtns(current) {
   const btns = [
     { v: 'trip',    icon: '💰', label: 'Expenses', title: 'Track Expenses - what did I spent on during the trip' },
-    { v: 'planner', icon: '📋', label: 'Plan',   title: 'Plan the trip - where should I go/sleep/eat' },
-    { v: 'tracker', icon: '📍', label: 'Track',  title: 'Track Locations - where did I visit' },
-    { v: 'report',  icon: '📊', label: 'Report', title: 'Expenses Report - how much did the trip cost' }
+    { v: 'planner', icon: '📋', label: 'Plan',     title: 'Plan the trip - where should I go/sleep/eat' },
+    { v: 'tracker', icon: '📍', label: 'Track',    title: 'Track Locations - where did I visit' }
   ];
   return btns.map(b =>
     `<button class="hbtn hbtn-nav${b.v === current ? ' hbtn-cur' : ''}" onclick="navBtn('${b.v}')" title="${b.title}">${b.icon} ${b.label}</button>`

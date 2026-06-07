@@ -165,14 +165,25 @@ function fetchNearbySuggestions() {
   loadGoogleMaps(() => {
     const svc = _getPlacesService();
     if (!svc) return;
-    svc.nearbySearch({ location: { lat, lng }, radius: 600 }, (results, status) => {
+    const skipTypes = new Set(['locality','political','country','colloquial_area',
+      'administrative_area_level_1','administrative_area_level_2',
+      'administrative_area_level_3','administrative_area_level_4',
+      'natural_feature','route','street_address','postal_code']);
+    svc.nearbySearch({ location: { lat, lng }, radius: 300 }, (results, status) => {
       if (status !== google.maps.places.PlacesServiceStatus.OK || !results) return;
-      const items = results.slice(0, 8).map(r => ({
-        place_id: r.place_id,
-        name: r.name,
-        sub: (r.types || []).slice(0, 2).join(', ').replace(/_/g, ' '),
-        lat: r.geometry.location.lat(), lng: r.geometry.location.lng()
-      }));
+      const items = results
+        .filter(r => r.types && !r.types.some(t => skipTypes.has(t)))
+        .slice(0, 8)
+        .map(r => {
+          const typeKey = _googleTypeToPlanner(r.types || []);
+          return {
+            place_id: r.place_id,
+            name: r.name,
+            sub: (PLAN_TYPES[typeKey] || {}).label || '',
+            type: typeKey,
+            lat: r.geometry.location.lat(), lng: r.geometry.location.lng()
+          };
+        });
       if (items.length) showSuggestions(items);
     });
   });
@@ -204,6 +215,7 @@ function showSuggestions(items) {
          data-lat="${item.lat || ''}"
          data-lng="${item.lng || ''}"
          data-place-id="${item.place_id || ''}"
+         data-type="${esc(item.type || '')}"
          onclick="selectSuggestion(this)">
       <div class="si-name">${esc(item.name)}</div>
       ${item.sub ? `<div class="si-sub">${esc(item.sub)}</div>` : ''}
@@ -218,25 +230,39 @@ function hideSuggestions() {
 }
 
 function selectSuggestion(el) {
-  const name = el.getAttribute('data-name');
-  const lat  = parseFloat(el.getAttribute('data-lat')) || null;
-  const lng  = parseFloat(el.getAttribute('data-lng')) || null;
+  const name    = el.getAttribute('data-name');
+  const lat     = parseFloat(el.getAttribute('data-lat')) || null;
+  const lng     = parseFloat(el.getAttribute('data-lng')) || null;
   const placeId = el.getAttribute('data-place-id');
+  const type    = el.getAttribute('data-type') || '';
   document.getElementById('ciName').value = name;
   hideSuggestions();
+  // Auto-classify type if known
+  if (type && type !== 'place') {
+    const sel = document.getElementById('ciType');
+    if (sel && sel.querySelector('option[value="' + type + '"]')) sel.value = type;
+  }
   if (lat && lng) {
     S.gpsCoords = { lat, lng };
-    S.gpsSource = 'nominatim';
+    S.gpsSource = 'google';
     setGpsStatus('ok', 'Location: ' + lat.toFixed(5) + ', ' + lng.toFixed(5));
   } else if (placeId && window.google) {
     setGpsStatus('spin', 'Getting location...');
-    _getPlacesService().getDetails({ placeId, fields: ['geometry'], sessionToken: _trackerToken() }, (place, status) => {
+    _getPlacesService().getDetails({ placeId, fields: ['geometry', 'types'], sessionToken: _trackerToken() }, (place, status) => {
       _trackerAcToken = null;
-      if (status === 'OK' && place.geometry) {
+      if (status === 'OK' && place && place.geometry) {
         const loc = place.geometry.location;
         S.gpsCoords = { lat: loc.lat(), lng: loc.lng() };
-        S.gpsSource = 'nominatim';
+        S.gpsSource = 'google';
         setGpsStatus('ok', 'Location: ' + S.gpsCoords.lat.toFixed(5) + ', ' + S.gpsCoords.lng.toFixed(5));
+        // Auto-classify from returned types if not already set from data-type
+        if (!type || type === 'place') {
+          const typeKey = _googleTypeToPlanner(place.types || []);
+          if (typeKey && typeKey !== 'place') {
+            const sel = document.getElementById('ciType');
+            if (sel && sel.querySelector('option[value="' + typeKey + '"]')) sel.value = typeKey;
+          }
+        }
       } else { setGpsStatus('err', 'Could not get location — pick on map'); }
     });
   }
@@ -410,7 +436,7 @@ function doDeleteCheckin(id) {
   S.checkins = S.checkins.filter(c => c.id !== id);
   renderCheckinList();
   if (S.trackerTab === 'cal') buildCalendar();
-  if (S.trackerTab === 'map') initTrackerMap();
+  if (S.trackerTab === 'map') setTimeout(initTrackerMap, 50);
   toast('Check-in deleted', 'ok');
   google.script.run
     .withFailureHandler(err => toast('Error deleting check-in: ' + err.message, 'err'))
@@ -519,9 +545,9 @@ function buildCalendar() {
   const hasFilter = fv || tv;
   let filterBar = '<div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">' +
     '<span style="font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap">From</span>' +
-    '<input type="date" class="fc" style="width:132px;padding:5px 8px;font-size:12px;min-height:32px" value="' + fv + '" onblur="S.calFilterFrom=this.value||null;buildCalendar()">' +
+    '<input type="date" class="fc" style="width:132px;padding:5px 8px;font-size:12px;min-height:32px" value="' + fv + '" onchange="S.calFilterFrom=this.value||null;buildCalendar()">' +
     '<span style="font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap">To</span>' +
-    '<input type="date" class="fc" style="width:132px;padding:5px 8px;font-size:12px;min-height:32px" value="' + tv + '" onblur="S.calFilterTo=this.value||null;buildCalendar()">';
+    '<input type="date" class="fc" style="width:132px;padding:5px 8px;font-size:12px;min-height:32px" value="' + tv + '" onchange="S.calFilterTo=this.value||null;buildCalendar()">';
   if (hasFilter) {
     filterBar += '<button class="btn btn-outline btn-sm" style="padding:5px 10px;min-height:32px;font-size:11px;white-space:nowrap" onclick="S.calFilterFrom=null;S.calFilterTo=null;buildCalendar()">&#10005; Clear</button>';
   }
@@ -608,12 +634,6 @@ function exportTrackerKml() {
     'hike':       _S + 'hiker.png',
     'groceries':  _S + 'grocery.png',
     'other':      _S + 'info_circle.png'
-  };
-  const CI_TYPE_LABELS = {
-    'place':'Places','hotel':'Hotels','restaurant':'Restaurants',
-    'attraction':'Attractions','transport':'Transport',
-    'flight-in':'Flights In','flight-out':'Flights Out',
-    'hike':'Hikes','groceries':'Groceries','other':'Other'
   };
 
   function toKmlColor(hex) {
@@ -731,7 +751,11 @@ function _renderLeafletMap() {
       title: c.name
     });
     marker.addListener('click', () => {
-      infoWindow.setContent('<div style="font-weight:700;font-size:13px;margin-bottom:3px">' + esc(c.name) + '</div><div style="font-size:11px;color:#6B7280">' + (CI_ICONS[c.type] || '') + ' ' + c.type + ' · ' + fmtCheckinTime(c.timestamp) + '</div>');
+      infoWindow.setContent(
+        '<div style="font-weight:700;font-size:13px;margin-bottom:2px">' + esc(c.name) + '</div>' +
+        '<div style="font-size:11px;color:var(--muted)">' + (CI_ICONS[c.type] || '') + ' ' + (CI_TYPE_LABELS[c.type] || c.type) + ' · ' + fmtCheckinTime(c.timestamp) + '</div>' +
+        '<button onclick="editCheckinUI(\'' + c.id + '\')" style="margin-top:7px;background:none;border:1.5px solid var(--primary);color:var(--primary);border-radius:6px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer">✏ Edit</button>'
+      );
       infoWindow.open(S.leafletMap, marker);
     });
     S.leafletMarkers.push(marker);

@@ -94,6 +94,18 @@ function loadPlan() {
     .withSuccessHandler(plan => {
       S.planBank        = (plan && plan.bank)        || [];
       S.planAssignments = (plan && plan.assignments) || {};
+      // Attach photo to newly created place (matched by name)
+      if (S._planPendingPhotoAssign) {
+        const pa = S._planPendingPhotoAssign; S._planPendingPhotoAssign = null;
+        if (!S._planPhotoCache) S._planPhotoCache = {};
+        const found = S.planBank.find(p => p.name === pa.name && !(p.id in S._planPhotoCache));
+        if (found) {
+          if (pa.photoUrl) {
+            S._planPhotoCache[found.id] = pa.photoUrl; // photo from context menu path
+          }
+          // else: photo will be fetched lazily when pin menu opens
+        }
+      }
       renderPlanBank();
       if (S.plannerTab === 'map') setTimeout(initPlannerMap, 50);
     })
@@ -153,6 +165,7 @@ function showPlannerForm(presetCoords, presetName, presetType, presetDesc) {
 
 function cancelPlannerForm() {
   S.editingPlaceId = null;
+  S._ctxMenuPhotoUrl = null; // discard any pending photo from context menu path
   document.getElementById('plan-form-wrap').style.display = 'none';
   document.body.style.overflow = '';
   document.body.style.paddingRight = '';
@@ -244,9 +257,10 @@ function showPinMenu(placeId, cx, cy) {
   if (!p) return;
   const menu = document.getElementById('plannerContextMenu');
   if (!menu) return;
+  menu._pinId = placeId; // used by async photo update
   const vw = window.innerWidth, menuW = 260;
   menu.style.left = (vw - cx - 8 >= menuW ? cx + 4 : Math.max(8, cx - menuW - 4)) + 'px';
-  menu.style.top  = Math.min(cy, window.innerHeight - 240) + 'px';
+  menu.style.top  = Math.min(cy, window.innerHeight - 280) + 'px';
   const bt = PLAN_TYPES[p.type] || { icon: '📌', label: 'Place', color: '#9E9E9E' };
   const curAsgn = Object.keys(S.planAssignments || {})
     .filter(ds => (S.planAssignments[ds] || []).indexOf(placeId) !== -1).sort();
@@ -258,14 +272,23 @@ function showPinMenu(placeId, cx, cy) {
     : '<div style="font-size:11px;color:var(--muted);padding:0 14px 8px">Not assigned to any day yet</div>';
   const descHtml = p.description
     ? '<div style="font-size:11px;color:#374151;padding:0 14px 6px;line-height:1.5;word-break:break-word;max-height:56px;overflow:hidden">' +
-      esc(p.description.length > 100 ? p.description.substring(0, 100) + '…' : p.description) + '</div>'
+      _linkifyDesc(p.description.length > 100 ? p.description.substring(0, 100) + '…' : p.description) + '</div>'
     : '';
   const bLat = parseFloat(p.lat) || 0, bLng = parseFloat(p.lng) || 0;
   const gmUrl = 'https://maps.google.com/?q=' + bLat + ',' + bLng;
   const bs = 'flex:1;padding:7px 4px;background:none;border:none;cursor:pointer;font-size:11px;font-weight:600;text-align:center';
   const pid = placeId;
+
+  // Photo: undefined = not yet fetched, null = no photo, string = url
+  const cachedPhoto = (S._planPhotoCache || {})[placeId];
+  const photoHtml = cachedPhoto
+    ? '<div id="pin-photo-wrap" style="height:80px;overflow:hidden;background:#e5e7eb"><img src="' + esc(cachedPhoto) + '" style="width:100%;height:100%;object-fit:cover" loading="lazy" onerror="this.parentNode.style.display=\'none\'"></div>'
+    : '<div id="pin-photo-wrap" style="display:none;height:80px;overflow:hidden;background:#e5e7eb"></div>';
+
   menu.innerHTML =
-    '<div style="padding:10px 14px 2px;font-weight:700;font-size:13px;color:var(--text)">' + esc(p.name) + '</div>' +
+    photoHtml +
+    '<button onclick="_hideContextMenu()" style="position:absolute;top:0;right:0;background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:var(--muted);z-index:1;padding:10px 12px;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center">×</button>' +
+    '<div style="padding:10px 14px 2px;padding-right:40px;font-weight:700;font-size:13px;color:var(--text)">' + esc(p.name) + '</div>' +
     '<div style="font-size:11px;color:var(--primary);padding:0 14px 4px">' + bt.icon + ' ' + esc(bt.label) + '</div>' +
     descHtml + asgnHtml +
     '<div style="border-top:1px solid var(--border);padding:2px 6px;display:flex">' +
@@ -275,6 +298,47 @@ function showPinMenu(placeId, cx, cy) {
     '</div>' +
     '<a href="' + esc(gmUrl) + '" target="_blank" rel="noopener" style="display:block;padding:7px 14px;font-size:12px;color:var(--muted);text-decoration:none;border-top:1px solid var(--border)">🗺️ View on Google Maps</a>';
   menu.style.display = 'block';
+
+  // Post-render: clamp so menu stays in viewport
+  setTimeout(() => {
+    const rect = menu.getBoundingClientRect();
+    if (rect.bottom > window.innerHeight - 4)
+      menu.style.top = Math.max(4, window.innerHeight - rect.height - 4) + 'px';
+  }, 0);
+
+  // Lazy-fetch photo if not yet attempted
+  if (cachedPhoto === undefined && p.name) {
+    if (!S._planPhotoCache) S._planPhotoCache = {};
+    S._planPhotoCache[placeId] = null; // prevent re-fetch
+    _fetchPinPhoto(placeId, p.name, p.lat, p.lng);
+  }
+}
+
+// Async: search for a photo by place name+coords, cache it, update open pin menu if still visible.
+function _fetchPinPhoto(bankPlaceId, name, lat, lng) {
+  loadGoogleMaps(() => {
+    const svc = _getPlacesService();
+    if (!svc) return;
+    const req = { query: name, fields: ['photos'] };
+    const flat = parseFloat(lat), flng = parseFloat(lng);
+    if (!isNaN(flat) && !isNaN(flng)) req.locationBias = { lat: flat, lng: flng };
+    svc.findPlaceFromQuery(req, (results, status) => {
+      let url = null;
+      if (status === 'OK' && results && results[0] && (results[0].photos || []).length)
+        url = results[0].photos[0].getUrl({ maxWidth: 320, maxHeight: 80 });
+      if (!S._planPhotoCache) S._planPhotoCache = {};
+      S._planPhotoCache[bankPlaceId] = url;
+      if (!url) return;
+      const menu = document.getElementById('plannerContextMenu');
+      if (menu && menu.style.display !== 'none' && menu._pinId === bankPlaceId) {
+        const wrap = document.getElementById('pin-photo-wrap');
+        if (wrap) {
+          wrap.style.display = '';
+          wrap.innerHTML = '<img src="' + esc(url) + '" style="width:100%;height:100%;object-fit:cover" loading="lazy" onerror="this.parentNode.style.display=\'none\'">';
+        }
+      }
+    });
+  });
 }
 
 function editPlanPlace(id) {
@@ -324,6 +388,12 @@ function savePlanPlaceUI() {
   google.script.run
     .withSuccessHandler(() => {
       btn.disabled = false;
+      if (!isEdit) {
+        // Capture photo from context menu path (or null for + button path)
+        const photoUrl = S._ctxMenuPhotoUrl || null;
+        S._planPendingPhotoAssign = { name, photoUrl };
+      }
+      S._ctxMenuPhotoUrl = null;
       cancelPlannerForm();
       loadPlan();
       toast(isEdit ? 'Place updated!' : 'Place added to bank!', 'ok');
@@ -687,7 +757,7 @@ function toggleDayCell(placeId, ds, color, el) {
 var _markerRCTime = 0;    // timestamp of last bank-marker rightclick
 var _markerClickTime = 0; // timestamp of last bank-marker left-click
 var _deleteConfirmOutsideHandler = null;
-var _lpTimer = null, _lpTouch = null, _lpFired = false; // long-press state
+var _lpTimer = null, _lpTouch = null, _lpFired = false, _lpTime = 0; // long-press state
 
 function initPlannerMap() {
   const container = document.getElementById('planner-map');
@@ -720,18 +790,15 @@ function _renderPlannerLeaflet() {
       zoom: 10, mapTypeControl: false, streetViewControl: false, fullscreenControl: false, gestureHandling: 'greedy'
     });
 
-    // Click on map: suppress Google's POI info card, deselect chip, open context menu
+    // Click on map: suppress Google's POI info card, deselect chip, close context menu
     S.plannerMap.addListener('click', function(e) {
       if (e.placeId) e.stop(); // prevent Google's built-in POI popup
       if (Date.now() - _markerClickTime < 300) return; // bank marker click already opened Pin Menu
+      if (Date.now() - _lpTime < 800) return; // long-press just opened Place Menu — don't close it
       if (S._planInfoWindow) S._planInfoWindow.close();
+      _hideContextMenu();
       S._highlightedPlaceId = null;
       renderBankBarChips();
-      const de = e.domEvent;
-      if (!de) return;
-      const cx = de.clientX !== undefined ? de.clientX : (de.changedTouches && de.changedTouches[0] ? de.changedTouches[0].clientX : null);
-      const cy = de.clientY !== undefined ? de.clientY : (de.changedTouches && de.changedTouches[0] ? de.changedTouches[0].clientY : null);
-      if (cx !== null) _handleMapContextAt(cx, cy);
     });
 
     // Shared handler for right-click and long-press: detect POI via nearbySearch then show menu
@@ -744,7 +811,7 @@ function _renderPlannerLeaflet() {
       if (savedCenter) setTimeout(() => { if (S.plannerMap) S.plannerMap.setCenter(savedCenter); }, 30);
       const menu = document.getElementById('plannerContextMenu');
       if (menu) {
-        menu.innerHTML = '<button onclick="_hideContextMenu()" style="position:absolute;top:6px;right:8px;background:none;border:none;font-size:18px;line-height:1;cursor:pointer;color:var(--muted)">×</button><div style="padding:10px 14px;font-size:12px;color:var(--muted)">Loading…</div>';
+        menu.innerHTML = '<button onclick="_hideContextMenu()" style="position:absolute;top:0;right:0;background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:var(--muted);z-index:1;padding:10px 12px;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center">×</button><div style="padding:10px 14px;padding-right:40px;font-size:12px;color:var(--muted)">Loading…</div>';
         const menuW = 250, vw = window.innerWidth;
         menu.style.left = (cx + menuW > vw - 8 ? Math.max(8, cx - menuW) : cx) + 'px';
         menu.style.top  = Math.min(cy, window.innerHeight - 140) + 'px';
@@ -786,6 +853,7 @@ function _renderPlannerLeaflet() {
       _lpTimer = setTimeout(function() {
         if (!_lpTouch) return;
         _lpFired = true;
+        _lpTime = Date.now(); // mark long-press time to suppress the following map click
         if ('vibrate' in navigator) navigator.vibrate(50); // haptic feedback
         _handleMapContextAt(_lpTouch.x, _lpTouch.y);
       }, 600);
@@ -801,7 +869,11 @@ function _renderPlannerLeaflet() {
 
     container.addEventListener('touchend', function(e) {
       clearTimeout(_lpTimer); _lpTimer = null; _lpTouch = null;
-      if (_lpFired) { e.preventDefault(); _lpFired = false; } // suppress ghost click after long press
+      if (_lpFired) {
+        _lpTime = Date.now(); // re-stamp so the 800ms guard covers however long the user held
+        e.preventDefault();
+        _lpFired = false;
+      }
     });
   }
 
@@ -943,7 +1015,7 @@ function _renderContextMenu(menu, opts) {
   const webShort = website ? website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '').substring(0, 34) : null;
 
   const infoHtml =
-    (name     ? '<div style="padding:10px 14px 2px;font-weight:700;font-size:13px;color:var(--text)">' + esc(name) + '</div>' : '') +
+    (name     ? '<div style="padding:10px 14px 2px;padding-right:40px;font-weight:700;font-size:13px;color:var(--text)">' + esc(name) + '</div>' : '') +
     (typeLine ? '<div style="padding:0 14px 3px;font-size:11px;color:var(--primary)">' + typeLine + statusBadge + '</div>' : statusBadge) +
     (summary  ? '<div style="padding:3px 14px 3px;font-size:11px;color:var(--text);font-style:italic">' + esc(summary) + '</div>' : '') +
     (address  ? '<div style="padding:3px 14px 2px;font-size:11px;color:var(--muted)">📍 ' + esc(address) + '</div>' : '') +
@@ -954,7 +1026,7 @@ function _renderContextMenu(menu, opts) {
   const infoMaxH = 'calc(100vh - ' + (photoUrl ? 250 : 130) + 'px)';
 
   menu.innerHTML =
-    '<button onclick="_hideContextMenu()" style="position:absolute;top:6px;right:8px;background:none;border:none;font-size:18px;line-height:1;cursor:pointer;color:var(--muted);z-index:1">×</button>' +
+    '<button onclick="_hideContextMenu()" style="position:absolute;top:0;right:0;background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:var(--muted);z-index:1;padding:10px 12px;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center">×</button>' +
     (photoUrl ? '<div style="height:120px;overflow:hidden;background:#e5e7eb"><img src="' + esc(photoUrl) + '" style="width:100%;height:100%;object-fit:cover" loading="lazy" onerror="this.parentNode.style.display=\'none\'"></div>' : '') +
     '<div style="max-height:' + infoMaxH + ';overflow-y:auto">' + infoHtml + '</div>' +
     '<div style="border-top:1px solid var(--border)">' +
@@ -979,6 +1051,7 @@ function _contextMenuAddToBank() {
   }
   _hideContextMenu();
   if (!data) return;
+  S._ctxMenuPhotoUrl = data.photoUrl || null; // carry photo to the new bank place
   // Build description from available Google Places fields
   const _descParts = [];
   if (data.summary) _descParts.push(data.summary);
