@@ -32,7 +32,7 @@ function typeLabel(t) { return TYPE_LABELS[t] || t; }
 const PLAN_TYPES = {
   'place':       { icon: '📍', color: '#1565C0', label: 'Place' },
   'nature-hike': { icon: '🥾', color: '#2E7D32', label: 'Nature Hike' },
-  'lake-river':  { icon: '🏞️', color: '#0288D1', label: 'Lake/River' },
+  'lake-river':  { icon: '🏞️', color: '#0288D1', label: 'Lakes, Rivers & Waterfalls' },
   'cablecar':    { icon: '🚡', color: '#7B1FA2', label: 'Cablecar' },
   'restaurant':  { icon: '🍽️', color: '#4CAF50', label: 'Restaurant' },
   'coffee':      { icon: '☕', color: '#795548', label: 'Coffee' },
@@ -43,15 +43,15 @@ const PLAN_TYPES = {
   'shop':        { icon: '🛍️', color: '#9C27B0', label: 'Shop' },
   'petrol':      { icon: '⛽', color: '#616161', label: 'Petrol Station' },
   'gas-station': { icon: '⛽', color: '#FF6F00', label: 'Gas Station' },
-  'hotel':       { icon: '🏨', color: '#9C27B0', label: 'Hotel' },
+  'hotel':       { icon: '🛏️', color: '#9C27B0', label: 'Hotel' },
   'attraction':  { icon: '🎡', color: '#FF9800', label: 'Attraction' },
   'cave':        { icon: '🦇', color: '#4E342E', label: 'Cave' },
-  'fortress':    { icon: '🏰', color: '#8D6E63', label: 'Fortress/Temple' },
+  'fortress':    { icon: '🏰', color: '#8D6E63', label: 'Architectural Landmarks', search: 'castle fortress temple palace church cathedral monument' },
   'museum':      { icon: '🏛️', color: '#5D4037', label: 'Museum' },
   'viewpoint':   { icon: '👁️', color: '#00BCD4', label: 'Viewpoint' },
   'airport':     { icon: '✈️', color: '#0288D1', label: 'Airport' },
   'car-rental':  { icon: '🚗', color: '#F44336', label: 'Car Rental' },
-  'city-walk':   { icon: '🚶', color: '#1565C0', label: 'City Walk' },
+  'city-walk':   { icon: '🏙️', color: '#1565C0', label: 'City Walk' },
   'village':     { icon: '🏘️', color: '#558B2F', label: 'Village' },
   'parking':     { icon: '🅿️', color: '#37474F', label: 'Parking' }
 };
@@ -63,7 +63,7 @@ const CI_COLORS = {
   'hike':'#2E7D32','groceries':'#F57C00'
 };
 const CI_ICONS = {
-  'place':'📌','hotel':'🏨','restaurant':'🍽️',
+  'place':'📌','hotel':'🛏️','restaurant':'🍽️',
   'attraction':'🎡','transport':'🚗','other':'🗂️',
   'flight-in':'🛬','flight-out':'🛫',
   'hike':'🥾','groceries':'🛒'

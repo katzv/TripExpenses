@@ -75,6 +75,14 @@
       <textarea class="fc" id="planDesc" rows="3" placeholder="Opening hours, tips, notes… Hebrew supported"
                 dir="auto" style="resize:vertical;font-size:13px;min-height:72px;max-height:200px;overflow-y:auto"></textarea>
     </div>
+    <div id="planDupeWarn" style="display:none;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:8px 12px;margin-bottom:10px">
+      <div style="font-size:12px;font-weight:700;color:#92400E;margin-bottom:3px">⚠️ Already in bank</div>
+      <div style="font-size:12px;color:#92400E;margin-bottom:8px">A place with this name and location is already saved.</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-outline btn-sm" onclick="_hideDupeWarn()" style="font-size:11px;min-height:26px;padding:4px 10px">Keep editing</button>
+        <button class="btn btn-accent btn-sm" onclick="_saveAnyway()" style="font-size:11px;min-height:26px;padding:4px 10px">Add anyway</button>
+      </div>
+    </div>
     <div class="btn-row">
       <button class="btn btn-outline btn-sm" onclick="cancelPlannerForm()">Cancel</button>
       <button class="btn btn-accent btn-sm" id="planSaveBtn" onclick="savePlanPlaceUI()">+ Add to Bank</button>

@@ -612,6 +612,30 @@ function setPlanDayAssignment(tripId, date, placeIds) {
   return { success: true };
 }
 
+function bulkImportPlanPlaces(tripId, placesJson) {
+  var incoming;
+  try { incoming = JSON.parse(placesJson); } catch(e) { return { success: false, error: 'Invalid JSON' }; }
+  if (!Array.isArray(incoming)) return { success: false, error: 'Expected array' };
+  var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+  var added = 0;
+  incoming.forEach(function(p) {
+    if (!p || !p.name) return;
+    plan.bank.push({
+      id:          uuid(),
+      tripId:      tripId,
+      name:        String(p.name).trim(),
+      type:        p.type || 'place',
+      lat:         (p.lat != null && !isNaN(Number(p.lat))) ? Number(p.lat) : null,
+      lng:         (p.lng != null && !isNaN(Number(p.lng))) ? Number(p.lng) : null,
+      description: String(p.description || '').trim(),
+      createdAt:   nowISO()
+    });
+    added++;
+  });
+  save('plan_' + tripId, plan);
+  return { success: true, added: added };
+}
+
 // ---- JSON IMPORT & RE-RATE ----
 
 // Builds a rate-lookup function for a set of currencies over a trip date range.

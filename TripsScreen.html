@@ -491,11 +491,21 @@ function _getTripCountryCenter() {
 
 function showImportJson() {
   showModal('Import Trip from File', `
-    <p style="color:var(--muted);font-size:13px;margin-bottom:14px">
+    <p style="color:var(--muted);font-size:13px;margin-bottom:10px">
       Select a <strong>.json</strong> export file, or paste JSON below.
-      Use Claude to convert your existing trip data into
-      <a href="#" onclick="showImportFormat();return false" style="color:var(--primary)">this format</a>.
     </p>
+    <div style="margin-bottom:12px">
+      <button onclick="_toggleExpImportHint()" id="expImportHintBtn" style="background:none;border:none;font-size:12px;color:var(--primary);cursor:pointer;padding:0;font-weight:600;display:flex;align-items:center;gap:4px">
+        💡 Claude prompt template <span id="expImportHintArrow" style="font-size:10px">▼</span>
+      </button>
+      <div id="expImportHint" style="display:none;margin-top:8px;background:#F8FAFC;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+        <div style="padding:5px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);background:#EEF2F7">
+          <span style="font-size:11px;color:var(--muted)">Copy → give to Claude → paste result below</span>
+          <button onclick="_copyExpImportPrompt()" id="expImportCopyBtn" style="background:var(--primary);color:#fff;border:none;border-radius:6px;font-size:11px;padding:3px 10px;cursor:pointer;font-weight:600">Copy</button>
+        </div>
+        <pre id="expImportPromptText" style="margin:0;padding:10px;font-size:10.5px;font-family:monospace;color:var(--text);white-space:pre-wrap;word-break:break-word;max-height:180px;overflow-y:auto;line-height:1.55"></pre>
+      </div>
+    </div>
     <div class="fg" style="margin-bottom:10px">
       <label>Choose file</label>
       <input type="file" id="fImportFile" accept=".json,application/json"
@@ -503,13 +513,67 @@ function showImportJson() {
              onchange="_handleImportFile(this)">
     </div>
     <div style="text-align:center;color:var(--muted);font-size:12px;margin:4px 0 8px">— or paste JSON —</div>
-    <textarea id="fImportPaste" class="fc" rows="5" placeholder='{"title":"...","country":"...","expenses":[...]}'
+    <textarea id="fImportPaste" class="fc" rows="5" placeholder='{"title":"...","country":"...","expenses":[]}'
               style="font-size:12px;font-family:monospace;resize:vertical"
               oninput="_handleImportPaste(this)"></textarea>
     <div id="importPreview" style="margin-top:10px"></div>
     <div class="btn-row" id="importBtnRow">
       <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
     </div>`);
+}
+
+function _getExpImportPromptTemplate() {
+  const types = ['Flight','Lodging','Car Rental','Insurance','Petrol','Toll Roads',
+                 'Parking','Transportation','Meals','Souvenirs','Attractions','Phone','Other'];
+  return (
+    'Convert the content below into Trip Expense Manager import JSON.\n' +
+    'Output ONLY a valid JSON object — no markdown fences, no explanation.\n\n' +
+    'Format:\n' +
+    '{\n' +
+    '  "title": "Austria 2025",\n' +
+    '  "country": "Austria",\n' +
+    '  "currency": "EUR",\n' +
+    '  "startDate": "2025-04-09",\n' +
+    '  "endDate": "2025-04-16",\n' +
+    '  "expenses": [\n' +
+    '    { "date": "2025-04-10", "description": "Hotel Vienna", "type": "Lodging", "amount": 120.00, "currency": "EUR", "notes": "" }\n' +
+    '  ]\n' +
+    '}\n\n' +
+    'Valid type values (use exact case):\n' +
+    types.join(', ') + '\n\n' +
+    'Rules:\n' +
+    '- date format: YYYY-MM-DD\n' +
+    '- amount: numeric only, no currency symbols\n' +
+    '- currency: ISO code (EUR, USD, ILS, GBP, etc.)\n' +
+    '- Skip rows with no amount or no date\n' +
+    '- notes: optional free text\n\n' +
+    'Content to convert:\n' +
+    '[PASTE YOUR TABLE, LIST, URL, OR DESCRIPTION HERE]'
+  );
+}
+
+function _toggleExpImportHint() {
+  const hint  = document.getElementById('expImportHint');
+  const arrow = document.getElementById('expImportHintArrow');
+  const pre   = document.getElementById('expImportPromptText');
+  if (!hint) return;
+  const opening = hint.style.display === 'none';
+  hint.style.display = opening ? 'block' : 'none';
+  if (arrow) arrow.textContent = opening ? '▲' : '▼';
+  if (opening && pre && !pre.textContent) pre.textContent = _getExpImportPromptTemplate();
+}
+
+function _copyExpImportPrompt() {
+  const pre = document.getElementById('expImportPromptText');
+  const btn = document.getElementById('expImportCopyBtn');
+  if (!btn) return;
+  const text = (pre && pre.textContent) || _getExpImportPromptTemplate();
+  const done = () => { btn.textContent = '✓ Copied!'; setTimeout(() => { btn.textContent = 'Copy'; }, 2000); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => _copyFallback(text, done));
+  } else {
+    _copyFallback(text, done);
+  }
 }
 
 function showImportFormat() {

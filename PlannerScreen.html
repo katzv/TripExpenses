@@ -18,11 +18,14 @@
     <div id="planBankBarCollapsed" style="display:none;padding:2px 0 8px">
       <button id="planBankBarShowBtn" onclick="togglePlanBankBar()" style="background:none;border:1.5px solid var(--border);border-radius:8px;font-size:13px;color:var(--muted);cursor:pointer;padding:4px 12px;font-weight:600">▼ Bank</button>
     </div>
-    <!-- Map -->
+    <!-- Import button + Map -->
+    <div style="display:flex;justify-content:flex-end;padding:2px 0 5px">
+      <button onclick="showPlanImportModal()" style="background:var(--card);border:1.5px solid var(--border);border-radius:8px;font-size:12px;padding:5px 11px;cursor:pointer;color:var(--muted);font-weight:600">📥 Import</button>
+    </div>
     <div style="border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);margin-bottom:14px">
       <div id="planner-map"></div>
     </div>
-    <div style="height:30px"></div>
+    <div style="height:30px"></div> 
   </div>
 
   <!-- Calendar panel -->
@@ -32,12 +35,54 @@
   </div>
 </div>
 
+<!-- Planner Import Modal -->
+<div id="planImportModal" style="display:none;position:fixed;inset:0;z-index:350;background:rgba(0,0,0,0.45);align-items:flex-start;justify-content:center;padding:70px 16px 16px;overflow-y:auto">
+  <div style="background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);width:100%;max-width:440px">
+    <div style="padding:16px 16px 8px;display:flex;align-items:center;justify-content:space-between">
+      <div style="font-weight:700;font-size:15px;color:var(--text)">📥 Import Places</div>
+      <button onclick="closePlanImportModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);padding:4px;line-height:1">×</button>
+    </div>
+    <div style="padding:0 16px 8px;font-size:12px;color:var(--muted)">Upload a <strong>JSON</strong> file or paste <strong>KML</strong> exported from Google My Maps.</div>
+
+    <!-- Claude prompt template hint -->
+    <div style="padding:0 16px 10px">
+      <button onclick="_toggleImportHint()" id="planImportHintBtn" style="background:none;border:none;font-size:12px;color:var(--primary);cursor:pointer;padding:0;font-weight:600;display:flex;align-items:center;gap:4px">
+        💡 Claude prompt template <span id="planImportHintArrow" style="font-size:10px">▼</span>
+      </button>
+      <div id="planImportHint" style="display:none;margin-top:8px;background:#F8FAFC;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+        <div style="padding:5px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);background:#EEF2F7">
+          <span style="font-size:11px;color:var(--muted)">Copy → give to Claude → paste result below</span>
+          <button onclick="_copyImportPrompt()" id="planImportCopyBtn" style="background:var(--primary);color:#fff;border:none;border-radius:6px;font-size:11px;padding:3px 10px;cursor:pointer;font-weight:600">Copy</button>
+        </div>
+        <pre id="planImportPromptText" style="margin:0;padding:10px;font-size:10.5px;font-family:monospace;color:var(--text);white-space:pre-wrap;word-break:break-word;max-height:180px;overflow-y:auto;line-height:1.55"></pre>
+      </div>
+    </div>
+
+    <div style="padding:0 16px 10px">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;border:1.5px dashed var(--border);border-radius:10px;padding:10px 14px;font-size:13px;color:var(--muted);user-select:none">
+        📎 Choose file (.json or .kml)
+        <input type="file" id="planImportFile" accept=".json,.kml,.xml" onchange="_onPlanImportFile(this)" style="display:none">
+      </label>
+    </div>
+    <div style="padding:0 16px 4px;text-align:center;font-size:11px;color:var(--muted)">— or paste below —</div>
+    <div style="padding:4px 16px 10px">
+      <textarea id="planImportText" placeholder="Paste JSON or KML text…" oninput="_onPlanImportInput(this.value)" style="width:100%;box-sizing:border-box;border:1.5px solid var(--border);border-radius:10px;padding:10px;font-size:12px;height:100px;font-family:monospace;resize:vertical;color:var(--text);outline:none"></textarea>
+    </div>
+    <div id="planImportPreview" style="padding:0 16px 8px;min-height:20px"></div>
+    <div style="padding:0 16px 16px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-outline btn-sm" onclick="closePlanImportModal()">Cancel</button>
+      <button id="planImportBtn" class="btn btn-primary btn-sm" onclick="executePlanImport()" disabled style="opacity:0.5;min-width:100px">Import</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // =======================================================
 // PLANNER
 // =======================================================
 
 var _planSuggestIdx = -1;
+var _planDupeConfirmed = false;
 
 function _linkifyDesc(text) {
   const parts = text.split(/(https?:\/\/[^\s]+)/);
@@ -165,13 +210,41 @@ function showPlannerForm(presetCoords, presetName, presetType, presetDesc) {
 
 function cancelPlannerForm() {
   S.editingPlaceId = null;
-  S._ctxMenuPhotoUrl = null; // discard any pending photo from context menu path
+  S._ctxMenuPhotoUrl = null;
+  _planDupeConfirmed = false;
+  _hideDupeWarn();
   document.getElementById('plan-form-wrap').style.display = 'none';
   document.body.style.overflow = '';
   document.body.style.paddingRight = '';
   hidePlanSuggestions();
   const tl = document.getElementById('planTypeList');
   if (tl) tl.style.display = 'none';
+}
+
+function _findDuplicatePlanPlace(name, lat, lng) {
+  if (!S.planBank || !name || lat == null || lng == null) return null;
+  const norm = name.trim().toLowerCase();
+  return S.planBank.find(p =>
+    (p.name || '').trim().toLowerCase() === norm &&
+    p.lat != null && p.lng != null &&
+    Math.abs(parseFloat(p.lat) - lat) < 0.0002 &&
+    Math.abs(parseFloat(p.lng) - lng) < 0.0002
+  ) || null;
+}
+
+function _showDupeWarn() {
+  const w = document.getElementById('planDupeWarn');
+  if (w) w.style.display = 'block';
+}
+
+function _hideDupeWarn() {
+  const w = document.getElementById('planDupeWarn');
+  if (w) w.style.display = 'none';
+}
+
+function _saveAnyway() {
+  _planDupeConfirmed = true;
+  savePlanPlaceUI();
 }
 
 function acquirePlanGPS() {
@@ -258,6 +331,8 @@ function showPinMenu(placeId, cx, cy) {
   const menu = document.getElementById('plannerContextMenu');
   if (!menu) return;
   menu._pinId = placeId; // used by async photo update
+  menu._anchorLat = parseFloat(p.lat) || null;
+  menu._anchorLng = parseFloat(p.lng) || null;
   const vw = window.innerWidth, menuW = 260;
   menu.style.left = (vw - cx - 8 >= menuW ? cx + 4 : Math.max(8, cx - menuW - 4)) + 'px';
   menu.style.top  = Math.min(cy, window.innerHeight - 280) + 'px';
@@ -289,10 +364,10 @@ function showPinMenu(placeId, cx, cy) {
     photoHtml +
     '<button onclick="_hideContextMenu()" style="position:absolute;top:0;right:0;background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:var(--muted);z-index:1;padding:10px 12px;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center">×</button>' +
     '<div style="padding:10px 14px 2px;padding-right:40px;font-weight:700;font-size:13px;color:var(--text)">' + esc(p.name) + '</div>' +
-    '<div style="font-size:11px;color:var(--primary);padding:0 14px 4px">' + bt.icon + ' ' + esc(bt.label) + '</div>' +
+    '<div style="font-size:11px;color:var(--text);padding:0 14px 4px">' + bt.icon + ' ' + esc(bt.label) + '</div>' +
     descHtml + asgnHtml +
     '<div style="border-top:1px solid var(--border);padding:2px 6px;display:flex">' +
-    '<button onclick="_hideContextMenu();openDayPickerForPlace(\'' + pid + '\')" style="' + bs + ';color:var(--primary)">📅 Assign</button>' +
+    '<button onclick="_hideContextMenu();openDayPickerForPlace(\'' + pid + '\')" style="' + bs + ';color:var(--text)">📅 Assign</button>' +
     '<button onclick="_hideContextMenu();editPlanPlace(\'' + pid + '\')" style="' + bs + ';color:var(--text)">✏️ Edit</button>' +
     '<button onclick="ctxMenuDelete(\'' + pid + '\',event)" style="' + bs + ';color:#EF4444">✕ Remove</button>' +
     '</div>' +
@@ -383,15 +458,24 @@ function savePlanPlaceUI() {
     description: desc
   };
   if (isEdit) data.id = S.editingPlaceId;
+
+  if (!isEdit && !_planDupeConfirmed && _findDuplicatePlanPlace(name, data.lat, data.lng)) {
+    _showDupeWarn();
+    return;
+  }
+  _planDupeConfirmed = false;
+  _hideDupeWarn();
+
   const btn = document.getElementById('planSaveBtn');
   btn.disabled = true; btn.textContent = 'Saving…';
   google.script.run
     .withSuccessHandler(() => {
       btn.disabled = false;
       if (!isEdit) {
-        // Capture photo from context menu path (or null for + button path)
         const photoUrl = S._ctxMenuPhotoUrl || null;
         S._planPendingPhotoAssign = { name, photoUrl };
+        if (data.lat != null && data.lng != null && S.plannerTab === 'map')
+          S._planPendingFocus = { lat: data.lat, lng: data.lng };
       }
       S._ctxMenuPhotoUrl = null;
       cancelPlannerForm();
@@ -801,6 +885,9 @@ function _renderPlannerLeaflet() {
       renderBankBarChips();
     });
 
+    // Reposition context menus when map pans/zooms
+    S.plannerMap.addListener('bounds_changed', _repositionContextMenu);
+
     // Shared handler for right-click and long-press: detect POI via nearbySearch then show menu
     function _handleMapContextAt(cx, cy) {
       if (Date.now() - _markerRCTime < 300) return; // bank marker already showed Pin Menu
@@ -816,6 +903,8 @@ function _renderPlannerLeaflet() {
         menu.style.left = (cx + menuW > vw - 8 ? Math.max(8, cx - menuW) : cx) + 'px';
         menu.style.top  = Math.min(cy, window.innerHeight - 140) + 'px';
         menu.style.display = 'block';
+        menu._anchorLat = coords ? coords.lat : null;
+        menu._anchorLng = coords ? coords.lng : null;
       }
       loadGoogleMaps(() => {
         const svc = _getPlacesService();
@@ -928,6 +1017,17 @@ function _renderPlannerLeaflet() {
     });
   }
   renderBankBarChips();
+
+  if (S._planPendingFocus) {
+    const pf = S._planPendingFocus;
+    S._planPendingFocus = null;
+    setTimeout(() => {
+      if (S.plannerMap) {
+        S.plannerMap.panTo({ lat: pf.lat, lng: pf.lng });
+        if (S.plannerMap.getZoom() < 13) S.plannerMap.setZoom(13);
+      }
+    }, 150);
+  }
 }
 
 // ---- Context menu ----
@@ -1095,6 +1195,37 @@ function _pixelToLatLng(map, cx, cy) {
   };
 }
 
+// Reverse: lat/lng to viewport pixel. Used to track context menu anchor on map pan.
+function _latLngToPixel(map, lat, lng) {
+  if (!map) return null;
+  const bounds = map.getBounds();
+  if (!bounds) return null;
+  const div = map.getDiv();
+  if (!div) return null;
+  const rect = div.getBoundingClientRect();
+  const ne = bounds.getNorthEast(), sw = bounds.getSouthWest();
+  const dLng = ne.lng() - sw.lng(), dLat = ne.lat() - sw.lat();
+  if (!dLng || !dLat) return null;
+  return {
+    x: rect.left + (lng - sw.lng()) / dLng * rect.width,
+    y: rect.top  + (ne.lat() - lat) / dLat * rect.height
+  };
+}
+
+// Reposition the open context menu so it stays anchored to its map LatLng on pan/zoom.
+function _repositionContextMenu() {
+  const menu = document.getElementById('plannerContextMenu');
+  if (!menu || menu.style.display === 'none') return;
+  const lat = menu._anchorLat, lng = menu._anchorLng;
+  if (lat == null || lng == null || !S.plannerMap) return;
+  const pt = _latLngToPixel(S.plannerMap, lat, lng);
+  if (!pt) return;
+  const menuW = 260, vw = window.innerWidth;
+  menu.style.left = (vw - pt.x - 8 >= menuW ? pt.x + 4 : Math.max(8, pt.x - menuW - 4)) + 'px';
+  const mh = menu.offsetHeight || 280;
+  menu.style.top  = Math.max(4, Math.min(pt.y, window.innerHeight - mh - 4)) + 'px';
+}
+
 // ---- Planner place name suggestions ----
 
 function onPlanNameFocus() {
@@ -1233,9 +1364,11 @@ function _filterPlanTypeList(val) {
   if (!list) return;
   const raw = (val || '').trim();
   const q = raw.replace(/^[^\w]+\s*/, '').toLowerCase();
-  const matches = _planTypeKeys.filter(k =>
-    !raw || PLAN_TYPES[k].label.toLowerCase().includes(q)
-  );
+  const matches = _planTypeKeys.filter(k => {
+    if (!raw) return true;
+    const pt = PLAN_TYPES[k];
+    return pt.label.toLowerCase().includes(q) || (pt.search && pt.search.toLowerCase().includes(q));
+  });
   if (!matches.length) { list.style.display = 'none'; return; }
   list.innerHTML = matches.map(k => {
     const t = PLAN_TYPES[k];
@@ -1269,5 +1402,190 @@ function _planTypeKeydown(e) {
     const key = items[_planTypeKbIdx].getAttribute('data-key');
     if (key) _selectPlanType(key);
   }
+}
+
+// ---- Import modal (JSON / KML) ----
+
+var _planImportData = null;
+
+function showPlanImportModal() {
+  _planImportData = null;
+  const ta = document.getElementById('planImportText');
+  const fi = document.getElementById('planImportFile');
+  const prev = document.getElementById('planImportPreview');
+  const btn = document.getElementById('planImportBtn');
+  const hint = document.getElementById('planImportHint');
+  const arrow = document.getElementById('planImportHintArrow');
+  if (ta) ta.value = '';
+  if (fi) fi.value = '';
+  if (prev) prev.innerHTML = '';
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; btn.textContent = 'Import'; }
+  if (hint) hint.style.display = 'none';
+  if (arrow) arrow.textContent = '▼';
+  document.getElementById('planImportModal').style.display = 'flex';
+}
+
+function closePlanImportModal() {
+  document.getElementById('planImportModal').style.display = 'none';
+}
+
+function _onPlanImportFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result || '';
+    document.getElementById('planImportText').value = text;
+    _onPlanImportInput(text);
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+function _onPlanImportInput(text) {
+  text = (text || '').trim();
+  const prev = document.getElementById('planImportPreview');
+  const btn  = document.getElementById('planImportBtn');
+  _planImportData = null;
+
+  if (!text) {
+    prev.innerHTML = '';
+    btn.disabled = true; btn.style.opacity = '0.5'; btn.textContent = 'Import';
+    return;
+  }
+
+  let places = null;
+  const isXml = text.startsWith('<?xml') || text.includes('<kml') || text.includes('<Placemark');
+  if (isXml) {
+    places = _parseKmlToPlaces(text);
+  } else {
+    places = _parsePlanJson(text);
+  }
+
+  if (!places || !places.length) {
+    prev.innerHTML = '<div style="color:var(--danger);font-size:12px">⚠ Could not parse — expected a JSON array of places or a KML file.</div>';
+    btn.disabled = true; btn.style.opacity = '0.5'; btn.textContent = 'Import';
+    return;
+  }
+
+  const withCoords = places.filter(p => p.lat != null && p.lng != null).length;
+  const names5 = places.slice(0, 5).map(p => esc(p.name)).join(', ');
+  prev.innerHTML =
+    '<div style="color:var(--success);font-size:12px;font-weight:600">✓ Found ' + places.length + ' place' + (places.length !== 1 ? 's' : '') +
+    (withCoords < places.length ? ' <span style="font-weight:400;color:var(--muted)">(' + withCoords + ' with GPS)</span>' : '') + '</div>' +
+    '<div style="font-size:11px;color:var(--muted);margin-top:3px">' + names5 + (places.length > 5 ? ', …' : '') + '</div>';
+
+  _planImportData = places;
+  btn.disabled = false; btn.style.opacity = '1';
+  btn.textContent = 'Import ' + places.length + ' Place' + (places.length !== 1 ? 's' : '');
+}
+
+function _parsePlanJson(text) {
+  let data;
+  try { data = JSON.parse(text); } catch(e) { return null; }
+  const arr = Array.isArray(data) ? data : (data && Array.isArray(data.places) ? data.places : null);
+  if (!arr) return null;
+  return arr.filter(p => p && p.name).map(p => ({
+    name: String(p.name).trim(),
+    type: PLAN_TYPES[p.type] ? p.type : 'place',
+    lat:  p.lat  != null ? parseFloat(p.lat)  : null,
+    lng:  p.lng  != null ? parseFloat(p.lng)  : null,
+    description: String(p.description || '').trim()
+  })).filter(p => p.name);
+}
+
+function _parseKmlToPlaces(text) {
+  let doc;
+  try { doc = new DOMParser().parseFromString(text, 'text/xml'); } catch(e) { return null; }
+  if (doc.querySelector('parsererror')) return null;
+  const placemarks = Array.from(doc.querySelectorAll('Placemark'));
+  if (!placemarks.length) return null;
+  return placemarks.map(pm => {
+    const name = ((pm.querySelector('name') || {}).textContent || '').trim();
+    const rawDesc = ((pm.querySelector('description') || {}).textContent || '').trim();
+    const description = rawDesc.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    const coordsEl = pm.querySelector('Point coordinates');
+    let lat = null, lng = null;
+    if (coordsEl) {
+      const parts = coordsEl.textContent.trim().split(/[\s,]+/);
+      if (parts.length >= 2) { lng = parseFloat(parts[0]); lat = parseFloat(parts[1]); }
+    }
+    return { name, description, type: 'place',
+             lat: (isNaN(lat) ? null : lat), lng: (isNaN(lng) ? null : lng) };
+  }).filter(p => p.name);
+}
+
+function _getImportPromptTemplate() {
+  const types = Object.keys(PLAN_TYPES).join(', ');
+  return (
+    'Convert the content below into Trip Planner import JSON.\n' +
+    'Output ONLY a valid JSON array — no markdown fences, no explanation.\n\n' +
+    'Format:\n' +
+    '[\n' +
+    '  {\n' +
+    '    "name": "Schönbrunn Palace",\n' +
+    '    "type": "fortress",\n' +
+    '    "lat": 48.1845,\n' +
+    '    "lng": 16.3122,\n' +
+    '    "description": "optional notes or website URL"\n' +
+    '  },\n' +
+    '  { "name": "Café Central", "type": "coffee" }\n' +
+    ']\n\n' +
+    'Valid types (use the closest match):\n' +
+    types + '\n\n' +
+    'lat/lng and description are optional — omit if unknown.\n\n' +
+    'Content to convert:\n' +
+    '[PASTE YOUR LIST, URL, OR DESCRIPTION HERE]'
+  );
+}
+
+function _toggleImportHint() {
+  const hint = document.getElementById('planImportHint');
+  const arrow = document.getElementById('planImportHintArrow');
+  const pre = document.getElementById('planImportPromptText');
+  if (!hint) return;
+  const opening = hint.style.display === 'none';
+  hint.style.display = opening ? 'block' : 'none';
+  if (arrow) arrow.textContent = opening ? '▲' : '▼';
+  if (opening && pre && !pre.textContent) pre.textContent = _getImportPromptTemplate();
+}
+
+function _copyImportPrompt() {
+  const pre = document.getElementById('planImportPromptText');
+  const btn = document.getElementById('planImportCopyBtn');
+  if (!btn) return;
+  const text = (pre && pre.textContent) || _getImportPromptTemplate();
+  const done = () => { btn.textContent = '✓ Copied!'; setTimeout(() => { btn.textContent = 'Copy'; }, 2000); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => _copyFallback(text, done));
+  } else {
+    _copyFallback(text, done);
+  }
+}
+
+function _copyFallback(text, cb) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); } catch(e) {}
+  document.body.removeChild(ta);
+  if (cb) cb();
+}
+
+function executePlanImport() {
+  if (!_planImportData || !_planImportData.length) return;
+  const btn = document.getElementById('planImportBtn');
+  btn.disabled = true; btn.textContent = 'Importing…';
+  google.script.run
+    .withSuccessHandler(result => {
+      closePlanImportModal();
+      loadPlan();
+      toast('Imported ' + result.added + ' place' + (result.added !== 1 ? 's' : '') + '!', 'ok');
+    })
+    .withFailureHandler(err => {
+      btn.disabled = false; btn.style.opacity = '1';
+      btn.textContent = 'Import ' + _planImportData.length + ' Places';
+      toast('Import failed: ' + err.message, 'err');
+    })
+    .bulkImportPlanPlaces(S.currentTrip.id, JSON.stringify(_planImportData));
 }
 </script>

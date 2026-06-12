@@ -712,7 +712,7 @@ Three tabs: **Bank**, **Calendar**, **Map**
 | Key | Icon | Color | Label |
 |---|---|---|---|
 | nature-hike | 🥾 | #2E7D32 | Nature Hike |
-| lake-river | 🏞️ | #0288D1 | Lake/River |
+| lake-river | 🏞️ | #0288D1 | Lakes, Rivers & Waterfalls |
 | cablecar | 🚡 | #7B1FA2 | Cablecar |
 | restaurant | 🍽️ | #4CAF50 | Restaurant |
 | coffee | ☕ | #795548 | Coffee |
@@ -723,19 +723,32 @@ Three tabs: **Bank**, **Calendar**, **Map**
 | shop | 🛍️ | #9C27B0 | Shop |
 | petrol | ⛽ | #616161 | Petrol Station |
 | gas-station | ⛽ | #FF6F00 | Gas Station |
-| hotel | 🏨 | #9C27B0 | Hotel |
+| hotel | 🛏️ | #9C27B0 | Hotel |
 | attraction | 🎡 | #FF9800 | Attraction |
 | cave | 🦇 | #4E342E | Cave |
-| fortress | 🏰 | #8D6E63 | Fortress/Temple |
+| fortress | 🏰 | #8D6E63 | Architectural Landmarks *(search aliases: castle, fortress, temple, palace, church, cathedral, monument)* |
 | museum | 🏛️ | #5D4037 | Museum |
 | viewpoint | 👁️ | #00BCD4 | Viewpoint |
 | airport | ✈️ | #0288D1 | Airport |
 | car-rental | 🚗 | #F44336 | Car Rental |
-| city-walk | 🚶 | #1565C0 | City Walk |
+| city-walk | 🏙️ | #1565C0 | City Walk |
 | village | 🏘️ | #558B2F | Village |
 | parking | 🅿️ | #37474F | Parking |
 
-Note: `petrol` (Petrol Station) and `gas-station` (Gas Station) are distinct types kept for backward compatibility. `gas-station` was added later to match Google Maps `gas_station` POI type.
+Notes:
+- `petrol` (Petrol Station) and `gas-station` (Gas Station) are distinct types kept for backward compatibility. `gas-station` was added later to match Google Maps `gas_station` POI type.
+- `fortress` has a `search` field on the PLAN_TYPES entry: `'castle fortress temple palace church cathedral monument'`. The type dropdown filter checks both `label` and `search` so any of those words returns it.
+- Check-in type `hotel` also uses 🛏️ (same as planner hotel type).
+
+### Import Places (📥 Import button)
+- Small "📥 Import" button rendered above the map in the map panel (always visible regardless of bank content)
+- Opens `#planImportModal` — a fixed overlay with file upload + paste textarea
+- **Supported formats**:
+  - **JSON**: array of `{ name, type?, lat?, lng?, description? }` objects, OR `{ places: [...] }` wrapper. Type must match a PLAN_TYPES key or defaults to `'place'`.
+  - **KML** (Google My Maps export): parses all `<Placemark>` elements; extracts `<name>`, `<description>` (HTML stripped), and `<Point><coordinates>` (standard KML order: lng,lat,alt)
+- **Preview**: after parse, shows count, GPS coverage, and first 5 names
+- **Import button**: calls `bulkImportPlanPlaces(tripId, JSON.stringify(places))` on backend → reloads plan → toast
+- Backend `bulkImportPlanPlaces(tripId, placesJson)`: parses JSON, appends all places to bank, saves, returns `{ success, added }`
 
 ### Bank Tab
 - Lists all places with icon, name, type label, GPS indicator (📡 if coords present)
@@ -794,6 +807,10 @@ Note: `petrol` (Petrol Station) and `gas-station` (Gas Station) are distinct typ
   - CSS `!important` overrides: `.gm-style .gm-style-iw-c { max-height: 320px !important }` and `.gm-style .gm-style-iw-d { max-height: 290px !important }` — required because Google Maps sets inline `max-height` that would otherwise clip content
   - `maxWidth: 300` on InfoWindow constructor
 - `fitBounds`, maxZoom 14 enforced via `bounds_changed` one-time listener
+- After adding a new place with GPS coords, `S._planPendingFocus = { lat, lng }` is set in `savePlanPlaceUI`. After map re-render in `_renderPlannerLeaflet`, the map pans to that location and zooms to min 13 (150ms delay to let markers render first). Only set when `S.plannerTab === 'map'`.
+- Persistent `bounds_changed` listener calls `_repositionContextMenu()` — keeps open context menus (Pin Menu or Place Menu) anchored to their LatLng as the map pans/zooms
+- `_latLngToPixel(map, lat, lng)` — reverse of `_pixelToLatLng`; maps LatLng → viewport `{x, y}` using same linear interpolation
+- `_repositionContextMenu()` — reads `menu._anchorLat/Lng`, calls `_latLngToPixel`, recomputes `menu.style.left/top` using same side-preference logic as initial placement
 - Separate instance `S.plannerMap` (does not share with `S.leafletMap` or `_mpMap`)
 - No GPS data → "No places with GPS data yet" message
 
@@ -844,7 +861,7 @@ Note: `petrol` (Petrol Station) and `gas-station` (Gas Station) are distinct typ
 - **Photo strip** (if available): `height:120px; overflow:hidden; background:#e5e7eb` — `<img>` with `object-fit:cover`; `onerror` hides the strip
 - **× button**: `position:absolute; top:0; right:0; font-size:22px; padding:10px 12px; min-width:44px; min-height:44px; display:flex; align-items:center; justify-content:center; z-index:1` — tap target is 44×44px to meet mobile accessibility guidelines
 - **Name** (bold 13px): `padding:10px 14px 2px; padding-right:40px` — right-padding avoids overlap with × button
-- **Type chip** (11px, primary color): icon + label
+- **Type chip** (11px, `var(--text)` color — not blue, to avoid confusion with links): icon + label
 - **Website link** (if present): rendered as clickable `<a target="_blank">`, truncated to 40 chars for display
 - **Description/address snippet** (11px, 2 lines max)
 - **Action row**: "📍 Add to Bank" button spanning full width
@@ -874,10 +891,10 @@ Separate from Place Menu. Triggered by `rightclick` on a `google.maps.Marker` (d
 - **Type chip** (11px, primary color)
 - **Description** (11px, max 100 chars, linkified via `_linkifyDesc()`): `max-height:56px; overflow:hidden; line-height:1.5`
 - **Day assignment** list (if any assigned days)
-- **Action row** (3 buttons, `flex`): "📅 Assign" | "✏️ Edit" | "✕ Remove"
+- **Action row** (3 buttons, `flex`): "📅 Assign" (`var(--text)`) | "✏️ Edit" (`var(--text)`) | "✕ Remove" (`#EF4444`) — Assign and Edit are black to avoid confusion with blue links
 - **Google Maps link**: `<a>` to `https://maps.google.com/?q=lat,lng`
 
-`showPinMenu(placeId, cx, cy)`:
+`showPinMenu(placeId, cx, cy)` — **stores `menu._anchorLat/Lng = p.lat/lng`** so the map's `bounds_changed` listener can reposition the menu on pan/zoom:
 - Looks up place in `S.planBank` by id
 - Sets `menu._pinId = placeId` (used by async photo callback to check if menu is still open for this place)
 - Renders full HTML
