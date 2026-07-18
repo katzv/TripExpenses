@@ -139,6 +139,10 @@ function loadPlan() {
     .withSuccessHandler(plan => {
       S.planBank        = (plan && plan.bank)        || [];
       S.planAssignments = (plan && plan.assignments) || {};
+      S.planNotes       = (plan && plan.notes)       || {};
+      S.planDrives      = (plan && plan.drives)      || {};
+      S.planActivities  = (plan && plan.activities)  || {};
+      S.planOrder       = (plan && plan.orders)      || {};
       // Attach photo to newly created place (matched by name)
       if (S._planPendingPhotoAssign) {
         const pa = S._planPendingPhotoAssign; S._planPendingPhotoAssign = null;
@@ -152,7 +156,7 @@ function loadPlan() {
         }
       }
       renderPlanBank();
-      if (S.plannerTab === 'map') setTimeout(initPlannerMap, 50);
+      if (S.plannerTab === 'map') setTimeout(() => initPlannerMap(true), 50);
     })
     .withFailureHandler(err => {
       if (el) el.innerHTML = '<div style="color:var(--danger);padding:20px">Failed to load plan</div>';
@@ -295,11 +299,14 @@ function renderBankBarChips() {
   bar.innerHTML = S.planBank.map(p => {
     const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E' };
     const isHL = p.id === hl;
-    const border = isHL ? '2px solid ' + t.color : '1.5px solid ' + t.color;
+    const isMk = !!p.marked;
+    const border = isHL ? '2px solid ' + t.color : (isMk ? '2px solid #FFE0B0' : '1.5px solid ' + t.color);
+    const bg    = isMk ? '#FFF3E0' : '#fff';
     return '<span id="bankbar-' + p.id + '" class="plan-bank-bar-chip" onclick="bankBarChipClick(\'' + p.id + '\')" ' +
       'oncontextmenu="event.preventDefault();event.stopPropagation();showPinMenu(\'' + p.id + '\',event.clientX,event.clientY)" ' +
       'title="' + esc(p.name) + '" ' +
-      'style="background:#fff;color:#222;border:' + border + '">' +
+      'style="background:' + bg + ';color:#222;border:' + border + '">' +
+      (isMk ? '<span style="font-size:10px;line-height:1">⭐</span>' : '') +
       '<span>' + t.icon + '</span>' +
       '<span style="max-width:140px;overflow:hidden;text-overflow:ellipsis">' + esc(p.name) + '</span>' +
       '<button class="plan-bank-chip-del" onclick="event.stopPropagation();confirmDeletePlanPlace(\'' + p.id + '\')">×</button>' +
@@ -320,7 +327,11 @@ function bankBarChipClick(id) {
   const chip = document.getElementById('bankbar-' + id);
   if (chip) chip.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
   const marker = (S.plannerMarkers || []).find(m => m._placeId === id);
-  if (marker && S.plannerMap) S.plannerMap.panTo(marker.getPosition());
+  if (marker && S.plannerMap) {
+    S.plannerMap.panTo(marker.getPosition());
+    const bar = document.getElementById('planBankBar');
+    if (bar && bar.offsetHeight) S.plannerMap.panBy(0, -Math.round(bar.offsetHeight / 2));
+  }
 }
 
 // Builds and shows the Pin Menu for a saved place at viewport coords (cx, cy).
@@ -350,7 +361,10 @@ function showPinMenu(placeId, cx, cy) {
       _linkifyDesc(p.description.length > 100 ? p.description.substring(0, 100) + '…' : p.description) + '</div>'
     : '';
   const bLat = parseFloat(p.lat) || 0, bLng = parseFloat(p.lng) || 0;
+  const _hasCoords = bLat !== 0 || bLng !== 0;
   const gmUrl = 'https://maps.google.com/?q=' + bLat + ',' + bLng;
+  const _isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const wazeUrl = 'waze://?ll=' + bLat + ',' + bLng + '&navigate=yes';
   const bs = 'flex:1;padding:7px 4px;background:none;border:none;cursor:pointer;font-size:11px;font-weight:600;text-align:center';
   const pid = placeId;
 
@@ -369,9 +383,11 @@ function showPinMenu(placeId, cx, cy) {
     '<div style="border-top:1px solid var(--border);padding:2px 6px;display:flex">' +
     '<button onclick="_hideContextMenu();openDayPickerForPlace(\'' + pid + '\')" style="' + bs + ';color:var(--text)">📅 Assign</button>' +
     '<button onclick="_hideContextMenu();editPlanPlace(\'' + pid + '\')" style="' + bs + ';color:var(--text)">✏️ Edit</button>' +
-    '<button onclick="ctxMenuDelete(\'' + pid + '\',event)" style="' + bs + ';color:#EF4444">✕ Remove</button>' +
+    '<button id="pinMarkBtn" onclick="togglePlanPlaceMark(\'' + pid + '\')" style="' + bs + ';color:' + (p.marked ? '#FFE0B0' : 'var(--text)') + '">' + (p.marked ? '⭐ Marked' : '☆ Mark') + '</button>' +
+    '<button onclick="ctxMenuDelete(\'' + pid + '\',event)" style="' + bs + ';color:#EF4444">✕ Del</button>' +
     '</div>' +
-    '<a href="' + esc(gmUrl) + '" target="_blank" rel="noopener" style="display:block;padding:7px 14px;font-size:12px;color:var(--muted);text-decoration:none;border-top:1px solid var(--border)">🗺️ View on Google Maps</a>';
+    '<a href="' + esc(gmUrl) + '" target="_blank" rel="noopener" style="display:block;padding:7px 14px;font-size:12px;color:var(--muted);text-decoration:none;border-top:1px solid var(--border)">🗺️ View on Google Maps</a>' +
+    (_isMobile && _hasCoords ? '<a href="' + wazeUrl + '" style="display:flex;align-items:center;gap:6px;padding:7px 14px;font-size:12px;color:#00b4d8;text-decoration:none;border-top:1px solid var(--border)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="14" height="14" style="flex-shrink:0"><rect width="32" height="32" rx="8" fill="#33CCFF"/><circle cx="11" cy="13" r="3" fill="white"/><circle cx="21" cy="13" r="3" fill="white"/><path d="M10 20 Q16 24 22 20" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>Navigate with Waze</a>' : '');
   menu.style.display = 'block';
 
   // Post-render: clamp so menu stays in viewport
@@ -400,7 +416,7 @@ function _fetchPinPhoto(bankPlaceId, name, lat, lng) {
     svc.findPlaceFromQuery(req, (results, status) => {
       let url = null;
       if (status === 'OK' && results && results[0] && (results[0].photos || []).length)
-        url = results[0].photos[0].getUrl({ maxWidth: 320, maxHeight: 80 });
+        url = results[0].photos[0].getUrl({ maxWidth: 640, maxHeight: 160 });
       if (!S._planPhotoCache) S._planPhotoCache = {};
       S._planPhotoCache[bankPlaceId] = url;
       if (!url) return;
@@ -414,6 +430,28 @@ function _fetchPinPhoto(bankPlaceId, name, lat, lng) {
       }
     });
   });
+}
+
+function togglePlanPlaceMark(placeId) {
+  const p = S.planBank.find(x => x.id === placeId);
+  if (!p) return;
+  p.marked = !p.marked;
+  const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E' };
+  const marker = (S.plannerMarkers || []).find(m => m._placeId === placeId);
+  if (marker) {
+    marker.setIcon({ path: google.maps.SymbolPath.CIRCLE, fillColor: p.marked ? '#FFE0B0' : '#ffffff', fillOpacity: 1, strokeColor: t.color, strokeWeight: p.marked ? 3 : 2, scale: 14 });
+    marker.setLabel({ text: t.icon, color: '#222', fontSize: '13px' });
+  }
+  renderBankBarChips();
+  const btn = document.getElementById('pinMarkBtn');
+  if (btn) {
+    btn.textContent = p.marked ? '⭐ Marked' : '☆ Mark';
+    btn.style.color = p.marked ? '#FFE0B0' : 'var(--text)';
+  }
+  google.script.run
+    .withSuccessHandler(() => toast(p.marked ? '⭐ Marked as priority' : 'Unmarked', 'ok'))
+    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .savePlanPlaceMark(placeId, S.currentTrip.id, !!p.marked);
 }
 
 function editPlanPlace(id) {
@@ -565,12 +603,107 @@ function switchPlannerTab(tab) {
   });
   if (tab === 'cal')  buildPlannerCalendar();
   if (tab === 'map')  setTimeout(() => {
-    initPlannerMap();
+    initPlannerMap(true);
     if (S.plannerMap) google.maps.event.trigger(S.plannerMap, 'resize');
   }, 50);
 }
 
 // ---- Planner calendar ----
+
+var _calDnD = {};
+
+function _startCalLongPress(placeId, e) {
+  _calLpFired = false;
+  _calLpTimer = setTimeout(function() {
+    _calLpFired = true;
+    const t = e.touches && e.touches[0];
+    showPinMenu(placeId, t ? t.clientX : e.clientX, t ? t.clientY : e.clientY);
+  }, 500);
+}
+function _cancelCalLongPress() {
+  if (_calLpTimer) { clearTimeout(_calLpTimer); _calLpTimer = null; }
+}
+
+function _getDayOrder(date) {
+  const stored = S.planOrder && S.planOrder[date];
+  if (stored && stored.length) {
+    const bankIds     = new Set(S.planBank.map(p => p.id));
+    const driveIds    = new Set((S.planDrives[date]      || []).map(d => d.id));
+    const activityIds = new Set((S.planActivities[date]  || []).map(a => a.id));
+    const valid = stored.filter(o =>
+      o.type === 'place' ? bankIds.has(o.id) :
+      o.type === 'drive' ? driveIds.has(o.id) :
+      o.type === 'activity' ? activityIds.has(o.id) : false);
+    if (valid.length) return valid;
+  }
+  const bId = {}; S.planBank.forEach(p => { bId[p.id] = p; });
+  const placeItems    = (S.planAssignments[date] || [])
+    .filter(id => bId[id] && bId[id].type !== 'hotel').map(id => ({ type: 'place', id }));
+  const driveItems    = (S.planDrives[date]     || []).map(d => ({ type: 'drive',    id: d.id }));
+  const activityItems = (S.planActivities[date] || []).map(a => ({ type: 'activity', id: a.id }));
+  return [...placeItems, ...driveItems, ...activityItems];
+}
+
+function _setDayOrder(date, order) {
+  if (!S.planOrder) S.planOrder = {};
+  if (order && order.length) S.planOrder[date] = order;
+  else delete S.planOrder[date];
+}
+
+function _saveDayOrderAsync(date) {
+  google.script.run
+    .withFailureHandler(err => toast('Order sync: ' + err.message, 'err'))
+    .savePlanDayOrder(S.currentTrip.id, date, S.planOrder[date] || []);
+}
+
+function _syncOrderOnMutation(date, type, id, action) {
+  if (!S.planOrder || !S.planOrder[date]) return;
+  if (action === 'remove') {
+    S.planOrder[date] = S.planOrder[date].filter(o => !(o.type === type && o.id === id));
+    if (!S.planOrder[date].length) delete S.planOrder[date];
+  } else {
+    S.planOrder[date].push({ type, id });
+  }
+}
+
+function _calDragStart(e, date, type, id) {
+  e.stopPropagation();
+  _calDnD = { date, type, id };
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', '');
+  e.currentTarget.style.opacity = '0.4';
+}
+
+function _calDragOver(e, date, type, id) {
+  if (_calDnD.date !== date || (_calDnD.type === type && _calDnD.id === id)) return;
+  e.preventDefault();
+  e.currentTarget.style.borderTop = '2px solid var(--primary)';
+}
+
+function _calDragLeave(e) {
+  e.currentTarget.style.borderTop = '';
+}
+
+function _calDrop(e, date, type, id) {
+  e.preventDefault();
+  e.currentTarget.style.borderTop = '';
+  if (_calDnD.date !== date || (_calDnD.type === type && _calDnD.id === id)) return;
+  const order = _getDayOrder(date);
+  const srcIdx = order.findIndex(o => o.type === _calDnD.type && o.id === _calDnD.id);
+  const tgtIdx = order.findIndex(o => o.type === type && o.id === id);
+  if (srcIdx === -1 || tgtIdx === -1) return;
+  const [moved] = order.splice(srcIdx, 1);
+  order.splice(tgtIdx, 0, moved);
+  _setDayOrder(date, order);
+  buildPlannerCalendar();
+  _saveDayOrderAsync(date);
+}
+
+function _calDragEnd(e) {
+  e.currentTarget.style.opacity = '';
+  e.currentTarget.style.borderTop = '';
+  _calDnD = {};
+}
 
 function buildPlannerCalendar() {
   const el = document.getElementById('planCalContent');
@@ -626,32 +759,63 @@ function buildPlannerCalendar() {
     const tds = week.map(day => {
       const cls = 'cal7-cell' + (day.inRange ? '' : ' vacant');
 
-      const pills = day.nonHotels.map(p => {
-        const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E' };
-        const del = day.inRange
-          ? '<button class="plan-pill-del" onclick="event.stopPropagation();removePlaceFromDayUI(\'' + day.ds + '\',\'' + p.id + '\')">×</button>'
-          : '';
-        return '<span class="cal7-pill plan-pill" style="background:' + t.color + '18;color:' + t.color + '">' +
-          '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">' + t.icon + ' ' + esc(p.name) + '</span>' + del +
-          '</span>';
-      }).join('');
+      const _dm  = {}; (S.planDrives[day.ds]     || []).forEach(d => { _dm[d.id]  = d; });
+      const _amG = {}; (S.planActivities[day.ds] || []).forEach(a => { _amG[a.id] = a; });
+      const _gDnd = (type, id) => 'draggable="true" ondragstart="_calDragStart(event,\'' + day.ds + '\',\'' + type + '\',\'' + id + '\')" ondragover="_calDragOver(event,\'' + day.ds + '\',\'' + type + '\',\'' + id + '\')" ondragleave="_calDragLeave(event)" ondrop="_calDrop(event,\'' + day.ds + '\',\'' + type + '\',\'' + id + '\')" ondragend="_calDragEnd(event)"';
+      const itemPills = day.inRange ? _getDayOrder(day.ds).map(item => {
+        if (item.type === 'place') {
+          const p = byId[item.id]; if (!p || p.type === 'hotel') return '';
+          const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E' };
+          return '<span class="cal7-pill plan-pill" ' + _gDnd('place', p.id) + ' title="' + esc(p.name) + '" style="cursor:grab;background:' + t.color + '18;color:' + t.color + '" oncontextmenu="event.preventDefault();event.stopPropagation();showPinMenu(\'' + p.id + '\',event.clientX,event.clientY)" ontouchstart="_startCalLongPress(\'' + p.id + '\',event)" ontouchend="_cancelCalLongPress()" ontouchmove="_cancelCalLongPress()">' +
+            '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">' + t.icon + ' ' + esc(p.name) + '</span>' +
+            '<button class="plan-pill-del" onclick="event.stopPropagation();removePlaceFromDayUI(\'' + day.ds + '\',\'' + p.id + '\')">×</button></span>';
+        } else if (item.type === 'drive') {
+          const d = _dm[item.id]; if (!d) return '';
+          return '<span class="cal7-pill" ' + _gDnd('drive', d.id) + ' title="' + esc(d.text) + '" style="cursor:grab;background:#F3F4F6;color:#374151" oncontextmenu="event.preventDefault();event.stopPropagation();editDriveUI(\'' + day.ds + '\',\'' + d.id + '\')">' +
+            '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">🚗 ' + esc(d.text) + '</span>' +
+            '<button class="plan-pill-del" onclick="event.stopPropagation();removeDriveUI(\'' + day.ds + '\',\'' + d.id + '\')">×</button></span>';
+        } else if (item.type === 'activity') {
+          const a = _amG[item.id]; if (!a) return '';
+          return '<span class="cal7-pill" ' + _gDnd('activity', a.id) + ' title="' + esc(a.text) + '" style="cursor:grab;background:#EDE9FE;color:#7C3AED" oncontextmenu="event.preventDefault();event.stopPropagation();editActivityUI(\'' + day.ds + '\',\'' + a.id + '\')">' +
+            '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">🎯 ' + esc(a.text) + '</span>' +
+            '<button class="plan-pill-del" onclick="event.stopPropagation();removeActivityUI(\'' + day.ds + '\',\'' + a.id + '\')">×</button></span>';
+        }
+        return '';
+      }).join('') : '';
 
       const hotelText = day.hotels.length && day.inRange
         ? '<div class="cal7-foot" style="display:flex;flex-wrap:wrap;gap:2px;align-items:center">' +
           day.hotels.map(p =>
-            '<span style="display:inline-flex;align-items:center;gap:2px">🏨 ' + esc(p.name) +
+            '<span style="display:inline-flex;align-items:center;gap:2px" title="' + esc(p.name) + '" oncontextmenu="event.preventDefault();event.stopPropagation();showPinMenu(\'' + p.id + '\',event.clientX,event.clientY)">🏨 ' + esc(p.name) +
             '<button class="plan-pill-del" onclick="event.stopPropagation();removePlaceFromDayUI(\'' + day.ds + '\',\'' + p.id + '\')">×</button></span>'
           ).join('<span style="opacity:0.5"> / </span>') +
           '</div>'
         : '';
 
-      const addBtn = day.inRange
-        ? '<button class="plan-add-btn" onclick="openAssignModal(\'' + day.ds + '\')">+ add</button>'
+      const drivePills = day.inRange
+        ? (S.planDrives[day.ds] || []).map(d =>
+            '<span class="cal7-pill" title="' + esc(d.text) + '" style="background:#F3F4F6;color:#374151">' +
+            '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">🚗 ' + esc(d.text) + '</span>' +
+            '<button class="plan-pill-del" onclick="event.stopPropagation();removeDriveUI(\'' + day.ds + '\',\'' + d.id + '\')">×</button>' +
+            '</span>'
+          ).join('')
         : '';
 
-      return '<td class="' + cls + '"><div class="cal7-inner">' +
-        '<div class="cal7-hdr">' + day.dd + '/' + day.mm + '</div>' +
-        '<div class="cal7-body">' + pills + addBtn + '</div>' +
+      const addBtn = day.inRange
+        ? '<button class="plan-add-btn" onclick="openAddMenu(\'' + day.ds + '\')">+ add</button>'
+        : '';
+
+      const noteText = (S.planNotes && S.planNotes[day.ds]) || '';
+      const hdrCls   = day.inRange ? ' cal7-hdr-edit' : '';
+      const hdrClick = day.inRange ? ' onclick="event.stopPropagation();editPlanDayNote(\'' + day.ds + '\')"' : '';
+      const noteSpan = (noteText && day.inRange) ? ' <span class="cal7-hdr-desc">' + esc(noteText) + '</span>' : '';
+      const isFocused  = day.inRange && S.planCalFocusDay === day.ds;
+      const cellClick  = day.inRange ? ' onclick="_togglePlanDayFocus(\'' + day.ds + '\',event)"' : '';
+      const focusStyle = isFocused ? ';outline:2px solid var(--primary);outline-offset:-2px;background:#EFF6FF' : '';
+
+      return '<td class="' + cls + '" style="' + (day.inRange ? 'cursor:pointer' : '') + focusStyle + '"' + cellClick + '><div class="cal7-inner">' +
+        '<div class="cal7-hdr' + hdrCls + '"' + hdrClick + '>' + day.dd + '/' + day.mm + noteSpan + '</div>' +
+        '<div class="cal7-body">' + itemPills + addBtn + '</div>' +
         hotelText + '</div></td>';
     }).join('');
     return '<tr>' + tds + '</tr>';
@@ -660,6 +824,8 @@ function buildPlannerCalendar() {
   const fv = S.planCalFilterFrom || '';
   const tv = S.planCalFilterTo   || '';
   const hasFilter = fv || tv;
+  const isListView = S.planCalView === 'list';
+  const _tvBtn = (on) => 'padding:5px 10px;min-height:32px;font-size:13px;font-weight:700;border-radius:7px;cursor:pointer;border:1.5px solid var(--primary);background:' + (on ? 'var(--primary);color:#fff' : '#fff;color:var(--primary)');
   let filterBar = '<div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">' +
     '<span style="font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap">From</span>' +
     '<input type="date" class="fc" style="width:132px;padding:5px 8px;font-size:12px;min-height:32px" value="' + fv + '" onblur="S.planCalFilterFrom=this.value||null;buildPlannerCalendar()">' +
@@ -668,8 +834,74 @@ function buildPlannerCalendar() {
   if (hasFilter) {
     filterBar += '<button class="btn btn-outline btn-sm" style="padding:5px 10px;min-height:32px;font-size:11px;white-space:nowrap" onclick="S.planCalFilterFrom=null;S.planCalFilterTo=null;buildPlannerCalendar()">&#10005; Clear</button>';
   }
-  filterBar += '</div>';
+  filterBar += '<div style="display:flex;gap:3px;margin-left:auto">' +
+    '<button style="' + _tvBtn(!isListView) + '" onclick="S.planCalView=\'grid\';buildPlannerCalendar()" title="Grid view">⊞</button>' +
+    '<button style="' + _tvBtn(isListView)  + '" onclick="S.planCalView=\'list\';buildPlannerCalendar()" title="List view">≡</button>' +
+    '</div></div>';
 
+  if (isListView) {
+    const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const inRangeDays = weeks.flatMap(w => w).filter(d => d.inRange);
+    const listRows = inRangeDays.map(day => {
+      const dow    = DOW[new Date(day.ds + 'T12:00:00Z').getUTCDay()];
+      const note   = (S.planNotes && S.planNotes[day.ds]) || '';
+      const isFoc  = S.planCalFocusDay === day.ds;
+      const noteSpan2 = note ? ' <span style="font-weight:400;font-style:italic;opacity:.8;font-size:12px">' + esc(note) + '</span>' : '';
+      const _dmL = {}; (S.planDrives[day.ds]     || []).forEach(d => { _dmL[d.id]  = d; });
+      const _amL = {}; (S.planActivities[day.ds] || []).forEach(a => { _amL[a.id] = a; });
+      const _dndAttr = (ds, type, id) => 'draggable="true" ondragstart="_calDragStart(event,\'' + ds + '\',\'' + type + '\',\'' + id + '\')" ondragover="_calDragOver(event,\'' + ds + '\',\'' + type + '\',\'' + id + '\')" ondragleave="_calDragLeave(event)" ondrop="_calDrop(event,\'' + ds + '\',\'' + type + '\',\'' + id + '\')" ondragend="_calDragEnd(event)"';
+      const _handle = '<span style="cursor:grab;color:var(--muted);font-size:15px;flex-shrink:0;user-select:none;padding:0 2px">⠿</span>';
+      let rows = '';
+      _getDayOrder(day.ds).forEach(item => {
+        if (item.type === 'place') {
+          const p = byId[item.id]; if (!p || p.type === 'hotel') return;
+          const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E' };
+          rows += '<div ' + _dndAttr(day.ds, 'place', p.id) + ' style="display:flex;align-items:center;gap:8px;padding:5px 12px;font-size:13px" oncontextmenu="event.preventDefault();event.stopPropagation();showPinMenu(\'' + p.id + '\',event.clientX,event.clientY)" ontouchstart="_startCalLongPress(\'' + p.id + '\',event)" ontouchend="_cancelCalLongPress()" ontouchmove="_cancelCalLongPress()">' +
+            _handle +
+            '<span style="background:' + t.color + '22;color:' + t.color + ';width:26px;height:26px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">' + t.icon + '</span>' +
+            '<span style="flex:1">' + esc(p.name) + '</span>' +
+            '<button class="plan-pill-del" onclick="removePlaceFromDayUI(\'' + day.ds + '\',\'' + p.id + '\')">×</button></div>';
+        } else if (item.type === 'drive') {
+          const d = _dmL[item.id]; if (!d) return;
+          rows += '<div ' + _dndAttr(day.ds, 'drive', d.id) + ' style="display:flex;align-items:center;gap:8px;padding:5px 12px;font-size:13px" oncontextmenu="event.preventDefault();event.stopPropagation();editDriveUI(\'' + day.ds + '\',\'' + d.id + '\')">' +
+            _handle +
+            '<span style="background:#F3F4F6;color:#374151;width:26px;height:26px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">🚗</span>' +
+            '<span style="flex:1">' + esc(d.text) + '</span>' +
+            '<button class="plan-pill-del" onclick="removeDriveUI(\'' + day.ds + '\',\'' + d.id + '\')">×</button></div>';
+        } else if (item.type === 'activity') {
+          const a = _amL[item.id]; if (!a) return;
+          rows += '<div ' + _dndAttr(day.ds, 'activity', a.id) + ' style="display:flex;align-items:center;gap:8px;padding:5px 12px;font-size:13px" oncontextmenu="event.preventDefault();event.stopPropagation();editActivityUI(\'' + day.ds + '\',\'' + a.id + '\')">' +
+            _handle +
+            '<span style="background:#EDE9FE;color:#7C3AED;width:26px;height:26px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">🎯</span>' +
+            '<span style="flex:1">' + esc(a.text) + '</span>' +
+            '<button class="plan-pill-del" onclick="removeActivityUI(\'' + day.ds + '\',\'' + a.id + '\')">×</button></div>';
+        }
+      });
+      day.hotels.forEach(p => {
+        rows += '<div style="display:flex;align-items:center;gap:8px;padding:5px 12px;font-size:13px" oncontextmenu="event.preventDefault();event.stopPropagation();showPinMenu(\'' + p.id + '\',event.clientX,event.clientY)">' +
+          '<span style="background:#9C27B022;color:#9C27B0;width:26px;height:26px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">🛏️</span>' +
+          '<span style="flex:1">' + esc(p.name) + '</span>' +
+          '<button class="plan-pill-del" onclick="removePlaceFromDayUI(\'' + day.ds + '\',\'' + p.id + '\')">×</button></div>';
+      });
+      const cardStyle = 'border-bottom:1px solid var(--border);' + (isFoc ? 'background:#EFF6FF;border-left:3px solid var(--primary);' : '');
+      return '<div id="planday-' + day.ds + '" style="' + cardStyle + '">' +
+        '<div style="font-weight:700;font-size:13px;padding:8px 12px 5px;cursor:pointer;display:flex;align-items:baseline;gap:6px;color:' + (isFoc ? 'var(--primary)' : 'var(--text)') + '" onclick="_togglePlanDayFocus(\'' + day.ds + '\',event)">' +
+        dow + ' ' + day.dd + '/' + day.mm + noteSpan2 + '</div>' +
+        rows +
+        '<div style="padding:3px 12px 7px"><button class="plan-add-btn" onclick="openAddMenu(\'' + day.ds + '\')">+ add</button></div>' +
+        '</div>';
+    }).join('');
+    el.innerHTML = filterBar + '<div>' + listRows + '</div>';
+    if (S.planCalFocusDay) {
+      setTimeout(() => {
+        const fd = document.getElementById('planday-' + S.planCalFocusDay);
+        if (fd) fd.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
+    }
+    return;
+  }
+
+  // Grid view
   el.innerHTML = filterBar + dowRow +
     '<div class="cal7-wrap"><table class="cal7-table"><tbody>' + bodyRows + '</tbody></table></div>';
 
@@ -680,6 +912,177 @@ function buildPlannerCalendar() {
       dowTable.style.transform = 'translateX(-' + calWrap.scrollLeft + 'px)';
     });
   }
+}
+
+function _togglePlanDayFocus(dateStr, e) {
+  if (e && e.target && e.target.closest('button, a, .cal7-hdr-edit, .cal7-pill')) return;
+  S.planCalFocusDay = (S.planCalFocusDay === dateStr) ? null : dateStr;
+  buildPlannerCalendar();
+}
+
+function editPlanDayNote(dateStr) {
+  const current = S.planNotes[dateStr] || '';
+  const label = new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  showModal('Note — ' + label,
+    '<div class="fg"><textarea class="fc" id="planNoteText" rows="4" placeholder="Add a note for this day…" style="resize:vertical;font-size:14px">' + esc(current) + '</textarea></div>' +
+    '<div class="btn-row">' +
+    (current ? '<button class="btn btn-danger btn-sm" style="flex:0;white-space:nowrap" onclick="_doSavePlanDayNote(\'' + dateStr + '\',\'\')">Clear</button>' : '') +
+    '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="_doSavePlanDayNote(\'' + dateStr + '\',document.getElementById(\'planNoteText\').value)">Save</button>' +
+    '</div>');
+  setTimeout(() => { const t = document.getElementById('planNoteText'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 150);
+}
+
+function _doSavePlanDayNote(dateStr, text) {
+  const trimmed = (text || '').trim();
+  closeModal();
+  if (trimmed) S.planNotes[dateStr] = trimmed;
+  else delete S.planNotes[dateStr];
+  buildPlannerCalendar();
+  google.script.run
+    .withSuccessHandler(() => toast(trimmed ? 'Note saved' : 'Note cleared', 'ok'))
+    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .savePlanDayNote(S.currentTrip.id, dateStr, trimmed);
+}
+
+function openAddMenu(dateStr) {
+  const label = new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const bs = 'display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;background:#fff;border:1.5px solid var(--border);border-radius:10px;cursor:pointer;font-size:14px;font-weight:600;color:var(--text);text-align:left';
+  showModal('Add to ' + label,
+    '<div style="display:flex;flex-direction:column;gap:8px;padding:2px 0 10px">' +
+    '<button style="' + bs + '" onclick="closeModal();openAssignModal(\'' + dateStr + '\')"><span style="font-size:18px">📍</span> Places from bank</button>' +
+    '<button style="' + bs + '" onclick="closeModal();openDriveModal(\'' + dateStr + '\')"><span style="font-size:18px">🚗</span> Drive</button>' +
+    '<button style="' + bs + '" onclick="closeModal();openActivityModal(\'' + dateStr + '\')"><span style="font-size:18px">🎯</span> Activity</button>' +
+    '<button style="' + bs + '" onclick="closeModal();editPlanDayNote(\'' + dateStr + '\')"><span style="font-size:18px">📝</span> Day note</button>' +
+    '</div>');
+}
+
+function openDriveModal(dateStr) {
+  const label = new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  showModal('🚗 Add Drive — ' + label,
+    '<div class="fg"><textarea class="fc" id="driveText" rows="3" placeholder="e.g. Drive to Geneva, ~2h via A40…" style="resize:vertical;font-size:14px"></textarea></div>' +
+    '<div class="btn-row">' +
+    '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="_saveDriveEntry(\'' + dateStr + '\',document.getElementById(\'driveText\').value)">Add</button>' +
+    '</div>');
+  setTimeout(() => { const t = document.getElementById('driveText'); if (t) t.focus(); }, 150);
+}
+
+function _saveDriveEntry(dateStr, text) {
+  const trimmed = (text || '').trim();
+  if (!trimmed) { toast('Enter a description', 'err'); return; }
+  closeModal();
+  if (!S.planDrives[dateStr]) S.planDrives[dateStr] = [];
+  const _newDriveId = String(Date.now());
+  S.planDrives[dateStr].push({ id: _newDriveId, text: trimmed });
+  _syncOrderOnMutation(dateStr, 'drive', _newDriveId, 'add');
+  buildPlannerCalendar();
+  google.script.run
+    .withSuccessHandler(() => toast('Drive added', 'ok'))
+    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .savePlanDayDrives(S.currentTrip.id, dateStr, S.planDrives[dateStr]);
+}
+
+function removeDriveUI(dateStr, driveId) {
+  if (!S.planDrives[dateStr]) return;
+  S.planDrives[dateStr] = S.planDrives[dateStr].filter(d => d.id !== driveId);
+  if (!S.planDrives[dateStr].length) delete S.planDrives[dateStr];
+  _syncOrderOnMutation(dateStr, 'drive', driveId, 'remove');
+  buildPlannerCalendar();
+  google.script.run
+    .withFailureHandler(err => { toast('Sync error: ' + err.message, 'err'); loadPlan(); })
+    .savePlanDayDrives(S.currentTrip.id, dateStr, S.planDrives[dateStr] || []);
+}
+
+function editDriveUI(dateStr, driveId) {
+  const list = S.planDrives[dateStr] || [];
+  const d = list.find(x => x.id === driveId); if (!d) return;
+  const label = new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  showModal('🚗 Edit Drive — ' + label,
+    '<div class="fg"><textarea class="fc" id="driveEditText" rows="3" style="resize:vertical;font-size:14px">' + esc(d.text) + '</textarea></div>' +
+    '<div class="btn-row">' +
+    '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="_updateDriveEntry(\'' + dateStr + '\',\'' + driveId + '\',document.getElementById(\'driveEditText\').value)">Save</button>' +
+    '</div>');
+  setTimeout(() => { const t = document.getElementById('driveEditText'); if (t) { t.focus(); t.selectionStart = t.selectionEnd = t.value.length; } }, 150);
+}
+
+function _updateDriveEntry(dateStr, driveId, text) {
+  const trimmed = (text || '').trim();
+  if (!trimmed) { toast('Enter a description', 'err'); return; }
+  closeModal();
+  const list = S.planDrives[dateStr] || [];
+  const d = list.find(x => x.id === driveId); if (!d) return;
+  d.text = trimmed;
+  buildPlannerCalendar();
+  google.script.run
+    .withSuccessHandler(() => toast('Drive updated', 'ok'))
+    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .savePlanDayDrives(S.currentTrip.id, dateStr, S.planDrives[dateStr]);
+}
+
+function editActivityUI(dateStr, activityId) {
+  const list = S.planActivities[dateStr] || [];
+  const a = list.find(x => x.id === activityId); if (!a) return;
+  const label = new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  showModal('🎯 Edit Activity — ' + label,
+    '<div class="fg"><textarea class="fc" id="activityEditText" rows="3" style="resize:vertical;font-size:14px">' + esc(a.text) + '</textarea></div>' +
+    '<div class="btn-row">' +
+    '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="_updateActivityEntry(\'' + dateStr + '\',\'' + activityId + '\',document.getElementById(\'activityEditText\').value)">Save</button>' +
+    '</div>');
+  setTimeout(() => { const t = document.getElementById('activityEditText'); if (t) { t.focus(); t.selectionStart = t.selectionEnd = t.value.length; } }, 150);
+}
+
+function _updateActivityEntry(dateStr, activityId, text) {
+  const trimmed = (text || '').trim();
+  if (!trimmed) { toast('Enter a description', 'err'); return; }
+  closeModal();
+  const list = S.planActivities[dateStr] || [];
+  const a = list.find(x => x.id === activityId); if (!a) return;
+  a.text = trimmed;
+  buildPlannerCalendar();
+  google.script.run
+    .withSuccessHandler(() => toast('Activity updated', 'ok'))
+    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .savePlanDayActivities(S.currentTrip.id, dateStr, S.planActivities[dateStr]);
+}
+
+function openActivityModal(dateStr) {
+  const label = new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  showModal('🎯 Add Activity — ' + label,
+    '<div class="fg"><textarea class="fc" id="activityText" rows="3" placeholder="e.g. Cooking class, Sunset hike, Visit the market…" style="resize:vertical;font-size:14px"></textarea></div>' +
+    '<div class="btn-row">' +
+    '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="_saveActivityEntry(\'' + dateStr + '\',document.getElementById(\'activityText\').value)">Add</button>' +
+    '</div>');
+  setTimeout(() => { const t = document.getElementById('activityText'); if (t) t.focus(); }, 150);
+}
+
+function _saveActivityEntry(dateStr, text) {
+  const trimmed = (text || '').trim();
+  if (!trimmed) { toast('Enter a description', 'err'); return; }
+  closeModal();
+  if (!S.planActivities[dateStr]) S.planActivities[dateStr] = [];
+  const _newActivityId = String(Date.now());
+  S.planActivities[dateStr].push({ id: _newActivityId, text: trimmed });
+  _syncOrderOnMutation(dateStr, 'activity', _newActivityId, 'add');
+  buildPlannerCalendar();
+  google.script.run
+    .withSuccessHandler(() => toast('Activity added', 'ok'))
+    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .savePlanDayActivities(S.currentTrip.id, dateStr, S.planActivities[dateStr]);
+}
+
+function removeActivityUI(dateStr, activityId) {
+  if (!S.planActivities[dateStr]) return;
+  S.planActivities[dateStr] = S.planActivities[dateStr].filter(a => a.id !== activityId);
+  if (!S.planActivities[dateStr].length) delete S.planActivities[dateStr];
+  _syncOrderOnMutation(dateStr, 'activity', activityId, 'remove');
+  buildPlannerCalendar();
+  google.script.run
+    .withFailureHandler(err => { toast('Sync error: ' + err.message, 'err'); loadPlan(); })
+    .savePlanDayActivities(S.currentTrip.id, dateStr, S.planActivities[dateStr] || []);
 }
 
 function openAssignModal(dateStr) {
@@ -721,6 +1124,16 @@ function applyAssignment(dateStr) {
   const selected = [];
   cbs.forEach(cb => { if (cb.checked) selected.push(cb.value); });
   closeModal();
+  // Sync custom order: remove unchecked places, append newly checked ones
+  if (S.planOrder && S.planOrder[dateStr]) {
+    const selSet = new Set(selected);
+    S.planOrder[dateStr] = S.planOrder[dateStr].filter(o => o.type !== 'place' || selSet.has(o.id));
+    const inOrd = new Set(S.planOrder[dateStr].filter(o => o.type === 'place').map(o => o.id));
+    const bId2 = {}; S.planBank.forEach(p => { bId2[p.id] = p; });
+    selected.filter(id => !inOrd.has(id) && bId2[id] && bId2[id].type !== 'hotel')
+            .forEach(id => S.planOrder[dateStr].push({ type: 'place', id }));
+    if (!S.planOrder[dateStr].length) delete S.planOrder[dateStr];
+  }
   if (selected.length) S.planAssignments[dateStr] = selected;
   else delete S.planAssignments[dateStr];
   buildPlannerCalendar();
@@ -734,6 +1147,7 @@ function removePlaceFromDayUI(dateStr, placeId) {
     S.planAssignments[dateStr] = S.planAssignments[dateStr].filter(id => id !== placeId);
     if (!S.planAssignments[dateStr].length) delete S.planAssignments[dateStr];
   }
+  _syncOrderOnMutation(dateStr, 'place', placeId, 'remove');
   buildPlannerCalendar();
   google.script.run
     .withFailureHandler(err => { toast('Error: ' + err.message, 'err'); loadPlan(); })
@@ -841,9 +1255,10 @@ function toggleDayCell(placeId, ds, color, el) {
 var _markerRCTime = 0;    // timestamp of last bank-marker rightclick
 var _markerClickTime = 0; // timestamp of last bank-marker left-click
 var _deleteConfirmOutsideHandler = null;
-var _lpTimer = null, _lpTouch = null, _lpFired = false, _lpTime = 0; // long-press state
+var _lpTimer = null, _lpTouch = null, _lpFired = false, _lpTime = 0; // long-press state (map markers)
+var _calLpTimer = null, _calLpFired = false; // long-press state (calendar pills)
 
-function initPlannerMap() {
+function initPlannerMap(fitAll) {
   const container = document.getElementById('planner-map');
   if (!container) return;
   renderBankBarChips();
@@ -972,10 +1387,11 @@ function _renderPlannerLeaflet() {
 
   withGPS.forEach(p => {
     const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E', label: p.type };
+    const isMk = !!p.marked;
     const marker = new google.maps.Marker({
       position: { lat: parseFloat(p.lat), lng: parseFloat(p.lng) },
       map: S.plannerMap,
-      icon: { path: google.maps.SymbolPath.CIRCLE, fillColor: '#ffffff', fillOpacity: 1, strokeColor: t.color, strokeWeight: 2, scale: 14 },
+      icon: { path: google.maps.SymbolPath.CIRCLE, fillColor: isMk ? '#FFE0B0' : '#ffffff', fillOpacity: 1, strokeColor: t.color, strokeWeight: isMk ? 3 : 2, scale: 14 },
       label: { text: t.icon, color: '#222', fontSize: '13px' },
       title: p.name
     });
@@ -1010,8 +1426,8 @@ function _renderPlannerLeaflet() {
   });
 
   google.maps.event.trigger(S.plannerMap, 'resize');
-  if (_isNewMap) {
-    S.plannerMap.fitBounds(bounds);
+  if (_isNewMap || fitAll) {
+    S.plannerMap.fitBounds(bounds, { top: 60, right: 50, bottom: 50, left: 50 });
     google.maps.event.addListenerOnce(S.plannerMap, 'bounds_changed', () => {
       if (S.plannerMap.getZoom() > 14) S.plannerMap.setZoom(14);
     });
@@ -1025,6 +1441,8 @@ function _renderPlannerLeaflet() {
       if (S.plannerMap) {
         S.plannerMap.panTo({ lat: pf.lat, lng: pf.lng });
         if (S.plannerMap.getZoom() < 13) S.plannerMap.setZoom(13);
+        const bar = document.getElementById('planBankBar');
+        if (bar && bar.offsetHeight) S.plannerMap.panBy(0, -Math.round(bar.offsetHeight / 2));
       }
     }, 150);
   }
@@ -1588,4 +2006,15 @@ function executePlanImport() {
     })
     .bulkImportPlanPlaces(S.currentTrip.id, JSON.stringify(_planImportData));
 }
+
+// Close pin/place menu when clicking anywhere outside it
+document.addEventListener('click', function(e) {
+  const menu = document.getElementById('plannerContextMenu');
+  if (!menu || menu.style.display === 'none') return;
+  if (menu.contains(e.target)) return;
+  if (Date.now() - _markerClickTime < 300) return;
+  if (Date.now() - _markerRCTime   < 300) return;
+  if (Date.now() - _lpTime         < 800) return;
+  _hideContextMenu();
+});
 </script>

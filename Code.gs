@@ -636,6 +636,59 @@ function bulkImportPlanPlaces(tripId, placesJson) {
   return { success: true, added: added };
 }
 
+function savePlanDayNote(tripId, date, text) {
+  var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+  if (!plan.notes) plan.notes = {};
+  var trimmed = (text || '').replace(/^\s+|\s+$/g, '');
+  if (trimmed) {
+    plan.notes[date] = trimmed;
+  } else {
+    delete plan.notes[date];
+  }
+  save('plan_' + tripId, plan);
+  return { success: true };
+}
+
+function savePlanDayDrives(tripId, date, drives) {
+  var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+  if (!plan.drives) plan.drives = {};
+  if (drives && drives.length) plan.drives[date] = drives;
+  else delete plan.drives[date];
+  save('plan_' + tripId, plan);
+  return { success: true };
+}
+
+function savePlanDayActivities(tripId, date, activities) {
+  var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+  if (!plan.activities) plan.activities = {};
+  if (activities && activities.length) plan.activities[date] = activities;
+  else delete plan.activities[date];
+  save('plan_' + tripId, plan);
+  return { success: true };
+}
+
+function savePlanDayOrder(tripId, date, order) {
+  var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+  if (!plan.orders) plan.orders = {};
+  if (order && order.length) plan.orders[date] = order;
+  else delete plan.orders[date];
+  save('plan_' + tripId, plan);
+  return { success: true };
+}
+
+function savePlanPlaceMark(placeId, tripId, marked) {
+  var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+  for (var i = 0; i < plan.bank.length; i++) {
+    if (plan.bank[i].id === placeId) {
+      if (marked) plan.bank[i].marked = true;
+      else delete plan.bank[i].marked;
+      break;
+    }
+  }
+  save('plan_' + tripId, plan);
+  return { success: true };
+}
+
 // ---- JSON IMPORT & RE-RATE ----
 
 // Builds a rate-lookup function for a set of currencies over a trip date range.
