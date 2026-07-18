@@ -40,6 +40,32 @@ Runs entirely on Google Apps Script — no servers, no subscriptions, no install
 
 ---
 
+## Quick Start
+
+This app helps a family manage trip expenses, check-ins, and day-by-day trip planning from a single mobile-friendly web app. The main flow is:
+
+1. Create or import a trip
+2. Add expenses and convert them to ILS
+3. Record check-ins and locations
+4. Use the Planner to organize places and daily notes
+
+---
+
+## Common Commands
+
+Useful commands during local development:
+
+```bash
+clasp push
+clasp pull
+clasp open
+clasp deployments
+```
+
+If you are deploying a new version for users, use a fresh deployment version so existing users do not continue seeing the old app code.
+
+---
+
 ## Local Dev Setup
 
 ### Prerequisites
@@ -53,7 +79,7 @@ Runs entirely on Google Apps Script — no servers, no subscriptions, no install
    ```
    clasp login
    ```
-   This opens a browser for Google OAuth. Auth stored at `C:\Users\User\.clasprc.json`.
+   This opens a browser for Google OAuth. Auth stored at `~/.clasprc.json`.
 
 ### VS Code Terminal
 
@@ -92,16 +118,31 @@ clasp and git commands work from the VS Code integrated terminal. Node.js and np
 
 ## Updating the App
 
-After making local code changes:
+After making local code changes, push and redeploy in one line:
 
 ```
-clasp push
+clasp push; clasp update-deployment AKfycbynxLzOGtbZcEZJElW2nDqEXcjaTYbmGbheTKWassWYYLZdE3dsCSnbJllIjWrDgIhz1Q -d "Planner"
 ```
-
-Then redeploy:
-- GAS editor → **Deploy → Manage deployments** → pencil icon → **New version** → **Deploy**
 
 > Without a new deployment version, live users continue to see the old code.
+
+### Finding the deployment ID
+
+If you need to find the current deployment ID (e.g. after creating a new deployment):
+
+```
+clasp deployments
+```
+
+Output looks like:
+```
+- AKfycbynxLzOGtbZcEZJElW2nDqEXcjaTYbmGbheTKWassWYYLZdE3dsCSnbJllIjWrDgIhz1Q  @HEAD (Planner)
+```
+
+Copy the ID (the long string starting with `AKfycb…`) and use it in the `clasp update-deployment` command above.
+
+Alternatively, redeploy via the UI:
+- GAS editor → **Deploy → Manage deployments** → pencil icon → **New version** → **Deploy**
 
 ---
 
@@ -172,6 +213,14 @@ On iOS (Safari):
 **Share the Web App URL** — send the URL. She opens it in Chrome, adds to home screen. No Google account access needed.
 
 > Data is shared automatically — both users read/write the same PropertiesService data via the same deployed URL.
+
+---
+
+## Config & Operational Notes
+
+- Keep the Apps Script project and deployment ID documented somewhere safe, especially if you are switching machines or sharing maintenance.
+- The Maps API key should be configured carefully and restricted in Google Cloud Console; it is required for autocomplete and map features.
+- If a deployment stops working or the app appears stale, verify that the latest code was pushed and that a new deployment version was created.
 
 ---
 

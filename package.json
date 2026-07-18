@@ -1,0 +1,7 @@
+{
+  "scripts": {
+    "push": "clasp push --force",
+    "pull": "clasp pull",
+    "open": "clasp open"
+  }
+}

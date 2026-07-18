@@ -9,6 +9,25 @@ All data is stored in Google Apps Script `PropertiesService` (script properties,
 
 ---
 
+## Core User Journeys
+
+1. Create a trip and set its date range, currency, and default landing view.
+2. Add and edit trip expenses, including currency conversion and historical-rate re-rating where relevant.
+3. Record check-ins during travel and review them in list, calendar, or map views.
+4. Build a trip plan by saving places to the bank and assigning them to specific days.
+5. Export the trip schedule to Google Sheets for sharing or offline reference.
+
+---
+
+## Constraints and Limitations
+
+- The app is designed for a mobile-first Apps Script web app, not a full native app experience.
+- Google Maps and Places APIs are required for map and autocomplete features; usage is subject to Google’s API quotas and billing rules.
+- Free Google API usage has monthly limits, so heavy usage or many users may eventually require a paid Google Cloud plan or tighter quota controls.
+- Data is stored in Apps Script PropertiesService, so the app is best suited for lightweight personal/family use rather than large-scale multi-user production workloads.
+
+---
+
 ## Google Apps Script Configuration (appsscript.json)
 
 ```json
@@ -50,7 +69,7 @@ All data is stored in Google Apps Script `PropertiesService` (script properties,
 | `exp_{tripId}` | JSON array | Array of expense objects for that trip |
 | `checkins_{tripId}` | JSON object | Keyed map `{id: checkinObject}` — NOT an array |
 | `caldesc_{tripId}` | JSON object | Keyed by date string `YYYY-MM-DD`, value = description text |
-| `plan_{tripId}` | JSON object | `{ bank: [...], assignments: { "YYYY-MM-DD": [...placeIds] } }` |
+| `plan_{tripId}` | JSON object | `{ bank: [...], assignments: { "YYYY-MM-DD": [...placeIds] }, notes: { "YYYY-MM-DD": "text" }, drives: { "YYYY-MM-DD": [{id, text}] }, activities: { "YYYY-MM-DD": [{id, text}] }, orders: { "YYYY-MM-DD": [{type, id}] } }` |
 | `settings` | JSON object | `{ customTypes: [...] }` |
 | `ratecache` | JSON object | Keyed by `"FROM_TO"`, value = `{ rate, date }` |
 
@@ -113,11 +132,16 @@ Stored as `{id → entry}` object (not array) to give O(1) lookup/update/delete 
 - `rerateImportedExpenses(tripId)` — re-rates all non-ILS expenses for an existing trip using the same `_buildRateFetcher` logic. Reads trip `startDate`/`endDate`, fetches historical per-date rates, updates `amountILS`, `rate`, `rateDate`, `rateSource` on every non-ILS expense, saves, returns `{ success, updated }`.
 
 ### Trip Planner
-- `getPlan(tripId)` — returns `{ bank: [...], assignments: {...} }` or `{ bank: [], assignments: {} }` if none
+- `getPlan(tripId)` — returns `{ bank: [...], assignments: {...}, notes: {...}, drives: {...}, activities: {...}, orders: {...} }` or a default empty structure if none exists
 - `savePlanPlace(d)` — creates (no `d.id`) or updates (with `d.id`) a place in the bank. Fields: `{tripId, id?, name, type, lat, lng, description}`. New places get a uuid. Returns `{success}`
 - `deletePlanPlace(placeId, tripId)` — removes place from bank AND from all day assignments in `plan_{tripId}`
 - `removePlaceFromDay(tripId, date, placeId)` — removes a single placeId from `assignments[date]`; cleans up empty date keys
 - `setPlanDayAssignment(tripId, date, placeIds)` — bulk-sets the full list for one day; deletes the date key if `placeIds` is empty
+- `savePlanDayNote(tripId, date, text)` — saves or clears a per-day planner note
+- `savePlanDayDrives(tripId, date, drives)` — saves or clears the list of drive items for a day
+- `savePlanDayActivities(tripId, date, activities)` — saves or clears the list of activity items for a day
+- `savePlanDayOrder(tripId, date, order)` — persists the visual order of places/drives/activities for a day
+- `savePlanPlaceMark(placeId, tripId, marked)` — toggles a priority/marked state for a bank place
 
 ### Calendar Sheet Export
 - `exportCalendarToSheet(params)` — creates a new Google Sheet named `"{tripTitle} - Trip Schedule"`, sheet named "Calendar"
@@ -168,6 +192,10 @@ const S = {
   // Planner:
   planBank,           // array of place objects
   planAssignments,    // { "YYYY-MM-DD": [...placeIds] }
+  planNotes,          // { "YYYY-MM-DD": "text" }
+  planDrives,         // { "YYYY-MM-DD": [{id,text}] }
+  planActivities,     // { "YYYY-MM-DD": [{id,text}] }
+  planOrder,          // { "YYYY-MM-DD": [{type,id}] }
   plannerTab,         // 'cal' | 'map'
   plannerMap,         // google.maps.Map instance for planner map (separate from leafletMap)
   plannerMarkers,     // array of google.maps.Marker instances for planner
@@ -704,9 +732,18 @@ Three tabs: **Bank**, **Calendar**, **Map**
   name,        // display name
   type,        // key from PLAN_TYPES
   lat, lng,    // optional GPS coords
-  description  // optional text, supports Hebrew/RTL via dir="auto"
+  description, // optional text, supports Hebrew/RTL via dir="auto"
+  marked       // optional priority marker toggled from the planner pin menu
 }
 ```
+
+### Latest planner enhancements (latest commit)
+- Per-day planner notes are now stored and edited from the calendar view, alongside plan items for that date.
+- Planner days can also carry free-text drive items and activity items, each saved server-side and rendered in the calendar.
+- The planner calendar supports ordering of places, drives, and activities for each day; the order is persisted and reused when the day is rendered again.
+- Bank places can be marked as priority from the pin menu, with a visual highlight in the bank bar and on the map marker.
+- Mobile pin menus now include a Waze deep-link for coordinates when the user is on a phone, making navigation from the planner quicker.
+- When a bank chip is selected, the planner map pans with a slight upward offset so the focused place stays visible beneath the bank bar; this also improves map anchoring when switching trips or planner tabs.
 
 ### PLAN_TYPES (23 types)
 | Key | Icon | Color | Label |
