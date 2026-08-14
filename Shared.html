@@ -89,8 +89,10 @@ body {
   transform: translateX(-50%) translateY(16px);
   opacity: 0; visibility: hidden;
   background: #1A1A2E; color: #fff; padding: 11px 22px; border-radius: 22px;
-  font-size: 14px; font-weight: 500; z-index: 400; white-space: nowrap;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.28); pointer-events: none;
+  font-size: 14px; font-weight: 500; z-index: 400;
+  max-width: min(92vw, 420px); white-space: pre-wrap; word-break: break-word; text-align: center;
+  -webkit-user-select: text; user-select: text; cursor: text;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.28); pointer-events: auto;
   transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s linear 0.25s;
 }
 #toast.show {

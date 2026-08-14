@@ -304,7 +304,10 @@ function toast(msg, type = '') {
   el.textContent = msg;
   el.className = 'toast show' + (type ? ' ' + type : '');
   clearTimeout(toastT);
-  toastT = setTimeout(() => el.classList.remove('show'), 3200);
+  // Error messages (often a full exception string) get much longer on-screen time so
+  // there's a real chance to read/select/copy them before they vanish.
+  const duration = type === 'err' ? 15000 : 3200;
+  toastT = setTimeout(() => el.classList.remove('show'), duration);
 }
 
 // =======================================================

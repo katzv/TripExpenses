@@ -19,6 +19,16 @@
 
 var _mpMap = null, _mpMarker = null, _mpCoords = null, _mpContext = 'checkin';
 
+// The Planner's Add/Edit Place form overlay (.plan-form-overlay, z-index 500) sits
+// above the map picker overlay (z-index 300). Opening the picker without hiding the
+// form first leaves the picker rendered but stuck behind it — hide the form while the
+// picker is open; closeMapPicker() restores it (covers both confirm and cancel/back).
+function openPlannerLocationPicker() {
+  const wrap = document.getElementById('plan-form-wrap');
+  if (wrap) wrap.style.display = 'none';
+  openMapPicker('planner');
+}
+
 function openMapPicker(context) {
   _mpContext = context || 'checkin';
   _mpCoords = null;
@@ -70,6 +80,10 @@ function _updateMpCoords() {
 
 function closeMapPicker() {
   document.getElementById('mapPickerOverlay').style.display = 'none';
+  if (_mpContext === 'planner') {
+    const wrap = document.getElementById('plan-form-wrap');
+    if (wrap) wrap.style.display = 'block';
+  }
 }
 
 function confirmMapPin() {

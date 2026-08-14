@@ -707,8 +707,16 @@ Use these names in conversations to avoid long descriptions.
 | **Delete Confirm** | The inline popover that confirms place deletion |
 
 ### Chip Interaction Behaviour
-- **Left-click**: focus (pan map to matching Pin, highlight Chip in Ribbon)
-- **Right-click**: open Pin Menu at mouse position
+- **Left-click**: focus — highlights the Chip, and highlights + centers the matching Pin on the map (`_setPlaceHighlight()` + `_centerMapOnPlace()`)
+- **Right-click**: highlights the Pin (same as left-click) and opens Pin Menu at mouse position
+- **☑️ Select mode**: a "☑️ Select" toggle above the Ribbon switches chip taps to multi-select (checkbox indicator, delete button hidden while active); a bar below the Ribbon shows "N selected" with Cancel / "📅 Assign to Day" — the day-picker assigns the whole selection to one chosen day in a single action, merging with (not replacing) whatever's already assigned that day (`addPlacesToDay`)
+
+### Pin Highlight (map)
+- Highlighted pin: solid `#FF1744` fill, white stroke, `scale: 18` (vs. `14` for a regular pin) — same fixed-pixel `SymbolPath` mechanism as every other pin, so it resizes with zoom exactly like the rest; no animation (a bounce effect was tried and removed — too distracting)
+- Brought to front via `marker.setZIndex(9999)` so it isn't obscured by nearby pins; reset to default z-order on clear
+- Centering targets the map's *on-screen visible slice*, not just the map container's own center — the container can be taller than the browser viewport (e.g. with the bank bar open and the page scrolled), so `_centerMapOnPlace()` computes the visible portion via `getBoundingClientRect()` before panning, then further offsets for the bank bar covering the top edge
+- Clearing: tapping the map background, tapping anywhere outside the chip/map/Pin Menu, or clicking a different chip/pin
+- Only one place highlighted at a time; re-render (tab switch, `loadPlan()`) preserves the current highlight by routing marker creation through the same `_updateMarkerIcon()` used by highlight/clear, instead of a separate inline icon-building path
 
 ### Add Form Open Behaviour
 - Closes any open Pin Menu or Place Menu before showing
@@ -743,7 +751,12 @@ Three tabs: **Bank**, **Calendar**, **Map**
 - The planner calendar supports ordering of places, drives, and activities for each day; the order is persisted and reused when the day is rendered again.
 - Bank places can be marked as priority from the pin menu, with a visual highlight in the bank bar and on the map marker.
 - Mobile pin menus now include a Waze deep-link for coordinates when the user is on a phone, making navigation from the planner quicker.
-- When a bank chip is selected, the planner map pans with a slight upward offset so the focused place stays visible beneath the bank bar; this also improves map anchoring when switching trips or planner tabs.
+- Selecting a chip or pin highlights + centers the map on it (see [Pin Highlight](#pin-highlight-map)) instead of the earlier fixed-offset pan.
+- Bank chips support multi-select for bulk "Assign to Day" (see [Chip Interaction Behaviour](#chip-interaction-behaviour)).
+- Pin Menu gained a "📍 Locate on Map" action, reachable from Calendar-tab place pills as well as Bank chips and the map itself — jumps to the Map tab (if needed) and highlights the pin (see [Pin Menu](#pin-menu-right-click-on-a-saved-marker)).
+- Pin Menu's "🗺️ View on Google Maps" link now searches by place name (falling back to coordinates only if unnamed) instead of a coordinates-only query, so it lands on the actual named place rather than an unlabeled nearby point.
+- Fixed: the Map Picker ("📍 Location" button in the Add/Edit Place form) rendered blank — the still-open place-edit form overlay (`z-index: 500`) sat above the picker overlay (`z-index: 300`). The form is now hidden while the picker is open and restored on close (`openPlannerLocationPicker()` / `closeMapPicker()` in [MapPicker.html](MapPicker.html)).
+- Fixed a bug where deleting a bank place (Pin Menu → ✕ Del) appeared to work but reverted after a reload. Root cause: `doDeletePlanPlace()` called the server delete *last*, after several rendering calls; a client-side JS exception during map/marker re-render (specific to the delete-from-map path) silently aborted the function before the RPC ever ran — invisible everywhere, since client-side exceptions never reach Apps Script's server-side exception logging. Fixed by firing the delete call first, unconditionally, with rendering wrapped in `try/catch` afterward. Also added `LockService` around every `plan_{tripId}` read-modify-write function (`_withPlanLock()`) as a defensive fix for the related but distinct risk of concurrent read-modify-write calls silently reverting each other.
 
 ### PLAN_TYPES (23 types)
 | Key | Icon | Color | Label |
@@ -928,8 +941,9 @@ Separate from Place Menu. Triggered by `rightclick` on a `google.maps.Marker` (d
 - **Type chip** (11px, primary color)
 - **Description** (11px, max 100 chars, linkified via `_linkifyDesc()`): `max-height:56px; overflow:hidden; line-height:1.5`
 - **Day assignment** list (if any assigned days)
-- **Action row** (3 buttons, `flex`): "📅 Assign" (`var(--text)`) | "✏️ Edit" (`var(--text)`) | "✕ Remove" (`#EF4444`) — Assign and Edit are black to avoid confusion with blue links
-- **Google Maps link**: `<a>` to `https://maps.google.com/?q=lat,lng`
+- **Action row** (4 buttons, `flex`): "📅 Assign" | "✏️ Edit" | "☆ Mark" / "⭐ Marked" (`togglePlanPlaceMark`) | "✕ Del" (`#EF4444`) — Assign/Edit/Mark are black to avoid confusion with blue links
+- **"📍 Locate on Map"** (own row, only shown if the place has coordinates): jumps to the Map tab (if not already there) and highlights + centers the pin — see [Pin Highlight](#pin-highlight-map)
+- **Google Maps link**: `<a>` searching by place name (`https://www.google.com/maps/search/?api=1&query=<name>+<lat,lng>`), falling back to a coordinates-only query if the place has no name — landing on the actual named place instead of an unlabeled nearby point
 
 `showPinMenu(placeId, cx, cy)` — **stores `menu._anchorLat/Lng = p.lat/lng`** so the map's `bounds_changed` listener can reposition the menu on pan/zoom:
 - Looks up place in `S.planBank` by id

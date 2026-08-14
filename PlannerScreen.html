@@ -12,8 +12,10 @@
       <div style="display:flex;align-items:center;justify-content:flex-start;gap:8px;padding:6px 0 4px">
         <span style="font-size:11px;font-weight:800;letter-spacing:0.5px;color:var(--muted);text-transform:uppercase">Bank</span>
         <button onclick="togglePlanBankBar()" style="background:none;border:none;font-size:13px;color:var(--muted);cursor:pointer;padding:2px 0;font-weight:600">▲ Hide</button>
+        <button id="planSelectModeBtn" onclick="togglePlanSelectMode()" style="background:none;border:none;font-size:13px;color:var(--muted);cursor:pointer;padding:2px 0;font-weight:600;margin-left:auto">☑️ Select</button>
       </div>
       <div id="planBankBarChips" style="display:flex;flex-wrap:wrap;gap:6px;padding-bottom:8px"></div>
+      <div id="planSelectBar" style="display:none;align-items:center;justify-content:space-between;gap:8px;padding:2px 0 8px"></div>
     </div>
     <div id="planBankBarCollapsed" style="display:none;padding:2px 0 8px">
       <button id="planBankBarShowBtn" onclick="togglePlanBankBar()" style="background:none;border:1.5px solid var(--border);border-radius:8px;font-size:13px;color:var(--muted);cursor:pointer;padding:4px 12px;font-weight:600">▼ Bank</button>
@@ -296,22 +298,164 @@ function renderBankBarChips() {
   }
   if (!isVisible) return;
   const hl = S._highlightedPlaceId;
+  const selMode = !!S._planSelectMode;
+  const selected = S._planSelectedIds || [];
   bar.innerHTML = S.planBank.map(p => {
     const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E' };
     const isHL = p.id === hl;
     const isMk = !!p.marked;
-    const border = isHL ? '2px solid ' + t.color : (isMk ? '2px solid #FFE0B0' : '1.5px solid ' + t.color);
-    const bg    = isMk ? '#FFF3E0' : '#fff';
+    const isSel = selMode && selected.indexOf(p.id) !== -1;
+    const border = isSel ? '2px solid var(--primary)' : (isHL ? '2px solid ' + t.color : (isMk ? '2px solid #FFE0B0' : '1.5px solid ' + t.color));
+    const bg    = isSel ? '#E3F2FD' : (isMk ? '#FFF3E0' : '#fff');
     return '<span id="bankbar-' + p.id + '" class="plan-bank-bar-chip" onclick="bankBarChipClick(\'' + p.id + '\')" ' +
-      'oncontextmenu="event.preventDefault();event.stopPropagation();showPinMenu(\'' + p.id + '\',event.clientX,event.clientY)" ' +
+      (selMode ? '' : 'oncontextmenu="event.preventDefault();event.stopPropagation();bankBarChipRightClick(\'' + p.id + '\',event)" ') +
       'title="' + esc(p.name) + '" ' +
       'style="background:' + bg + ';color:#222;border:' + border + '">' +
-      (isMk ? '<span style="font-size:10px;line-height:1">⭐</span>' : '') +
+      (selMode ? '<span style="font-size:12px;line-height:1">' + (isSel ? '☑️' : '⬜') + '</span>' : (isMk ? '<span style="font-size:10px;line-height:1">⭐</span>' : '')) +
       '<span>' + t.icon + '</span>' +
       '<span style="max-width:140px;overflow:hidden;text-overflow:ellipsis">' + esc(p.name) + '</span>' +
-      '<button class="plan-bank-chip-del" onclick="event.stopPropagation();confirmDeletePlanPlace(\'' + p.id + '\')">×</button>' +
+      (selMode ? '' : '<button class="plan-bank-chip-del" onclick="event.stopPropagation();confirmDeletePlanPlace(\'' + p.id + '\')">×</button>') +
       '</span>';
   }).join('');
+  renderPlanSelectBar();
+}
+
+function renderPlanSelectBar() {
+  const bar = document.getElementById('planSelectBar');
+  if (!bar) return;
+  if (!S._planSelectMode) { bar.style.display = 'none'; return; }
+  const n = (S._planSelectedIds || []).length;
+  bar.style.display = 'flex';
+  bar.innerHTML =
+    '<span style="font-size:12px;font-weight:700;color:var(--text)">' + n + ' selected</span>' +
+    '<div style="display:flex;gap:8px">' +
+    '<button class="btn btn-outline btn-sm" style="padding:5px 12px;min-height:30px;font-size:12px" onclick="cancelPlanSelectMode()">Cancel</button>' +
+    '<button class="btn btn-primary btn-sm" style="padding:5px 12px;min-height:30px;font-size:12px"' + (n ? '' : ' disabled') + ' onclick="openDayPickerForPlaces()">📅 Assign to Day</button>' +
+    '</div>';
+}
+
+// Jumps to the Planner Map tab (if not already there) and highlights + centers the
+// given place's pin. Used by the Pin Menu's "Locate on Map" action, reachable from
+// the Calendar tab's place pills as well as the Bank chips and the map itself.
+function locatePlaceOnMap(placeId) {
+  _hideContextMenu();
+  const p = S.planBank.find(x => x.id === placeId);
+  if (!p) return;
+  if (p.lat == null || p.lng == null) { toast('This place has no location set', 'err'); return; }
+  if (S.plannerTab === 'map' && S.plannerMap) {
+    _setPlaceHighlight(placeId);
+    _centerMapOnPlace(placeId);
+  } else {
+    S._planPendingHighlight = placeId;
+    switchPlannerTab('map');
+  }
+}
+
+function togglePlanSelectMode() {
+  S._planSelectMode = !S._planSelectMode;
+  S._planSelectedIds = S._planSelectMode ? (S._planSelectedIds || []) : [];
+  const btn = document.getElementById('planSelectModeBtn');
+  if (btn) btn.textContent = S._planSelectMode ? '✕ Cancel' : '☑️ Select';
+  if (S._planSelectMode) _clearPlaceHighlight();
+  renderBankBarChips();
+}
+
+function cancelPlanSelectMode() {
+  S._planSelectMode = false;
+  S._planSelectedIds = [];
+  const btn = document.getElementById('planSelectModeBtn');
+  if (btn) btn.textContent = '☑️ Select';
+  renderBankBarChips();
+}
+
+function togglePlanChipSelect(id) {
+  S._planSelectedIds = S._planSelectedIds || [];
+  const idx = S._planSelectedIds.indexOf(id);
+  if (idx === -1) S._planSelectedIds.push(id);
+  else S._planSelectedIds.splice(idx, 1);
+  renderBankBarChips();
+}
+
+// Shared grid-builder for the assign-by-day calendar modals (single-place toggle
+// picker and bulk multi-select picker below). dayCellHtml(ds) returns the HTML for
+// one in-range day cell; out-of-range cells are rendered uniformly by this helper.
+function _buildTripCalendarGrid(start, end, dayCellHtml) {
+  const tripSet = new Set();
+  const byMonth = {};
+  const cur = new Date(start + 'T12:00:00Z');
+  const last = new Date(end   + 'T12:00:00Z');
+  while (cur <= last) {
+    const ds = cur.toISOString().slice(0, 10);
+    const ym = ds.slice(0, 7);
+    tripSet.add(ds);
+    if (!byMonth[ym]) byMonth[ym] = [];
+    byMonth[ym].push(ds);
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+
+  const DOW = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+  let html = '';
+  Object.keys(byMonth).sort().forEach(ym => {
+    const [yr, mo] = ym.split('-').map(Number);
+    const mLabel = new Date(Date.UTC(yr, mo - 1, 1)).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    html += '<div style="margin-bottom:14px">';
+    html += '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px">' + mLabel + '</div>';
+    html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">';
+    DOW.forEach(d => { html += '<div style="font-size:10px;color:var(--muted);font-weight:600;text-align:center;padding:1px 0">' + d + '</div>'; });
+
+    const firstDow = new Date(Date.UTC(yr, mo - 1, 1)).getUTCDay();
+    const offset = (firstDow + 6) % 7; // Mon=0
+    for (let i = 0; i < offset; i++) html += '<div></div>';
+
+    const daysInMonth = new Date(Date.UTC(yr, mo, 0)).getUTCDate();
+    for (let d = 1; d <= daysInMonth; d++) {
+      const ds = ym + '-' + String(d).padStart(2, '0');
+      html += tripSet.has(ds)
+        ? dayCellHtml(ds)
+        : '<div style="font-size:11px;color:#D1D5DB;text-align:center;padding:5px 2px;border-radius:5px">' + d + '</div>';
+    }
+    html += '</div></div>';
+  });
+  return html;
+}
+
+// Bulk day-picker for the current multi-select — tapping a day assigns every
+// selected place to it in one action (merging with whatever's already assigned
+// that day, not replacing it).
+function openDayPickerForPlaces() {
+  const ids = (S._planSelectedIds || []).slice();
+  if (!ids.length) return;
+  if (S._planInfoWindow) S._planInfoWindow.close();
+
+  const range = _planDateRange();
+  if (!range) { toast('Set trip dates or assign a place to a day first', 'err'); return; }
+
+  let html = '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Assign <strong>' +
+    ids.length + ' place' + (ids.length !== 1 ? 's' : '') + '</strong> to a day:</div>';
+  html += '<div style="max-height:58vh;overflow-y:auto;padding-right:2px">';
+  html += _buildTripCalendarGrid(range.first, range.last, ds =>
+    '<div onclick="_assignSelectedToDay(\'' + ds + '\')" ' +
+    'style="font-size:11px;text-align:center;padding:5px 2px;border-radius:5px;cursor:pointer;user-select:none;background:transparent;border:1.5px solid var(--border);color:var(--text);font-weight:400">' +
+    parseInt(ds.slice(-2), 10) + '</div>'
+  );
+  html += '</div>';
+
+  showModal('📅 Assign to Day', html);
+}
+
+function _assignSelectedToDay(dateStr) {
+  const ids = (S._planSelectedIds || []).slice();
+  closeModal();
+  if (!ids.length) return;
+  const cur = new Set(S.planAssignments[dateStr] || []);
+  ids.forEach(id => cur.add(id));
+  S.planAssignments[dateStr] = Array.from(cur);
+  cancelPlanSelectMode();
+  if (S.plannerTab === 'cal') buildPlannerCalendar();
+  toast(ids.length + ' place' + (ids.length !== 1 ? 's' : '') + ' assigned', 'ok');
+  google.script.run
+    .withFailureHandler(err => { toast('Sync error: ' + err.message, 'err'); loadPlan(); })
+    .addPlacesToDay(S.currentTrip.id, dateStr, ids);
 }
 
 function togglePlanBankBar() {
@@ -320,18 +464,99 @@ function togglePlanBankBar() {
 }
 
 function bankBarChipClick(id) {
+  if (S._planSelectMode) { togglePlanChipSelect(id); return; }
   closeModal();
   _hideContextMenu();
-  S._highlightedPlaceId = id;
-  renderBankBarChips();
+  _setPlaceHighlight(id);
   const chip = document.getElementById('bankbar-' + id);
   if (chip) chip.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+  _centerMapOnPlace(id);
+}
+
+function bankBarChipRightClick(id, evt) {
+  _setPlaceHighlight(id);
+  showPinMenu(id, evt.clientX, evt.clientY);
+}
+
+// Centers the map on a place's marker, targeting the middle of the map's *on-screen*
+// visible slice — not just the middle of the whole map container. The map div can be
+// taller than the browser viewport (e.g. with the bank bar open, part of the map may
+// be scrolled off the top or bottom of the page), so centering within the full
+// container isn't enough; this also accounts for the bank bar covering the top edge
+// of whatever part of the map is actually on-screen.
+function _centerMapOnPlace(id) {
   const marker = (S.plannerMarkers || []).find(m => m._placeId === id);
-  if (marker && S.plannerMap) {
-    S.plannerMap.panTo(marker.getPosition());
-    const bar = document.getElementById('planBankBar');
-    if (bar && bar.offsetHeight) S.plannerMap.panBy(0, -Math.round(bar.offsetHeight / 2));
+  const container = document.getElementById('planner-map');
+  if (!marker || !S.plannerMap || !container) return;
+  S.plannerMap.setCenter(marker.getPosition());
+
+  const rect = container.getBoundingClientRect();
+  const viewTop = Math.max(rect.top, 0);
+  const viewBottom = Math.min(rect.bottom, window.innerHeight);
+  let dy = 0;
+  if (viewBottom > viewTop) {
+    const visibleCenterY   = (viewTop + viewBottom) / 2;
+    const containerCenterY = rect.top + rect.height / 2;
+    dy = containerCenterY - visibleCenterY; // panBy(0, dy) shifts marker's on-screen Y by -dy
   }
+  const bar = document.getElementById('planBankBar');
+  if (bar && bar.offsetHeight) dy -= Math.round(bar.offsetHeight / 2 + 30);
+  if (dy) S.plannerMap.panBy(0, dy);
+}
+
+// Builds the marker icon for a bank place. `highlighted` swaps the pin for a solid,
+// high-contrast marker, modestly larger than a regular pin, so it's unmistakable in
+// a dense cluster — normal/marked appearance otherwise. Uses the same fixed-pixel
+// SymbolPath scale mechanism as regular pins, so it resizes on zoom exactly like
+// every other pin (no independent/zoom-relative sizing logic needed).
+function _planMarkerIcon(p, highlighted) {
+  const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E' };
+  const isMk = !!p.marked;
+  if (highlighted) {
+    return {
+      path: google.maps.SymbolPath.CIRCLE,
+      fillColor: '#FF1744', fillOpacity: 1,
+      strokeColor: '#ffffff', strokeWeight: 3,
+      scale: 18
+    };
+  }
+  return {
+    path: google.maps.SymbolPath.CIRCLE,
+    fillColor: isMk ? '#FFE0B0' : '#ffffff',
+    fillOpacity: 1,
+    strokeColor: t.color,
+    strokeWeight: isMk ? 3 : 2,
+    scale: 14
+  };
+}
+
+function _updateMarkerIcon(placeId) {
+  const p = (S.planBank || []).find(x => x.id === placeId);
+  const marker = (S.plannerMarkers || []).find(m => m._placeId === placeId);
+  if (!p || !marker) return;
+  const highlighted = placeId === S._highlightedPlaceId;
+  marker.setIcon(_planMarkerIcon(p, highlighted));
+  const t = PLAN_TYPES[p.type] || { icon: '📌' };
+  marker.setLabel({ text: t.icon, color: highlighted ? '#fff' : '#222', fontSize: highlighted ? '16px' : '13px' });
+  marker.setZIndex(highlighted ? 9999 : null);
+}
+
+// Highlights a bank place's chip + pin. Reverts the previously highlighted pin's icon.
+function _setPlaceHighlight(id) {
+  const prev = S._highlightedPlaceId;
+  S._highlightedPlaceId = id;
+  if (prev && prev !== id) _updateMarkerIcon(prev);
+  _updateMarkerIcon(id);
+  renderBankBarChips();
+}
+
+// Clears any highlighted bank place's chip + pin back to their default look.
+function _clearPlaceHighlight() {
+  const prev = S._highlightedPlaceId;
+  if (!prev) return;
+  S._highlightedPlaceId = null;
+  _updateMarkerIcon(prev);
+  renderBankBarChips();
 }
 
 // Builds and shows the Pin Menu for a saved place at viewport coords (cx, cy).
@@ -362,7 +587,12 @@ function showPinMenu(placeId, cx, cy) {
     : '';
   const bLat = parseFloat(p.lat) || 0, bLng = parseFloat(p.lng) || 0;
   const _hasCoords = bLat !== 0 || bLng !== 0;
-  const gmUrl = 'https://maps.google.com/?q=' + bLat + ',' + bLng;
+  // Search by name (falling back to coords only if unnamed) so the link lands on the
+  // actual named place instead of an unlabeled point near it. Appending the coords as
+  // extra query text helps Google disambiguate when the name alone is generic.
+  const gmUrl = p.name
+    ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(p.name + (_hasCoords ? ' ' + bLat + ',' + bLng : ''))
+    : 'https://www.google.com/maps/search/?api=1&query=' + bLat + ',' + bLng;
   const _isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   const wazeUrl = 'waze://?ll=' + bLat + ',' + bLng + '&navigate=yes';
   const bs = 'flex:1;padding:7px 4px;background:none;border:none;cursor:pointer;font-size:11px;font-weight:600;text-align:center';
@@ -386,6 +616,7 @@ function showPinMenu(placeId, cx, cy) {
     '<button id="pinMarkBtn" onclick="togglePlanPlaceMark(\'' + pid + '\')" style="' + bs + ';color:' + (p.marked ? '#FFE0B0' : 'var(--text)') + '">' + (p.marked ? '⭐ Marked' : '☆ Mark') + '</button>' +
     '<button onclick="ctxMenuDelete(\'' + pid + '\',event)" style="' + bs + ';color:#EF4444">✕ Del</button>' +
     '</div>' +
+    (_hasCoords ? '<button onclick="_hideContextMenu();locatePlaceOnMap(\'' + pid + '\')" style="display:block;width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:7px 14px;font-size:12px;color:var(--primary);font-weight:600;border-top:1px solid var(--border)">📍 Locate on Map</button>' : '') +
     '<a href="' + esc(gmUrl) + '" target="_blank" rel="noopener" style="display:block;padding:7px 14px;font-size:12px;color:var(--muted);text-decoration:none;border-top:1px solid var(--border)">🗺️ View on Google Maps</a>' +
     (_isMobile && _hasCoords ? '<a href="' + wazeUrl + '" style="display:flex;align-items:center;gap:6px;padding:7px 14px;font-size:12px;color:#00b4d8;text-decoration:none;border-top:1px solid var(--border)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="14" height="14" style="flex-shrink:0"><rect width="32" height="32" rx="8" fill="#33CCFF"/><circle cx="11" cy="13" r="3" fill="white"/><circle cx="21" cy="13" r="3" fill="white"/><path d="M10 20 Q16 24 22 20" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>Navigate with Waze</a>' : '');
   menu.style.display = 'block';
@@ -436,12 +667,7 @@ function togglePlanPlaceMark(placeId) {
   const p = S.planBank.find(x => x.id === placeId);
   if (!p) return;
   p.marked = !p.marked;
-  const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E' };
-  const marker = (S.plannerMarkers || []).find(m => m._placeId === placeId);
-  if (marker) {
-    marker.setIcon({ path: google.maps.SymbolPath.CIRCLE, fillColor: p.marked ? '#FFE0B0' : '#ffffff', fillOpacity: 1, strokeColor: t.color, strokeWeight: p.marked ? 3 : 2, scale: 14 });
-    marker.setLabel({ text: t.icon, color: '#222', fontSize: '13px' });
-  }
+  _updateMarkerIcon(placeId);
   renderBankBarChips();
   const btn = document.getElementById('pinMarkBtn');
   if (btn) {
@@ -580,19 +806,30 @@ function _dismissDeleteConfirm() {
 
 function doDeletePlanPlace(id) {
   closeModal();
+  // The actual server delete fires FIRST and unconditionally — previously this was
+  // the last statement in the function, after several rendering calls; if any of
+  // those threw a client-side JS exception, the RPC below would never run at all
+  // (silently — client-side exceptions never reach the server logs), which would
+  // look exactly like "delete didn't work" with no error anywhere.
+  google.script.run
+    .withSuccessHandler(res => console.log('[doDeletePlanPlace] server confirmed', res))
+    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
+    .deletePlanPlace(id, S.currentTrip.id);
+
   S.planBank = S.planBank.filter(p => p.id !== id);
   Object.keys(S.planAssignments).forEach(d => {
     S.planAssignments[d] = S.planAssignments[d].filter(pid => pid !== id);
     if (!S.planAssignments[d].length) delete S.planAssignments[d];
   });
-  cancelPlannerForm();
-  renderPlanBank();
-  initPlannerMap();
-  if (S.plannerTab === 'cal') buildPlannerCalendar();
+  try {
+    cancelPlannerForm();
+    renderPlanBank();
+    initPlannerMap();
+    if (S.plannerTab === 'cal') buildPlannerCalendar();
+  } catch (e) {
+    console.error('[doDeletePlanPlace] rendering error after delete (server call already sent)', e);
+  }
   toast('Place removed', 'ok');
-  google.script.run
-    .withFailureHandler(err => toast('Error: ' + err.message, 'err'))
-    .deletePlanPlace(id, S.currentTrip.id);
 }
 
 function switchPlannerTab(tab) {
@@ -709,16 +946,12 @@ function buildPlannerCalendar() {
   const el = document.getElementById('planCalContent');
   if (!el) return;
 
-  const allAssigned = Object.keys(S.planAssignments).filter(d => S.planAssignments[d] && S.planAssignments[d].length);
-  let rangeFirst = S.currentTrip.startDate || null;
-  let rangeLast  = S.currentTrip.endDate   || null;
-  if (!rangeFirst && allAssigned.length) rangeFirst = allAssigned.sort()[0];
-  if (!rangeLast  && allAssigned.length) rangeLast  = allAssigned.sort()[allAssigned.length - 1];
-
-  if (!rangeFirst) {
+  const range = _planDateRange();
+  if (!range) {
     el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:32px">Set trip dates or assign places to days to see the calendar</div>';
     return;
   }
+  const rangeFirst = range.first, rangeLast = range.last;
 
   let fFrom = S.planCalFilterFrom || rangeFirst;
   let fTo   = S.planCalFilterTo   || rangeLast || rangeFirst;
@@ -1154,68 +1387,45 @@ function removePlaceFromDayUI(dateStr, placeId) {
     .removePlaceFromDay(S.currentTrip.id, dateStr, placeId);
 }
 
+// Resolves a usable {first, last} day range for the assign-by-day calendars, falling
+// back to the assigned-day range when the trip has no start/end date set (mirrors
+// buildPlannerCalendar's own fallback). Returns null if nothing usable exists.
+function _planDateRange() {
+  const allAssigned = Object.keys(S.planAssignments).filter(d => S.planAssignments[d] && S.planAssignments[d].length);
+  let first = S.currentTrip.startDate || null;
+  let last  = S.currentTrip.endDate   || null;
+  if (!first && allAssigned.length) first = allAssigned.sort()[0];
+  if (!last  && allAssigned.length) last  = allAssigned.sort()[allAssigned.length - 1];
+  if (!first) return null;
+  if (!last) last = first;
+  return { first, last };
+}
+
 function openDayPickerForPlace(placeId) {
   const p = S.planBank.find(x => x.id === placeId);
   if (!p) return;
   if (S._planInfoWindow) S._planInfoWindow.close();
 
-  const start = S.currentTrip.startDate;
-  const end   = S.currentTrip.endDate;
-  if (!start) { toast('Set trip dates first to assign by day', 'err'); return; }
+  const range = _planDateRange();
+  if (!range) { toast('Set trip dates or assign a place to a day first', 'err'); return; }
+  const start = range.first, end = range.last;
 
   const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E', label: p.type };
   const color = t.color;
-
-  // Build set of trip days grouped by month
-  const tripSet = new Set();
-  const byMonth = {};
-  const cur = new Date(start + 'T12:00:00Z');
-  const last = new Date(end   + 'T12:00:00Z');
-  while (cur <= last) {
-    const ds = cur.toISOString().slice(0, 10);
-    const ym = ds.slice(0, 7);
-    tripSet.add(ds);
-    if (!byMonth[ym]) byMonth[ym] = [];
-    byMonth[ym].push(ds);
-    cur.setUTCDate(cur.getUTCDate() + 1);
-  }
 
   const assignedSet = new Set(
     Object.keys(S.planAssignments).filter(ds => (S.planAssignments[ds] || []).indexOf(placeId) !== -1)
   );
 
-  const DOW = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
   let html = '<div style="max-height:62vh;overflow-y:auto;padding-right:2px">';
-
-  Object.keys(byMonth).sort().forEach(ym => {
-    const [yr, mo] = ym.split('-').map(Number);
-    const mLabel = new Date(Date.UTC(yr, mo - 1, 1)).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    html += '<div style="margin-bottom:14px">';
-    html += '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px">' + mLabel + '</div>';
-    html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">';
-    DOW.forEach(d => { html += '<div style="font-size:10px;color:var(--muted);font-weight:600;text-align:center;padding:1px 0">' + d + '</div>'; });
-
-    const firstDow = new Date(Date.UTC(yr, mo - 1, 1)).getUTCDay();
-    const offset = (firstDow + 6) % 7; // Mon=0
-    for (let i = 0; i < offset; i++) html += '<div></div>';
-
-    const daysInMonth = new Date(Date.UTC(yr, mo, 0)).getUTCDate();
-    for (let d = 1; d <= daysInMonth; d++) {
-      const ds = ym + '-' + String(d).padStart(2, '0');
-      if (!tripSet.has(ds)) {
-        html += '<div style="font-size:11px;color:#D1D5DB;text-align:center;padding:5px 2px;border-radius:5px">' + d + '</div>';
-      } else {
-        const on = assignedSet.has(ds);
-        html += '<div onclick="toggleDayCell(\'' + placeId + '\',\'' + ds + '\',\'' + color + '\',this)" ' +
-          'style="font-size:11px;text-align:center;padding:5px 2px;border-radius:5px;cursor:pointer;user-select:none;' +
-          (on ? 'background:' + color + '33;border:1.5px solid ' + color + ';color:' + color + ';font-weight:700'
-              : 'background:transparent;border:1.5px solid var(--border);color:var(--text);font-weight:400') +
-          '">' + d + '</div>';
-      }
-    }
-    html += '</div></div>';
+  html += _buildTripCalendarGrid(start, end, ds => {
+    const on = assignedSet.has(ds);
+    return '<div onclick="toggleDayCell(\'' + placeId + '\',\'' + ds + '\',\'' + color + '\',this)" ' +
+      'style="font-size:11px;text-align:center;padding:5px 2px;border-radius:5px;cursor:pointer;user-select:none;' +
+      (on ? 'background:' + color + '33;border:1.5px solid ' + color + ';color:' + color + ';font-weight:700'
+          : 'background:transparent;border:1.5px solid var(--border);color:var(--text);font-weight:400') +
+      '">' + parseInt(ds.slice(-2), 10) + '</div>';
   });
-
   html += '</div>';
   html += '<div style="font-size:10px;color:var(--muted);text-align:center;margin:6px 0 8px">Tap to assign · tap again to unassign</div>';
   const _btnBase = 'font-size:11px;padding:5px 10px;border-radius:7px;cursor:pointer;font-weight:600;white-space:nowrap';
@@ -1296,8 +1506,7 @@ function _renderPlannerLeaflet() {
       if (Date.now() - _lpTime < 800) return; // long-press just opened Place Menu — don't close it
       if (S._planInfoWindow) S._planInfoWindow.close();
       _hideContextMenu();
-      S._highlightedPlaceId = null;
-      renderBankBarChips();
+      _clearPlaceHighlight();
     });
 
     // Reposition context menus when map pans/zooms
@@ -1386,20 +1595,19 @@ function _renderPlannerLeaflet() {
   const bounds = new google.maps.LatLngBounds();
 
   withGPS.forEach(p => {
-    const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E', label: p.type };
-    const isMk = !!p.marked;
     const marker = new google.maps.Marker({
       position: { lat: parseFloat(p.lat), lng: parseFloat(p.lng) },
       map: S.plannerMap,
-      icon: { path: google.maps.SymbolPath.CIRCLE, fillColor: isMk ? '#FFE0B0' : '#ffffff', fillOpacity: 1, strokeColor: t.color, strokeWeight: isMk ? 3 : 2, scale: 14 },
-      label: { text: t.icon, color: '#222', fontSize: '13px' },
       title: p.name
     });
     marker._placeId = p.id; // bank place id for bar highlight
+    S.plannerMarkers.push(marker);
+    _updateMarkerIcon(p.id); // sets icon/label/zIndex (and bounce if already highlighted) in one place
 
     marker.addListener('click', (e) => {
       _markerClickTime = Date.now(); // prevent map click handler from closing the menu we're about to open
       if (S._planInfoWindow) S._planInfoWindow.close();
+      _setPlaceHighlight(p.id);
       const de = e.domEvent;
       let cx = window.innerWidth / 2, cy = window.innerHeight / 3;
       if (de) {
@@ -1412,6 +1620,7 @@ function _renderPlannerLeaflet() {
     marker.addListener('rightclick', (e) => {
       _markerRCTime = Date.now();
       if (S._planInfoWindow) S._planInfoWindow.close();
+      _setPlaceHighlight(p.id);
       const de = e.domEvent;
       let cx = window.innerWidth / 2, cy = window.innerHeight / 3;
       if (de) {
@@ -1421,7 +1630,6 @@ function _renderPlannerLeaflet() {
       showPinMenu(p.id, cx, cy);
     });
 
-    S.plannerMarkers.push(marker);
     bounds.extend({ lat: parseFloat(p.lat), lng: parseFloat(p.lng) });
   });
 
@@ -1444,6 +1652,15 @@ function _renderPlannerLeaflet() {
         const bar = document.getElementById('planBankBar');
         if (bar && bar.offsetHeight) S.plannerMap.panBy(0, -Math.round(bar.offsetHeight / 2));
       }
+    }, 150);
+  }
+
+  if (S._planPendingHighlight) {
+    const hid = S._planPendingHighlight;
+    S._planPendingHighlight = null;
+    setTimeout(() => {
+      _setPlaceHighlight(hid);
+      _centerMapOnPlace(hid);
     }, 150);
   }
 }
@@ -2010,11 +2227,21 @@ function executePlanImport() {
 // Close pin/place menu when clicking anywhere outside it
 document.addEventListener('click', function(e) {
   const menu = document.getElementById('plannerContextMenu');
-  if (!menu || menu.style.display === 'none') return;
-  if (menu.contains(e.target)) return;
-  if (Date.now() - _markerClickTime < 300) return;
-  if (Date.now() - _markerRCTime   < 300) return;
-  if (Date.now() - _lpTime         < 800) return;
-  _hideContextMenu();
+  if (menu && menu.style.display !== 'none' && !menu.contains(e.target)) {
+    const justOpened = Date.now() - _markerClickTime < 300 ||
+                        Date.now() - _markerRCTime   < 300 ||
+                        Date.now() - _lpTime         < 800;
+    if (!justOpened) _hideContextMenu();
+  }
+  // Clear pin/chip highlight when clicking outside the chip and outside the map
+  // (the map itself clears/sets highlight via its own click/marker listeners).
+  // Also excludes the Pin Menu itself — e.g. its "Locate on Map" action sets a fresh
+  // highlight synchronously, and that same click event bubbles here right after;
+  // without this exclusion it would immediately clear the highlight it just set.
+  if (S._highlightedPlaceId && e.target.closest &&
+      !e.target.closest('.plan-bank-bar-chip') && !e.target.closest('#planner-map') &&
+      !e.target.closest('#plannerContextMenu')) {
+    _clearPlaceHighlight();
+  }
 });
 </script>

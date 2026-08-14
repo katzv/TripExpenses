@@ -551,142 +551,212 @@ function getPlan(tripId) {
   return load('plan_' + tripId, { bank: [], assignments: {} });
 }
 
-function savePlanPlace(d) {
-  var plan = load('plan_' + d.tripId, { bank: [], assignments: {} });
-  if (d.id) {
-    for (var i = 0; i < plan.bank.length; i++) {
-      if (plan.bank[i].id === d.id) {
-        plan.bank[i].name        = d.name;
-        plan.bank[i].type        = d.type;
-        plan.bank[i].lat         = d.lat  || null;
-        plan.bank[i].lng         = d.lng  || null;
-        plan.bank[i].description = d.description || '';
-        break;
-      }
-    }
-  } else {
-    plan.bank.push({
-      id:          uuid(),
-      tripId:      d.tripId,
-      name:        d.name,
-      type:        d.type,
-      lat:         d.lat  || null,
-      lng:         d.lng  || null,
-      description: d.description || '',
-      createdAt:   nowISO()
-    });
+// Serializes read-modify-write access to a single plan_{tripId} property. Every
+// mutator below does load() -> change one thing -> save() with no atomicity; without
+// a lock, two near-simultaneous calls (e.g. owner + wife both viewing the same trip's
+// Planner, or two quick actions from the same device) can each read the pre-change
+// plan and then both save() — the second save wins and silently reverts whichever
+// change finished first. This was the cause of "delete a place, refresh, it's back."
+// Note: LockService has no per-key/per-trip lock, only a single script-wide lock, so
+// this also (harmlessly) serializes edits across *different* trips. Not worth building
+// custom PropertiesService-based keyed locking for a 2-user app; a short 4s wait keeps
+// the worst-case cross-trip contention small.
+function _withPlanLock(fn) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(4000);
+  try {
+    return fn();
+  } finally {
+    lock.releaseLock();
   }
-  save('plan_' + d.tripId, plan);
-  return { success: true };
+}
+
+function savePlanPlace(d) {
+  console.log('[savePlanPlace] CALLED id=' + d.id + ' name=' + d.name + ' tripId=' + d.tripId);
+  return _withPlanLock(function() {
+    var plan = load('plan_' + d.tripId, { bank: [], assignments: {} });
+    if (d.id) {
+      for (var i = 0; i < plan.bank.length; i++) {
+        if (plan.bank[i].id === d.id) {
+          plan.bank[i].name        = d.name;
+          plan.bank[i].type        = d.type;
+          plan.bank[i].lat         = d.lat  || null;
+          plan.bank[i].lng         = d.lng  || null;
+          plan.bank[i].description = d.description || '';
+          break;
+        }
+      }
+    } else {
+      var newId = uuid();
+      console.log('[savePlanPlace] CREATING NEW place id=' + newId + ' name=' + d.name);
+      plan.bank.push({
+        id:          newId,
+        tripId:      d.tripId,
+        name:        d.name,
+        type:        d.type,
+        lat:         d.lat  || null,
+        lng:         d.lng  || null,
+        description: d.description || '',
+        createdAt:   nowISO()
+      });
+    }
+    save('plan_' + d.tripId, plan);
+    return { success: true };
+  });
 }
 
 function deletePlanPlace(placeId, tripId) {
-  var plan = load('plan_' + tripId, { bank: [], assignments: {} });
-  plan.bank = plan.bank.filter(function(p) { return p.id !== placeId; });
-  Object.keys(plan.assignments).forEach(function(date) {
-    plan.assignments[date] = plan.assignments[date].filter(function(id) { return id !== placeId; });
-    if (!plan.assignments[date].length) delete plan.assignments[date];
+  console.log('[deletePlanPlace] CALLED placeId=' + placeId + ' tripId=' + tripId);
+  return _withPlanLock(function() {
+    var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+    var before = plan.bank.length;
+    var beforeIds = plan.bank.map(function(p) { return p.id; });
+    plan.bank = plan.bank.filter(function(p) { return p.id !== placeId; });
+    var after = plan.bank.length;
+    console.log('[deletePlanPlace] before=' + before + ' after=' + after +
+      ' hadTarget=' + (beforeIds.indexOf(placeId) !== -1));
+    Object.keys(plan.assignments).forEach(function(date) {
+      plan.assignments[date] = plan.assignments[date].filter(function(id) { return id !== placeId; });
+      if (!plan.assignments[date].length) delete plan.assignments[date];
+    });
+    save('plan_' + tripId, plan);
+    var verify = load('plan_' + tripId, { bank: [], assignments: {} });
+    console.log('[deletePlanPlace] SAVED. re-read bank length=' + verify.bank.length +
+      ' stillHasTarget=' + verify.bank.some(function(p) { return p.id === placeId; }));
+    return { success: true, before: before, after: after };
   });
-  save('plan_' + tripId, plan);
-  return { success: true };
 }
 
 function removePlaceFromDay(tripId, date, placeId) {
-  var plan = load('plan_' + tripId, { bank: [], assignments: {} });
-  if (plan.assignments[date]) {
-    plan.assignments[date] = plan.assignments[date].filter(function(id) { return id !== placeId; });
-    if (!plan.assignments[date].length) delete plan.assignments[date];
-  }
-  save('plan_' + tripId, plan);
-  return { success: true };
+  return _withPlanLock(function() {
+    var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+    if (plan.assignments[date]) {
+      plan.assignments[date] = plan.assignments[date].filter(function(id) { return id !== placeId; });
+      if (!plan.assignments[date].length) delete plan.assignments[date];
+    }
+    save('plan_' + tripId, plan);
+    return { success: true };
+  });
 }
 
 function setPlanDayAssignment(tripId, date, placeIds) {
-  var plan = load('plan_' + tripId, { bank: [], assignments: {} });
-  if (placeIds && placeIds.length) {
-    plan.assignments[date] = placeIds;
-  } else {
-    delete plan.assignments[date];
-  }
-  save('plan_' + tripId, plan);
-  return { success: true };
+  return _withPlanLock(function() {
+    var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+    if (placeIds && placeIds.length) {
+      plan.assignments[date] = placeIds;
+    } else {
+      delete plan.assignments[date];
+    }
+    save('plan_' + tripId, plan);
+    return { success: true };
+  });
+}
+
+// Merges placeIds into a day's existing assignment list (dedup) rather than replacing
+// it — used by the Bank multi-select "Assign to Day" bulk action, so assigning a new
+// batch of places to a day doesn't wipe out places already assigned there.
+function addPlacesToDay(tripId, date, placeIds) {
+  return _withPlanLock(function() {
+    var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+    var cur = plan.assignments[date] || [];
+    var set = {};
+    cur.forEach(function(id) { set[id] = true; });
+    (placeIds || []).forEach(function(id) { set[id] = true; });
+    var merged = Object.keys(set);
+    if (merged.length) plan.assignments[date] = merged;
+    else delete plan.assignments[date];
+    save('plan_' + tripId, plan);
+    return { success: true };
+  });
 }
 
 function bulkImportPlanPlaces(tripId, placesJson) {
   var incoming;
   try { incoming = JSON.parse(placesJson); } catch(e) { return { success: false, error: 'Invalid JSON' }; }
   if (!Array.isArray(incoming)) return { success: false, error: 'Expected array' };
-  var plan = load('plan_' + tripId, { bank: [], assignments: {} });
-  var added = 0;
-  incoming.forEach(function(p) {
-    if (!p || !p.name) return;
-    plan.bank.push({
-      id:          uuid(),
-      tripId:      tripId,
-      name:        String(p.name).trim(),
-      type:        p.type || 'place',
-      lat:         (p.lat != null && !isNaN(Number(p.lat))) ? Number(p.lat) : null,
-      lng:         (p.lng != null && !isNaN(Number(p.lng))) ? Number(p.lng) : null,
-      description: String(p.description || '').trim(),
-      createdAt:   nowISO()
+  return _withPlanLock(function() {
+    var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+    var added = 0;
+    incoming.forEach(function(p) {
+      if (!p || !p.name) return;
+      plan.bank.push({
+        id:          uuid(),
+        tripId:      tripId,
+        name:        String(p.name).trim(),
+        type:        p.type || 'place',
+        lat:         (p.lat != null && !isNaN(Number(p.lat))) ? Number(p.lat) : null,
+        lng:         (p.lng != null && !isNaN(Number(p.lng))) ? Number(p.lng) : null,
+        description: String(p.description || '').trim(),
+        createdAt:   nowISO()
+      });
+      added++;
     });
-    added++;
+    save('plan_' + tripId, plan);
+    return { success: true, added: added };
   });
-  save('plan_' + tripId, plan);
-  return { success: true, added: added };
 }
 
 function savePlanDayNote(tripId, date, text) {
-  var plan = load('plan_' + tripId, { bank: [], assignments: {} });
-  if (!plan.notes) plan.notes = {};
-  var trimmed = (text || '').replace(/^\s+|\s+$/g, '');
-  if (trimmed) {
-    plan.notes[date] = trimmed;
-  } else {
-    delete plan.notes[date];
-  }
-  save('plan_' + tripId, plan);
-  return { success: true };
+  return _withPlanLock(function() {
+    var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+    if (!plan.notes) plan.notes = {};
+    var trimmed = (text || '').replace(/^\s+|\s+$/g, '');
+    if (trimmed) {
+      plan.notes[date] = trimmed;
+    } else {
+      delete plan.notes[date];
+    }
+    save('plan_' + tripId, plan);
+    return { success: true };
+  });
 }
 
 function savePlanDayDrives(tripId, date, drives) {
-  var plan = load('plan_' + tripId, { bank: [], assignments: {} });
-  if (!plan.drives) plan.drives = {};
-  if (drives && drives.length) plan.drives[date] = drives;
-  else delete plan.drives[date];
-  save('plan_' + tripId, plan);
-  return { success: true };
+  return _withPlanLock(function() {
+    var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+    if (!plan.drives) plan.drives = {};
+    if (drives && drives.length) plan.drives[date] = drives;
+    else delete plan.drives[date];
+    save('plan_' + tripId, plan);
+    return { success: true };
+  });
 }
 
 function savePlanDayActivities(tripId, date, activities) {
-  var plan = load('plan_' + tripId, { bank: [], assignments: {} });
-  if (!plan.activities) plan.activities = {};
-  if (activities && activities.length) plan.activities[date] = activities;
-  else delete plan.activities[date];
-  save('plan_' + tripId, plan);
-  return { success: true };
+  return _withPlanLock(function() {
+    var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+    if (!plan.activities) plan.activities = {};
+    if (activities && activities.length) plan.activities[date] = activities;
+    else delete plan.activities[date];
+    save('plan_' + tripId, plan);
+    return { success: true };
+  });
 }
 
 function savePlanDayOrder(tripId, date, order) {
-  var plan = load('plan_' + tripId, { bank: [], assignments: {} });
-  if (!plan.orders) plan.orders = {};
-  if (order && order.length) plan.orders[date] = order;
-  else delete plan.orders[date];
-  save('plan_' + tripId, plan);
-  return { success: true };
+  return _withPlanLock(function() {
+    var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+    if (!plan.orders) plan.orders = {};
+    if (order && order.length) plan.orders[date] = order;
+    else delete plan.orders[date];
+    save('plan_' + tripId, plan);
+    return { success: true };
+  });
 }
 
 function savePlanPlaceMark(placeId, tripId, marked) {
-  var plan = load('plan_' + tripId, { bank: [], assignments: {} });
-  for (var i = 0; i < plan.bank.length; i++) {
-    if (plan.bank[i].id === placeId) {
-      if (marked) plan.bank[i].marked = true;
-      else delete plan.bank[i].marked;
-      break;
+  return _withPlanLock(function() {
+    var plan = load('plan_' + tripId, { bank: [], assignments: {} });
+    for (var i = 0; i < plan.bank.length; i++) {
+      if (plan.bank[i].id === placeId) {
+        if (marked) plan.bank[i].marked = true;
+        else delete plan.bank[i].marked;
+        break;
+      }
     }
-  }
-  save('plan_' + tripId, plan);
-  return { success: true };
+    save('plan_' + tripId, plan);
+    return { success: true };
+  });
 }
 
 // ---- JSON IMPORT & RE-RATE ----

@@ -58,11 +58,27 @@ Useful commands during local development:
 ```bash
 clasp push
 clasp pull
-clasp open
+clasp open-script   # clasp v3 renamed `clasp open`
 clasp deployments
+clasp logs          # requires projectId in .clasp.json — see Debugging & Logs below
 ```
 
 If you are deploying a new version for users, use a fresh deployment version so existing users do not continue seeing the old app code.
+
+---
+
+## Debugging & Logs
+
+`clasp logs` streams recent server-side output — thrown exceptions plus `console.log`/`console.error`/`console.warn` calls (the V8 runtime sends these to Cloud Logging automatically, no extra setup needed beyond the `projectId` below).
+
+```bash
+clasp logs           # most recent entries
+clasp logs --watch   # live-tail while you reproduce a bug
+```
+
+Requires a `projectId` in `.clasp.json` (already configured for this project — `303718955449`, the GCP Project Number, found on the GCP Console dashboard). Without it, `clasp logs` fails with `GCP project ID is not set, unable to continue.`
+
+**Critical limitation**: this only captures things that happen *inside server-side functions* (`Code.gs`). A client-side JavaScript exception (thrown anywhere in a `.html` file's `<script>` block) never reaches these logs — from the server's point of view, nothing happened at all. If a `google.script.run` call seems to silently do nothing (no success handler, no failure handler, nothing in `clasp logs`), suspect a client-side exception earlier in the *same calling function* aborting execution before the RPC call is even reached — the fix is to make the RPC call fire first/unconditionally, not to look harder at the server.
 
 ---
 
@@ -264,6 +280,7 @@ All data lives in `PropertiesService.getScriptProperties()` (script-level proper
 | clasp not found in VS Code terminal | Full VS Code restart required after PATH change in settings.json |
 | clasp push "Conflicting files found" | Ensure `appsscript.json` exists locally; run `clasp push --force` |
 | Maps not loading | Check API key in MapService.html; confirm Maps JS API + Places API are enabled in GCP |
+| A change/delete "works" but reverts after reload, with no server error anywhere | Likely a client-side JS exception blocking the `google.script.run` call before it fires — see [Debugging & Logs](#debugging--logs); these are invisible to `clasp logs`/`exceptionLogging` no matter how hard you look server-side |
 
 ---
 
@@ -285,7 +302,7 @@ TripExpenses/
 ├── PlannerScreen.html   ← Place bank, Planner Calendar, Planner Map
 ├── MapPicker.html       ← Full-screen map picker overlay (used by tracker + planner)
 ├── appsscript.json      ← GAS manifest (timezone, webapp config, OAuth scopes)
-├── .clasp.json          ← clasp config: scriptId + rootDir
+├── .clasp.json          ← clasp config: scriptId + rootDir + projectId (for `clasp logs`)
 ├── .claspignore         ← Files to exclude from clasp push (currently empty = push all)
 ├── .vscode/
 │   └── settings.json   ← VS Code: terminal PATH (Node.js + npm), git decorations
