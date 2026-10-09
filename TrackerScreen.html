@@ -409,10 +409,10 @@ function checkinCard(c) {
         <div class="ci-time">${fmtCheckinTime(c.timestamp)}</div>
         ${gpsInfo ? `<div class="ci-gps">${gpsInfo}</div>` : ''}
       </div>
-      <button class="btn btn-outline btn-sm" style="width:auto;flex-shrink:0;margin-right:4px"
+      <button class="trip-del-btn" type="button" title="Edit check-in" aria-label="Edit ${esc(c.name)}"
               onclick="event.stopPropagation();editCheckinUI('${c.id}')">&#9998;</button>
-      <button class="btn btn-danger btn-sm" style="width:auto;flex-shrink:0"
-              onclick="event.stopPropagation();confirmDeleteCheckin('${c.id}')">🗑</button>
+      <button class="trip-del-btn" type="button" title="Delete check-in" aria-label="Delete ${esc(c.name)}"
+              onclick="event.stopPropagation();confirmDeleteCheckin('${c.id}')">&#128465;</button>
     </div>`;
 }
 

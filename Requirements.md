@@ -1103,7 +1103,7 @@ Also set `maxWidth: 240` on the `InfoWindow` constructor to constrain width.
 - Name (bold, ellipsis)
 - Formatted timestamp
 - GPS coordinates if available (small blue text, 📡 prefix)
-- Edit and Delete buttons (right side, btn-outline / btn-danger, btn-sm)
+- Edit and delete icon buttons on the right reuse the `.trip-del-btn` treatment from the Your Trips cards; delete confirms before removal
 
 ### Expense Card
 - Colored icon square (42×42, border-radius 11px)
@@ -1111,6 +1111,7 @@ Also set `maxWidth: 240` on the `InfoWindow` constructor to constrain width.
 - Meta line: type · info2 · info3
 - "tap to edit" hint (small, blue, low opacity)
 - Right side: original amount (small grey) + ILS amount (bold, colored)
+- Expense form actions share one horizontal row: text-sized Cancel, flexible-width Save Expense, and (while editing) the small `.trip-del-btn` trash icon used on Your Trips cards
 
 ### Summary Banner (trip view)
 - Blue gradient, shows: country + currency, total ILS (large bold), expense count + date range
@@ -1134,6 +1135,13 @@ Also set `maxWidth: 240` on the `InfoWindow` constructor to constrain width.
 ---
 
 ## Responsive Design
+
+### Cross-Screen UI Consistency
+
+- Prefer identical visual styling and interaction patterns for the same kind of control across all screens.
+- Before adding a screen-specific UI variant, check for an existing shared component or established pattern and reuse it where possible.
+- Put shared styles in `Shared.html` and use shared component classes instead of duplicating per-screen styles.
+- When a context requires a different hit area or behavior, keep its visual treatment consistent and document the reason for the difference.
 
 ### Required Cross-Platform Verification
 

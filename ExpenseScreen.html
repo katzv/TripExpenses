@@ -73,16 +73,16 @@
       <input class="fc" id="fNotes" type="text" placeholder="Any extra notes...">
     </div>
 
-    <button class="btn btn-primary" id="saveExpBtn" onclick="saveExpense()">
-      &#128190; Save Expense
-    </button>
-    <div style="height:10px"></div>
-    <button class="btn btn-outline" onclick="goBack()">Cancel</button>
-    <div id="delExpWrap" style="display:none;margin-top:14px">
-      <hr style="border:none;border-top:1px solid var(--border);margin-bottom:14px">
-      <button class="btn btn-danger btn-sm" style="width:auto" onclick="confirmDeleteExpense()">
-        &#128465; Delete This Expense
+    <div class="expense-form-actions">
+      <button class="btn btn-outline expense-cancel-btn" type="button" onclick="goBack()">Cancel</button>
+      <button class="btn btn-primary" id="saveExpBtn" onclick="saveExpense()">
+        &#128190; Save Expense
       </button>
+      <div id="delExpWrap" style="display:none">
+        <button class="trip-del-btn" type="button" title="Delete expense" aria-label="Delete expense" onclick="confirmDeleteExpense()">
+          &#128465;
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -244,7 +244,7 @@ function editExpense(id) {
   S.manualILS = false;
   S.lastRateInfo = null;
   fillExpForm(e);
-  document.getElementById('delExpWrap').style.display = 'block';
+  document.getElementById('delExpWrap').style.display = 'flex';
   navigate('expense');
 }
 
