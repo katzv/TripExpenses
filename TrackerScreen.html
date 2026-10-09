@@ -297,30 +297,43 @@ function saveCheckinUI() {
 
   if (S.editingCheckinId) {
     data.id = S.editingCheckinId;
-    btn.disabled = false; btn.textContent = '✓ Update';
-    const idx = S.checkins.findIndex(c => c.id === S.editingCheckinId);
-    if (idx !== -1) S.checkins[idx] = Object.assign({}, S.checkins[idx], data);
-    cancelCheckin();
-    if (S.trackerTab === 'list') renderCheckinList();
-    if (S.trackerTab === 'cal')  buildCalendar();
-    toast('Check-in updated!', 'ok');
-    google.script.run.withFailureHandler(onErr).updateCheckin(data);
+    google.script.run
+      .withSuccessHandler(res => {
+        if (!res || !res.success) { onErr({ message: (res && res.error) || 'Update failed' }); return; }
+        btn.disabled = false; btn.textContent = '✓ Update';
+        cancelCheckin();
+        refreshCheckinOrder();
+        toast('Check-in updated!', 'ok');
+      })
+      .withFailureHandler(onErr)
+      .updateCheckin(data);
   } else {
     google.script.run
       .withSuccessHandler(res => {
         btn.disabled = false; btn.textContent = '📍 Check In';
         if (res && res.success) {
-          S.checkins.push(Object.assign({ id: res.id, createdAt: new Date().toISOString() }, data));
           cancelCheckin();
-          if (S.trackerTab === 'list') renderCheckinList();
-          if (S.trackerTab === 'cal')  buildCalendar();
-          if (S.trackerTab === 'map')  setTimeout(initTrackerMap, 50);
+          refreshCheckinOrder();
           toast('Checked in!', 'ok');
         } else toast('Save failed', 'err');
       })
       .withFailureHandler(onErr)
       .saveCheckin(data);
   }
+}
+
+// Re-read the persisted sequence after a mutation so the current view reflects
+// the database's chronological order immediately, without requiring a refresh.
+function refreshCheckinOrder() {
+  google.script.run
+    .withSuccessHandler(cis => {
+      S.checkins = cis || [];
+      if (S.trackerTab === 'list') renderCheckinList();
+      if (S.trackerTab === 'cal')  buildCalendar();
+      if (S.trackerTab === 'map')  setTimeout(initTrackerMap, 50);
+    })
+    .withFailureHandler(err => toast('Could not refresh check-ins: ' + err.message, 'err'))
+    .loadCheckins(S.currentTrip.id);
 }
 
 function loadCheckins() {
@@ -347,6 +360,14 @@ function loadCheckins() {
     .getCalDescs(S.currentTrip.id);
 }
 
+function compareCheckinsByTime(a, b) {
+  const aTime = Date.parse(a.timestamp || '');
+  const bTime = Date.parse(b.timestamp || '');
+  if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) return aTime - bTime;
+  if (Number.isFinite(aTime) !== Number.isFinite(bTime)) return Number.isFinite(aTime) ? -1 : 1;
+  return String(a.id || '').localeCompare(String(b.id || ''));
+}
+
 function renderCheckinList() {
   const el = document.getElementById('ciList');
   if (!el) return;
@@ -365,6 +386,7 @@ function renderCheckinList() {
     if (!groups[d]) groups[d] = [];
     groups[d].push(c);
   });
+  Object.keys(groups).forEach(d => groups[d].sort(compareCheckinsByTime));
   el.innerHTML = Object.keys(groups).sort().map(d => {
     const _di = new Date(d + 'T12:00:00Z').getDay();
     const _dowLabel = CAL_DOW_EN[_di] + ' (יום ' + CAL_DOW_HE[_di] + ')';
@@ -481,6 +503,7 @@ function buildCalendar() {
     if (!groups[d]) groups[d] = [];
     groups[d].push(c);
   });
+  Object.keys(groups).forEach(d => groups[d].sort(compareCheckinsByTime));
 
   const allDates = Object.keys(groups).sort();
   const dataFirst = allDates[0];

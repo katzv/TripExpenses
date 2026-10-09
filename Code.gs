@@ -43,7 +43,24 @@ function nowISO() {
 // Stored as: props['trips'] = JSON array of trip objects
 
 function getTrips() {
-  return load('trips', []);
+  var trips = load('trips', []);
+  migrateCheckinOrder(trips);
+  return trips;
+}
+
+// Migrate existing trip check-ins into chronological insertion order.
+// Called during app startup so already-saved trips are corrected too.
+function migrateCheckinOrder(trips) {
+  (trips || []).forEach(function(trip) {
+    if (!trip || !trip.id) return;
+    var map = loadCheckinsMap(trip.id);
+    var currentIds = Object.keys(map);
+    if (!currentIds.length) return;
+    var sorted = orderedCheckinsMap(map);
+    if (currentIds.join('\n') !== Object.keys(sorted).join('\n')) {
+      save('checkins_' + trip.id, sorted);
+    }
+  });
 }
 
 function createTrip(d) {
@@ -121,17 +138,29 @@ function loadCheckinsMap(tripId) {
 
 // Internal: write the {id → entry} map back to PropertiesService
 function saveCheckinsMap(tripId, map) {
-  save('checkins_' + tripId, map);
+  save('checkins_' + tripId, orderedCheckinsMap(map));
+}
+
+// Return a new check-in map whose key insertion order is chronological.
+function orderedCheckinsMap(map) {
+  var sorted = {};
+  Object.keys(map).map(function(id) { return map[id]; }).sort(function(a, b) {
+    var aTime = Date.parse(a.timestamp), bTime = Date.parse(b.timestamp);
+    if (isNaN(aTime)) aTime = 0;
+    if (isNaN(bTime)) bTime = 0;
+    return aTime - bTime || String(a.id).localeCompare(String(b.id));
+  }).forEach(function(checkin) {
+    sorted[checkin.id] = checkin;
+  });
+  return sorted;
 }
 
 // ---- Public tracker functions (called via google.script.run) ----
 
-// Returns array sorted ascending by timestamp
+// Returns check-ins in the chronological order persisted in PropertiesService.
 function loadCheckins(tripId) {
   var map = loadCheckinsMap(tripId);
-  return Object.keys(map).map(function(k) { return map[k]; }).sort(function(a, b) {
-    return a.timestamp < b.timestamp ? -1 : 1;
-  });
+  return Object.keys(map).map(function(k) { return map[k]; });
 }
 
 function saveCheckin(d) {

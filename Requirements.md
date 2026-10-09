@@ -74,7 +74,7 @@ All data is stored in Google Apps Script `PropertiesService` (script properties,
 | `ratecache` | JSON object | Keyed by `"FROM_TO"`, value = `{ rate, date }` |
 
 ### Why keyed map for check-ins?
-Stored as `{id → entry}` object (not array) to give O(1) lookup/update/delete without index maintenance. `loadCheckins()` returns a sorted array for the client.
+Stored as `{id → entry}` object (not array) to give O(1) lookup/update/delete without index maintenance. Inserts, updates, and deletes persist check-ins in chronological key order. `loadCheckins()` returns that stored order; Tracker list and calendar views also sort each local day by timestamp before rendering so display order does not depend on object or RPC response ordering. Existing trip data is migrated during `getTrips()` at app startup.
 
 ---
 
@@ -97,7 +97,7 @@ Stored as `{id → entry}` object (not array) to give O(1) lookup/update/delete 
 - `saveCalDesc(tripId, date, text)` — saves or deletes a day description (deletes if text is empty)
 
 ### Tracker Check-ins
-- `loadCheckins(tripId)` — returns array sorted ascending by timestamp
+- `loadCheckins(tripId)` — returns array in the chronological timestamp order persisted in PropertiesService
 - `saveCheckin(d)` — creates new check-in with `{id, tripId, timestamp, name, type, lat, lng, gpsSource, createdAt}`, returns `{success, id}`
 - `updateCheckin(d)` — O(1) update by id, preserves `createdAt`
 - `deleteCheckin(checkinId, tripId)` — O(1) delete by id
@@ -1129,6 +1129,16 @@ Also set `maxWidth: 240` on the `InfoWindow` constructor to constrain width.
 ---
 
 ## Responsive Design
+
+### Required Cross-Platform Verification
+
+Every project change must be checked against all three supported use cases before it is considered complete or deployed:
+
+1. **Web/desktop:** Open the deployed web app in a desktop browser and verify the changed behavior, layout, and browser interactions.
+2. **Android:** Open the app in Chrome on Android and verify the changed behavior, mobile layout, touch interactions, and any affected device permissions. If the app is installed on the home screen, check that experience too when the change could affect it.
+3. **iPhone:** Open the app in Safari on iPhone and verify the changed behavior, mobile layout, touch interactions, and any affected device permissions. If the app is added to the Home Screen, check that experience too when the change could affect it.
+
+For each change, record the result for Web/desktop, Android, and iPhone in the change summary. A platform that was not actually checked must be marked **not verified**; do not infer its result from another platform. Fix any platform-specific regression before deployment. Backend-only changes still require a smoke check of the affected user flow on all three clients because they share the same deployed backend.
 
 - Max content width: 620px, centered
 - `@media (min-width: 600px)`: increased padding, FAB repositioned to right of 620px column
