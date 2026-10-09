@@ -291,7 +291,7 @@ TripExpenses/
 ├── Code.gs              ← Backend: all server-side functions
 ├── Index.html           ← Shell template: assembles the SPA via <?!= include('...') ?>
 ├── Shared.html          ← Global CSS styles
-├── Constants.html       ← PLAN_TYPES, CI_COLORS, CI_ICONS, CURRENCIES, COUNTRIES maps
+├── Constants.html       ← Shared LOCATION_TYPES taxonomy (CI color/icon/label maps are derived), CURRENCIES, COUNTRIES
 ├── State.html           ← Global state object S + MapService tokens
 ├── MapService.html      ← Google Maps lazy-loader, PlacesService helper
 ├── Core.html            ← init(), navigate(), goBack(), modal, toast, helpers

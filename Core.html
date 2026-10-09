@@ -59,7 +59,7 @@ function init() {
   // Populate currency dropdowns
   populateCurrSel('fCurrency');
   // Build sorted planner type list
-  _planTypeKeys = Object.keys(PLAN_TYPES).sort((a, b) => PLAN_TYPES[a].label.localeCompare(PLAN_TYPES[b].label));
+  _planTypeKeys = Object.keys(LOCATION_TYPES).sort((a, b) => LOCATION_TYPES[a].label.localeCompare(LOCATION_TYPES[b].label));
   _selectPlanType('place');
 
   // Track last click for form positioning
@@ -94,6 +94,9 @@ function init() {
     const ptl = document.getElementById('planTypeList');
     if (ptl && e.target !== document.getElementById('planTypeInput') && !ptl.contains(e.target))
       ptl.style.display = 'none';
+    const ctl = document.getElementById('ciTypeList');
+    if (ctl && e.target !== document.getElementById('ciTypeInput') && !ctl.contains(e.target))
+      ctl.style.display = 'none';
   });
 
   setLoadProgress(25, 'Connecting to server…');

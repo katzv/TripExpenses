@@ -105,7 +105,7 @@ function _googleTypeToPlanner(types) {
     [['bar','night_club'],                                                   'beer'],
     [['supermarket','grocery_or_supermarket'],                               'supermarket'],
     [['shopping_mall','store','clothing_store','department_store'],          'shop'],
-    [['gas_station'],                                                        'petrol'],
+    [['gas_station'],                                                        'gas-station'],
     [['museum','art_gallery'],                                               'museum'],
     [['church','mosque','synagogue','place_of_worship','hindu_temple'],      'fortress'],
     [['airport'],                                                            'airport'],
@@ -301,7 +301,7 @@ function renderBankBarChips() {
   const selMode = !!S._planSelectMode;
   const selected = S._planSelectedIds || [];
   bar.innerHTML = S.planBank.map(p => {
-    const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E' };
+    const t = LOCATION_TYPES[p.type] || { icon: '📌', color: '#9E9E9E' };
     const isHL = p.id === hl;
     const isMk = !!p.marked;
     const isSel = selMode && selected.indexOf(p.id) !== -1;
@@ -510,7 +510,7 @@ function _centerMapOnPlace(id) {
 // SymbolPath scale mechanism as regular pins, so it resizes on zoom exactly like
 // every other pin (no independent/zoom-relative sizing logic needed).
 function _planMarkerIcon(p, highlighted) {
-  const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E' };
+  const t = LOCATION_TYPES[p.type] || { icon: '📌', color: '#9E9E9E' };
   const isMk = !!p.marked;
   if (highlighted) {
     return {
@@ -536,7 +536,7 @@ function _updateMarkerIcon(placeId) {
   if (!p || !marker) return;
   const highlighted = placeId === S._highlightedPlaceId;
   marker.setIcon(_planMarkerIcon(p, highlighted));
-  const t = PLAN_TYPES[p.type] || { icon: '📌' };
+  const t = LOCATION_TYPES[p.type] || { icon: '📌' };
   marker.setLabel({ text: t.icon, color: highlighted ? '#fff' : '#222', fontSize: highlighted ? '16px' : '13px' });
   marker.setZIndex(highlighted ? 9999 : null);
 }
@@ -572,7 +572,7 @@ function showPinMenu(placeId, cx, cy) {
   const vw = window.innerWidth, menuW = 260;
   menu.style.left = (vw - cx - 8 >= menuW ? cx + 4 : Math.max(8, cx - menuW - 4)) + 'px';
   menu.style.top  = Math.min(cy, window.innerHeight - 280) + 'px';
-  const bt = PLAN_TYPES[p.type] || { icon: '📌', label: 'Place', color: '#9E9E9E' };
+  const bt = LOCATION_TYPES[p.type] || { icon: '📌', label: 'Place', color: '#9E9E9E' };
   const curAsgn = Object.keys(S.planAssignments || {})
     .filter(ds => (S.planAssignments[ds] || []).indexOf(placeId) !== -1).sort();
   const shownA = curAsgn.slice(0, 4), restA = curAsgn.length - shownA.length;
@@ -998,7 +998,7 @@ function buildPlannerCalendar() {
       const itemPills = day.inRange ? _getDayOrder(day.ds).map(item => {
         if (item.type === 'place') {
           const p = byId[item.id]; if (!p || p.type === 'hotel') return '';
-          const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E' };
+          const t = LOCATION_TYPES[p.type] || { icon: '📌', color: '#9E9E9E' };
           return '<span class="cal7-pill plan-pill" ' + _gDnd('place', p.id) + ' title="' + esc(p.name) + '" style="cursor:grab;background:' + t.color + '18;color:' + t.color + '" oncontextmenu="event.preventDefault();event.stopPropagation();showPinMenu(\'' + p.id + '\',event.clientX,event.clientY)" ontouchstart="_startCalLongPress(\'' + p.id + '\',event)" ontouchend="_cancelCalLongPress()" ontouchmove="_cancelCalLongPress()">' +
             '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">' + t.icon + ' ' + esc(p.name) + '</span>' +
             '<button class="plan-pill-del" onclick="event.stopPropagation();removePlaceFromDayUI(\'' + day.ds + '\',\'' + p.id + '\')">×</button></span>';
@@ -1088,7 +1088,7 @@ function buildPlannerCalendar() {
       _getDayOrder(day.ds).forEach(item => {
         if (item.type === 'place') {
           const p = byId[item.id]; if (!p || p.type === 'hotel') return;
-          const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E' };
+          const t = LOCATION_TYPES[p.type] || { icon: '📌', color: '#9E9E9E' };
           rows += '<div ' + _dndAttr(day.ds, 'place', p.id) + ' style="display:flex;align-items:center;gap:8px;padding:5px 12px;font-size:13px" oncontextmenu="event.preventDefault();event.stopPropagation();showPinMenu(\'' + p.id + '\',event.clientX,event.clientY)" ontouchstart="_startCalLongPress(\'' + p.id + '\',event)" ontouchend="_cancelCalLongPress()" ontouchmove="_cancelCalLongPress()">' +
             _handle +
             '<span style="background:' + t.color + '22;color:' + t.color + ';width:26px;height:26px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">' + t.icon + '</span>' +
@@ -1325,7 +1325,7 @@ function openAssignModal(dateStr) {
     .toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 
   const rows = S.planBank.map(p => {
-    const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E', label: p.type };
+    const t = LOCATION_TYPES[p.type] || { icon: '📌', color: '#9E9E9E', label: p.type };
     const checked = assigned.indexOf(p.id) !== -1;
     return '<label data-name="' + esc(p.name).toLowerCase() + '" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer">' +
       '<input type="checkbox" value="' + p.id + '"' + (checked ? ' checked' : '') + ' style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0">' +
@@ -1410,7 +1410,7 @@ function openDayPickerForPlace(placeId) {
   if (!range) { toast('Set trip dates or assign a place to a day first', 'err'); return; }
   const start = range.first, end = range.last;
 
-  const t = PLAN_TYPES[p.type] || { icon: '📌', color: '#9E9E9E', label: p.type };
+  const t = LOCATION_TYPES[p.type] || { icon: '📌', color: '#9E9E9E', label: p.type };
   const color = t.color;
 
   const assignedSet = new Set(
@@ -1688,7 +1688,7 @@ function _showContextMenu(x, y, coords, placeId) {
           if (status === 'OK' && place && place.geometry) {
             const loc = place.geometry.location;
             const typeKey = _googleTypeToPlanner(place.types || []);
-            const pt = PLAN_TYPES[typeKey] || { icon: '📍', label: typeKey || 'Place' };
+            const pt = LOCATION_TYPES[typeKey] || { icon: '📍', label: typeKey || 'Place' };
             const photoUrl = (place.photos && place.photos.length)
               ? place.photos[0].getUrl({ maxWidth: 320, maxHeight: 160 }) : null;
             const bizStatus = place.business_status || 'OPERATIONAL';
@@ -1972,7 +1972,7 @@ var _planTypeKeys = [];
 var _planTypeKbIdx = -1;
 
 function _selectPlanType(key) {
-  const t = PLAN_TYPES[key];
+  const t = LOCATION_TYPES[key];
   document.getElementById('planType').value = key || '';
   document.getElementById('planTypeInput').value = t ? (t.icon + ' ' + t.label) : '';
   const list = document.getElementById('planTypeList');
@@ -1985,7 +1985,7 @@ function _openPlanTypeList() {
   const list = document.getElementById('planTypeList');
   if (!list) return;
   list.innerHTML = _planTypeKeys.map(k => {
-    const t = PLAN_TYPES[k];
+    const t = LOCATION_TYPES[k];
     return '<div class="suggest-item" data-key="' + k + '" onclick="_selectPlanType(\'' + k + '\')" style="font-size:12px;padding:7px 11px">' +
       '<span style="margin-right:5px">' + t.icon + '</span>' +
       '<span class="si-name">' + esc(t.label) + '</span></div>';
@@ -2001,12 +2001,12 @@ function _filterPlanTypeList(val) {
   const q = raw.replace(/^[^\w]+\s*/, '').toLowerCase();
   const matches = _planTypeKeys.filter(k => {
     if (!raw) return true;
-    const pt = PLAN_TYPES[k];
+    const pt = LOCATION_TYPES[k];
     return pt.label.toLowerCase().includes(q) || (pt.search && pt.search.toLowerCase().includes(q));
   });
   if (!matches.length) { list.style.display = 'none'; return; }
   list.innerHTML = matches.map(k => {
-    const t = PLAN_TYPES[k];
+    const t = LOCATION_TYPES[k];
     return '<div class="suggest-item" data-key="' + k + '" onclick="_selectPlanType(\'' + k + '\')" style="font-size:12px;padding:7px 11px">' +
       '<span style="margin-right:5px">' + t.icon + '</span>' +
       '<span class="si-name">' + esc(t.label) + '</span></div>';
@@ -2121,7 +2121,7 @@ function _parsePlanJson(text) {
   if (!arr) return null;
   return arr.filter(p => p && p.name).map(p => ({
     name: String(p.name).trim(),
-    type: PLAN_TYPES[p.type] ? p.type : 'place',
+    type: LOCATION_TYPES[p.type] ? p.type : 'place',
     lat:  p.lat  != null ? parseFloat(p.lat)  : null,
     lng:  p.lng  != null ? parseFloat(p.lng)  : null,
     description: String(p.description || '').trim()
@@ -2150,7 +2150,7 @@ function _parseKmlToPlaces(text) {
 }
 
 function _getImportPromptTemplate() {
-  const types = Object.keys(PLAN_TYPES).join(', ');
+  const types = Object.keys(LOCATION_TYPES).join(', ');
   return (
     'Convert the content below into Trip Planner import JSON.\n' +
     'Output ONLY a valid JSON array — no markdown fences, no explanation.\n\n' +

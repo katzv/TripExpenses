@@ -45,7 +45,47 @@ function nowISO() {
 function getTrips() {
   var trips = load('trips', []);
   migrateCheckinOrder(trips);
+  migrateLocationTypes(trips);
   return trips;
+}
+
+function normalizeLocationType(type) {
+  var aliases = {
+    'petrol': 'gas-station',
+    'groceries': 'supermarket',
+    'hike': 'nature-hike'
+  };
+  return aliases[type] || type;
+}
+
+// Rewrite legacy duplicate category keys in all saved trips so old records use
+// the same canonical types as new Planner and Tracker entries.
+function migrateLocationTypes(trips) {
+  (trips || []).forEach(function(trip) {
+    if (!trip || !trip.id) return;
+
+    var checkins = loadCheckinsMap(trip.id), checkinsChanged = false;
+    Object.keys(checkins).forEach(function(id) {
+      var currentType = checkins[id] && checkins[id].type;
+      var canonicalType = normalizeLocationType(currentType);
+      if (currentType !== canonicalType) {
+        checkins[id].type = canonicalType;
+        checkinsChanged = true;
+      }
+    });
+    if (checkinsChanged) saveCheckinsMap(trip.id, checkins);
+
+    var plan = load('plan_' + trip.id, { bank: [], assignments: {} });
+    var planChanged = false;
+    (plan.bank || []).forEach(function(place) {
+      var canonicalType = normalizeLocationType(place.type);
+      if (place.type !== canonicalType) {
+        place.type = canonicalType;
+        planChanged = true;
+      }
+    });
+    if (planChanged) save('plan_' + trip.id, plan);
+  });
 }
 
 function updateTripOrder(ids) {
@@ -190,7 +230,7 @@ function saveCheckin(d) {
     tripId:    d.tripId,
     timestamp: d.timestamp || nowISO(),
     name:      d.name,
-    type:      d.type,
+    type:      normalizeLocationType(d.type),
     lat:       d.lat       || null,
     lng:       d.lng       || null,
     gpsSource: d.gpsSource || 'none',
@@ -209,7 +249,7 @@ function updateCheckin(d) {
     tripId:    d.tripId,
     timestamp: d.timestamp,
     name:      d.name,
-    type:      d.type,
+    type:      normalizeLocationType(d.type),
     lat:       d.lat       || null,
     lng:       d.lng       || null,
     gpsSource: d.gpsSource || map[d.id].gpsSource || 'none',
@@ -490,15 +530,27 @@ function exportCalendarToSheet(params) {
   var weeks     = params.weeks     || [];
   if (!weeks.length) return { success: false, error: 'No data' };
 
-  var CI_ICONS = {
-    'place':'📌','hotel':'🏨','restaurant':'🍽️','attraction':'🎡',
-    'transport':'🚗','other':'🗂️','flight-in':'🛬','flight-out':'🛫',
-    'hike':'🥾','groceries':'🛒'
-  };
-
   var ss    = SpreadsheetApp.create(tripTitle + ' - Trip Schedule');
   var sheet = ss.getActiveSheet();
   sheet.setName('Calendar');
+
+  function linkedText(text, links, styles, color) {
+    var builder = SpreadsheetApp.newRichTextValue().setText(text);
+    if (text.length) {
+      var style = SpreadsheetApp.newTextStyle().setForegroundColor(color).build();
+      builder.setTextStyle(0, text.length, style);
+      styles.forEach(function(run) {
+        var runStyle = SpreadsheetApp.newTextStyle().setForegroundColor(run.color).build();
+        builder.setTextStyle(run.start, run.end, runStyle);
+      });
+      links.forEach(function(link) {
+        builder.setLinkUrl(link.start, link.end, link.url);
+        var linkStyle = SpreadsheetApp.newTextStyle().setForegroundColor(link.color || color).build();
+        builder.setTextStyle(link.start, link.end, linkStyle);
+      });
+    }
+    return builder.build();
+  }
 
   // Column widths (50% wider than original 115)
   for (var c = 1; c <= 7; c++) sheet.setColumnWidth(c, 172);
@@ -519,8 +571,8 @@ function exportCalendarToSheet(params) {
   var rowIdx = 2;
   weeks.forEach(function(week) {
     var hdrVals = [], hdrBgs = [], hdrFCs = [];
-    var bodyVals = [], bodyBgs = [], bodyFCs = [];
-    var footVals = [], footBgs = [], footFCs = [];
+    var bodyVals = [], bodyRichVals = [], bodyBgs = [], bodyFCs = [];
+    var footVals = [], footRichVals = [], footBgs = [], footFCs = [];
 
     week.forEach(function(day) {
       var inRange = !!day.inRange;
@@ -533,22 +585,51 @@ function exportCalendarToSheet(params) {
       hdrFCs.push(inRange ? '#1E40AF' : '#B0B8C8');
 
       // --- Body row: non-hotel check-ins ---
-      var bodyLines = [];
+      var bodyLines = [], bodyLinks = [], bodyStyles = [], bodyLength = 0;
       day.cis.forEach(function(ci) {
         if (ci.type !== 'hotel') {
-          bodyLines.push((CI_ICONS[ci.type] || '\u2022') + ' ' + ci.name);
+          var prefix = (ci.icon || '\u2022') + ' ';
+          var name = String(ci.name || '');
+          var lineColor = inRange ? (ci.color || '#9E9E9E') : '#B0B8C8';
+          bodyLines.push(prefix + name);
+          bodyStyles.push({ start: bodyLength, end: bodyLength + prefix.length + name.length, color: lineColor });
+          if (name.length) {
+            bodyLinks.push({
+              start: bodyLength + prefix.length,
+              end: bodyLength + prefix.length + name.length,
+              url: 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(name),
+              color: lineColor
+            });
+          }
+          bodyLength += prefix.length + name.length + 1;
         }
       });
-      bodyVals.push(bodyLines.join('\n'));
+      var bodyText = bodyLines.join('\n');
+      bodyVals.push(bodyText);
       bodyBgs.push(inRange ? '#FFFFFF' : '#F4F5F8');
-      bodyFCs.push(inRange ? '#1A1A2E' : '#B0B8C8');
+      var bodyColor = inRange ? '#1A1A2E' : '#B0B8C8';
+      bodyFCs.push(bodyColor);
+      bodyRichVals.push(linkedText(bodyText, bodyLinks, bodyStyles, bodyColor));
 
       // --- Footer row: hotel check-in ---
       var hotelCi = null;
       day.cis.forEach(function(ci) { if (ci.type === 'hotel') hotelCi = ci; });
-      footVals.push(hotelCi ? (CI_ICONS['hotel'] + ' ' + hotelCi.name) : '');
+      var hotelIcon = hotelCi ? (hotelCi.icon || '\uD83D\uDECF\uFE0F') : '\uD83D\uDECF\uFE0F';
+      var footText = hotelCi ? (hotelIcon + ' ' + String(hotelCi.name || '')) : '';
+      var footLinks = [];
+      if (hotelCi && hotelCi.name) {
+        var hotelPrefix = hotelIcon + ' ';
+        footLinks.push({
+          start: hotelPrefix.length,
+          end: hotelPrefix.length + String(hotelCi.name).length,
+          url: 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(String(hotelCi.name))
+        });
+      }
+      footVals.push(footText);
       footBgs.push(!inRange ? '#F4F5F8' : (hotelCi ? '#DCFCE7' : '#FFFFFF'));
-      footFCs.push(inRange ? '#166534' : '#B0B8C8');
+      var footColor = inRange ? '#166534' : '#B0B8C8';
+      footFCs.push(footColor);
+      footRichVals.push(linkedText(footText, footLinks, [], footColor));
     });
 
     // Write header row — number format '@' ensures text even after apostrophe trick
@@ -572,6 +653,7 @@ function exportCalendarToSheet(params) {
     rowBody.setFontSize(10);
     rowBody.setVerticalAlignment('top');
     rowBody.setWrap(true);
+    rowBody.setRichTextValues([bodyRichVals]);
     sheet.setRowHeight(rowIdx + 1, 80);
 
     // Write footer row
@@ -583,6 +665,7 @@ function exportCalendarToSheet(params) {
     rowFoot.setFontSize(10);
     rowFoot.setVerticalAlignment('middle');
     rowFoot.setWrap(true);
+    rowFoot.setRichTextValues([footRichVals]);
     sheet.setRowHeight(rowIdx + 2, 26);
 
     rowIdx += 3;
@@ -627,7 +710,7 @@ function savePlanPlace(d) {
       for (var i = 0; i < plan.bank.length; i++) {
         if (plan.bank[i].id === d.id) {
           plan.bank[i].name        = d.name;
-          plan.bank[i].type        = d.type;
+          plan.bank[i].type        = normalizeLocationType(d.type);
           plan.bank[i].lat         = d.lat  || null;
           plan.bank[i].lng         = d.lng  || null;
           plan.bank[i].description = d.description || '';
@@ -641,7 +724,7 @@ function savePlanPlace(d) {
         id:          newId,
         tripId:      d.tripId,
         name:        d.name,
-        type:        d.type,
+        type:        normalizeLocationType(d.type),
         lat:         d.lat  || null,
         lng:         d.lng  || null,
         description: d.description || '',
@@ -731,7 +814,7 @@ function bulkImportPlanPlaces(tripId, placesJson) {
         id:          uuid(),
         tripId:      tripId,
         name:        String(p.name).trim(),
-        type:        p.type || 'place',
+        type:        normalizeLocationType(p.type || 'place'),
         lat:         (p.lat != null && !isNaN(Number(p.lat))) ? Number(p.lat) : null,
         lng:         (p.lng != null && !isNaN(Number(p.lng))) ? Number(p.lng) : null,
         description: String(p.description || '').trim(),

@@ -147,6 +147,7 @@ Stored as `{id → entry}` object (not array) to give O(1) lookup/update/delete 
 ### Calendar Sheet Export
 - `exportCalendarToSheet(params)` — creates a new Google Sheet named `"{tripTitle} - Trip Schedule"`, sheet named "Calendar"
 - Column widths: 172px for all 7 columns
+- Check-in names in body cells are rich-text hyperlinks to Google Maps search results by name and retain their Tracker calendar category colors (out-of-range days remain muted); hotel names keep the existing green footer styling and Maps link
 - **3 rows per week**: header row (DD/MM + day description, blue bg), body row (non-hotel check-ins as icon+name, height 80px), footer row (hotel check-in if any, green bg, height 26px)
 - Out-of-range days shown in grey
 - Date values prefixed with apostrophe (`'DD/MM`) to prevent auto-conversion in Sheets, number format set to `@`
@@ -564,23 +565,15 @@ Three tabs: **List**, **Calendar**, **Map**
 { id, tripId, timestamp, name, type, lat, lng, gpsSource, createdAt }
 ```
 
-### Check-in Types (with colors and icons)
-| Type | Color | Icon |
-|---|---|---|
-| place | #1565C0 | 📌 |
-| hotel | #9C27B0 | 🏨 |
-| restaurant | #4CAF50 | 🍽️ |
-| attraction | #FF9800 | 🎡 |
-| transport | #F44336 | 🚗 |
-| flight-in | #0288D1 | 🛬 |
-| flight-out | #1565C0 | 🛫 |
-| hike | #2E7D32 | 🥾 |
-| groceries | #F57C00 | 🛒 |
-| other | #9E9E9E | 🗂️ |
+### Check-in Types
+- Uses the shared LOCATION_TYPES table defined in [Constants.html](Constants.html); see the complete common category list under [LOCATION_TYPES](#location_types-30-types-shared-by-planner-and-tracker).
 
 ### Check-in Form
 - Shown/hidden (not navigated) within the Tracker view
-- Fields: Place Name (with suggestion dropdown), Date, Time, Type
+- Fields: Place Name (with suggestion dropdown), Date, Time, and a searchable Type picker matching Planner's type picker (type to filter, Arrow keys to navigate, Enter to select, Escape to close)
+- Type dropdown reads from shared `LOCATION_TYPES`, showing each category's shared icon and label; existing check-in types remain included in that common list
+- Planner and Tracker both read category keys, icons, labels, and colors from `LOCATION_TYPES`; new types added there appear in both screens
+- Tracker cards, calendar labels, map markers, map details, and calendar exports use the shared category metadata
 - GPS status row: colored dot (spin/ok/err) + status text + "📍 Pick on Map" button
 - GPS acquired automatically on form open via `navigator.geolocation.getCurrentPosition` (10s timeout, high accuracy)
 - Form persists visibility state when switching tabs (`S._listFormVisible`)
@@ -620,6 +613,7 @@ Three tabs: **List**, **Calendar**, **Map**
   - Header: DD/MM + italic day description (if any) — clickable to edit note on in-range days
   - Body: check-in pills (colored bg, type icon + name), excluding hotels
   - Footer: hotel check-in if any (green background)
+- Check-in and hotel names link to a Google Maps search by name only; links retain the existing label color
 - Day notes: modal textarea, "Clear" button if note exists, saved via `saveCalDesc`
 - Scroll sync: DOW sticky table mirrors horizontal scroll of calendar table using `translateX`
 
@@ -673,8 +667,8 @@ Three tabs: **List**, **Calendar**, **Map**
 | transport | `shapes/cabs.png` |
 | flight-in | `shapes/airports.png` |
 | flight-out | `shapes/airports.png` |
-| hike | `shapes/hiker.png` |
-| groceries | `shapes/grocery.png` |
+| nature-hike | `shapes/hiker.png` |
+| supermarket | `shapes/grocery.png` |
 | other | `shapes/info_circle.png` |
 
 **Colors** (KML ABGR format via `toKmlColor(hex)`):
@@ -743,7 +737,7 @@ Three tabs: **Bank**, **Calendar**, **Map**
   id,          // uuid
   tripId,
   name,        // display name
-  type,        // key from PLAN_TYPES
+  type,        // key from LOCATION_TYPES
   lat, lng,    // optional GPS coords
   description, // optional text, supports Hebrew/RTL via dir="auto"
   marked       // optional priority marker toggled from the planner pin menu
@@ -763,10 +757,10 @@ Three tabs: **Bank**, **Calendar**, **Map**
 - Fixed: the Map Picker ("📍 Location" button in the Add/Edit Place form) rendered blank — the still-open place-edit form overlay (`z-index: 500`) sat above the picker overlay (`z-index: 300`). The form is now hidden while the picker is open and restored on close (`openPlannerLocationPicker()` / `closeMapPicker()` in [MapPicker.html](MapPicker.html)).
 - Fixed a bug where deleting a bank place (Pin Menu → ✕ Del) appeared to work but reverted after a reload. Root cause: `doDeletePlanPlace()` called the server delete *last*, after several rendering calls; a client-side JS exception during map/marker re-render (specific to the delete-from-map path) silently aborted the function before the RPC ever ran — invisible everywhere, since client-side exceptions never reach Apps Script's server-side exception logging. Fixed by firing the delete call first, unconditionally, with rendering wrapped in `try/catch` afterward. Also added `LockService` around every `plan_{tripId}` read-modify-write function (`_withPlanLock()`) as a defensive fix for the related but distinct risk of concurrent read-modify-write calls silently reverting each other.
 
-### PLAN_TYPES (23 types)
+### LOCATION_TYPES (27 types shared by Planner and Tracker)
 | Key | Icon | Color | Label |
 |---|---|---|---|
-| nature-hike | 🥾 | #2E7D32 | Nature Hike |
+| nature-hike | 🥾 | #2E7D32 | Hike |
 | lake-river | 🏞️ | #0288D1 | Lakes, Rivers & Waterfalls |
 | cablecar | 🚡 | #7B1FA2 | Cablecar |
 | restaurant | 🍽️ | #4CAF50 | Restaurant |
@@ -774,10 +768,9 @@ Three tabs: **Bank**, **Calendar**, **Map**
 | sweet | 🍦 | #E91E63 | Sweet |
 | beer | 🍺 | #F57F17 | Beer |
 | market | 🏪 | #FF6D00 | Market |
-| supermarket | 🛒 | #F57C00 | Supermarket |
+| supermarket | 🛒 | #F57C00 | Grocery Store |
 | shop | 🛍️ | #9C27B0 | Shop |
-| petrol | ⛽ | #616161 | Petrol Station |
-| gas-station | ⛽ | #FF6F00 | Gas Station |
+| gas-station | ⛽ | #FF6F00 | Fuel Station |
 | hotel | 🛏️ | #9C27B0 | Hotel |
 | attraction | 🎡 | #FF9800 | Attraction |
 | cave | 🦇 | #4E342E | Cave |
@@ -790,16 +783,23 @@ Three tabs: **Bank**, **Calendar**, **Map**
 | village | 🏘️ | #558B2F | Village |
 | parking | 🅿️ | #37474F | Parking |
 
+| place | 📍 | #1565C0 | Place |
+| transport | 🚗 | #F44336 | Transport |
+| flight-in | 🛬 | #0288D1 | Flight In |
+| flight-out | 🛫 | #1565C0 | Flight Out |
+| other | 🗂️ | #9E9E9E | Other |
+
 Notes:
-- `petrol` (Petrol Station) and `gas-station` (Gas Station) are distinct types kept for backward compatibility. `gas-station` was added later to match Google Maps `gas_station` POI type.
-- `fortress` has a `search` field on the PLAN_TYPES entry: `'castle fortress temple palace church cathedral monument'`. The type dropdown filter checks both `label` and `search` so any of those words returns it.
+- Legacy `petrol`, `groceries`, and `hike` values are migrated to `gas-station`, `supermarket`, and `nature-hike` when trips load; new writes are normalized to those canonical keys.
+- Optional `search` terms on each LOCATION_TYPES entry provide synonyms and common alternate spellings; both Planner and Tracker search the type label and these terms (e.g. `gas`, `fuel`, `fule`, and `petrol` all find Fuel Station).
+- `fortress` search terms include `castle fortress temple palace church cathedral monument`.
 - Check-in type `hotel` also uses 🛏️ (same as planner hotel type).
 
 ### Import Places (📥 Import button)
 - Small "📥 Import" button rendered above the map in the map panel (always visible regardless of bank content)
 - Opens `#planImportModal` — a fixed overlay with file upload + paste textarea
 - **Supported formats**:
-  - **JSON**: array of `{ name, type?, lat?, lng?, description? }` objects, OR `{ places: [...] }` wrapper. Type must match a PLAN_TYPES key or defaults to `'place'`.
+  - **JSON**: array of `{ name, type?, lat?, lng?, description? }` objects, OR `{ places: [...] }` wrapper. Type must match a LOCATION_TYPES key or defaults to `'place'`.
   - **KML** (Google My Maps export): parses all `<Placemark>` elements; extracts `<name>`, `<description>` (HTML stripped), and `<Point><coordinates>` (standard KML order: lng,lat,alt)
 - **Preview**: after parse, shows count, GPS coverage, and first 5 names
 - **Import button**: calls `bulkImportPlanPlaces(tripId, JSON.stringify(places))` on backend → reloads plan → toast
@@ -854,7 +854,7 @@ Notes:
 
 ### Map Tab (Planner)
 - Google Maps showing all bank places that have GPS coords
-- Markers: `SymbolPath.CIRCLE`, colored per PLAN_TYPES, white stroke 2.5px, scale 14; label = type emoji (13px)
+- Markers: `SymbolPath.CIRCLE`, colored per LOCATION_TYPES, white stroke 2.5px, scale 14; label = type emoji (13px)
 - InfoWindow (`S._planInfoWindow`, `maxWidth: 300`): place name + type icon/label + full description (linkified, `max-height: 120px; overflow-y: auto`) + assigned days list + "📅 Assign to Day" button
   - Content wrapped in `<div style="min-width:240px">` to prevent narrow/misaligned popup
   - Stored on `S._planInfoWindow` so `openDayPickerForPlace()` can call `.close()` before showing the modal
@@ -898,19 +898,19 @@ Notes:
      - `photos[0].getUrl({ maxWidth: 320, maxHeight: 120 })` for the photo strip (120px height)
      - `website` shown as a clickable link if present
      - `editorial_summary.overview` or `formatted_address` used as description suggestion
-     - `types` → `_googleTypeToPlanner(types)` → PLAN_TYPES key
+     - `types` → `_googleTypeToPlanner(types)` → LOCATION_TYPES key
      - Stores result in `S._ctxMenuData = { lat, lng, name, type, description, photoUrl, website }`
    - If no POI found / all results in skipTypes: uses geocoded coords only, `S._ctxMenuData = { lat, lng }`; shows "Add a Place" menu without name/photo
 4. Renders the full Place Menu (see below)
 
-**`_googleTypeToPlanner(types)`**: priority-ordered mapping from Google place `types[]` array → PLAN_TYPES key:
+**`_googleTypeToPlanner(types)`**: priority-ordered mapping from Google place `types[]` array → LOCATION_TYPES key:
 - `lodging` → `hotel`; `campground` → `nature-hike`; `cafe` / `bakery` / `coffee_shop` → `coffee`
 - `bar` / `night_club` → `beer`; `restaurant` / `food` → `restaurant`; `supermarket` / `grocery_or_supermarket` → `supermarket`
 - `museum` → `museum`; `church` / `mosque` / `synagogue` / `place_of_worship` → `fortress`
 - `airport` / `transit_station` → `airport`; `car_rental` → `car-rental`; `parking` → `parking`
 - `gas_station` → `gas-station`; `shopping_mall` / `clothing_store` → `shop`; `store` / `market` → `market`
 - `natural_feature` / `park` → `nature-hike`; `viewpoint` → `viewpoint`; `tourist_attraction` / `amusement_park` → `attraction`
-- Falls back to first key in `Object.keys(PLAN_TYPES)[0]`
+- Falls back to first key in `Object.keys(LOCATION_TYPES)[0]`
 
 **Place Menu HTML** (`#plannerContextMenu`, `position:absolute; z-index:200; width:260px; border-radius:12px; box-shadow; background:white`):
 - **Photo strip** (if available): `height:120px; overflow:hidden; background:#e5e7eb` — `<img>` with `object-fit:cover`; `onerror` hides the strip

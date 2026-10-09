@@ -33,18 +33,12 @@
     </div>
     <div class="fg" style="margin-bottom:12px">
       <label>Type</label>
-      <select class="fc" id="ciType">
-        <option value="place">📌 Place</option>
-        <option value="hotel">🏨 Hotel</option>
-        <option value="restaurant">🍽 Restaurant</option>
-        <option value="attraction">🎡 Attraction</option>
-        <option value="transport">🚗 Transport</option>
-        <option value="flight-in">🛬 Flight In</option>
-        <option value="flight-out">🛫 Flight Out</option>
-        <option value="hike">🥾 Hike</option>
-        <option value="groceries">🛒 Groceries</option>
-        <option value="other">🗂 Other</option>
-      </select>
+      <div style="position:relative">
+        <input class="fc" id="ciTypeInput" type="text" placeholder="Type…" autocomplete="off"
+               oninput="_filterTrackerTypeList(this.value)" onfocus="_openTrackerTypeList()" onkeydown="_trackerTypeKeydown(event)">
+        <div class="suggest-list" id="ciTypeList" style="display:none"></div>
+        <input type="hidden" id="ciType" value="place">
+      </div>
     </div>
     <div class="btn-row">
       <button class="btn btn-outline btn-sm" onclick="cancelCheckin()">Cancel</button>
@@ -78,6 +72,83 @@
 // TRACKER
 // =======================================================
 
+function trackerTypeMeta(type) {
+  return LOCATION_TYPES[type] || { icon: '📌', color: '#9E9E9E', label: type || 'Place' };
+}
+
+var _trackerTypeKbIdx = -1;
+
+function _selectTrackerType(key) {
+  const type = LOCATION_TYPES[key];
+  document.getElementById('ciType').value = key || '';
+  document.getElementById('ciTypeInput').value = type ? (type.icon + ' ' + type.label) : '';
+  const list = document.getElementById('ciTypeList');
+  if (list) list.style.display = 'none';
+  _trackerTypeKbIdx = -1;
+}
+
+function _renderTrackerTypeList(keys) {
+  const list = document.getElementById('ciTypeList');
+  if (!list) return;
+  list.innerHTML = keys.map(key => {
+    const type = LOCATION_TYPES[key];
+    return '<div class="suggest-item" data-key="' + key + '" onclick="_selectTrackerType(\'' + key + '\')" style="font-size:12px;padding:7px 11px">' +
+      '<span style="margin-right:5px">' + type.icon + '</span>' +
+      '<span class="si-name">' + esc(type.label) + '</span></div>';
+  }).join('');
+  list.style.display = keys.length ? 'block' : 'none';
+}
+
+function _openTrackerTypeList() {
+  _trackerTypeKbIdx = -1;
+  const keys = Object.keys(LOCATION_TYPES).sort((a, b) => LOCATION_TYPES[a].label.localeCompare(LOCATION_TYPES[b].label));
+  _renderTrackerTypeList(keys);
+}
+
+function _filterTrackerTypeList(value) {
+  _trackerTypeKbIdx = -1;
+  const raw = (value || '').trim();
+  const query = raw.replace(/^[^\w]+\s*/, '').toLowerCase();
+  const keys = Object.keys(LOCATION_TYPES).filter(key => {
+    if (!raw) return true;
+    const type = LOCATION_TYPES[key];
+    return type.label.toLowerCase().includes(query) || (type.search && type.search.toLowerCase().includes(query));
+  }).sort((a, b) => LOCATION_TYPES[a].label.localeCompare(LOCATION_TYPES[b].label));
+  _renderTrackerTypeList(keys);
+}
+
+function _trackerTypeKeydown(event) {
+  const list = document.getElementById('ciTypeList');
+  const open = list && list.style.display !== 'none';
+  if (event.key === 'Escape') {
+    event.stopPropagation();
+    if (list) list.style.display = 'none';
+    _trackerTypeKbIdx = -1;
+    return;
+  }
+  if (event.key === 'ArrowDown' && !open) {
+    event.preventDefault();
+    _openTrackerTypeList();
+    return;
+  }
+  if (!open) return;
+  const items = list.querySelectorAll('.suggest-item');
+  if (!items.length) return;
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    items.forEach(item => item.classList.remove('active'));
+    _trackerTypeKbIdx = event.key === 'ArrowDown'
+      ? Math.min(_trackerTypeKbIdx + 1, items.length - 1)
+      : Math.max(_trackerTypeKbIdx - 1, 0);
+    items[_trackerTypeKbIdx].classList.add('active');
+    items[_trackerTypeKbIdx].scrollIntoView({ block: 'nearest' });
+  } else if (event.key === 'Enter' && _trackerTypeKbIdx >= 0) {
+    event.preventDefault();
+    const key = items[_trackerTypeKbIdx].getAttribute('data-key');
+    if (key) _selectTrackerType(key);
+  }
+}
+
 function showCheckinForm() {
   S.editingCheckinId = null;
   S.gpsCoords = null;
@@ -86,7 +157,7 @@ function showCheckinForm() {
   document.getElementById('ciName').value = '';
   document.getElementById('ciDate').value = today();
   document.getElementById('ciTime').value = String(_now.getHours()).padStart(2,'0') + ':' + String(_now.getMinutes()).padStart(2,'0');
-  document.getElementById('ciType').value = 'place';
+  _selectTrackerType('place');
   document.getElementById('ciSaveBtn').textContent = '📍 Check In';
   hideSuggestions();
   document.getElementById('ci-form-wrap').style.display = 'block';
@@ -97,6 +168,8 @@ function showCheckinForm() {
 function cancelCheckin() {
   S.editingCheckinId = null;
   document.getElementById('ci-form-wrap').style.display = 'none';
+  const typeList = document.getElementById('ciTypeList');
+  if (typeList) typeList.style.display = 'none';
   hideSuggestions();
 }
 
@@ -179,7 +252,7 @@ function fetchNearbySuggestions() {
           return {
             place_id: r.place_id,
             name: r.name,
-            sub: (PLAN_TYPES[typeKey] || {}).label || '',
+            sub: (LOCATION_TYPES[typeKey] || {}).label || '',
             type: typeKey,
             lat: r.geometry.location.lat(), lng: r.geometry.location.lng()
           };
@@ -238,10 +311,7 @@ function selectSuggestion(el) {
   document.getElementById('ciName').value = name;
   hideSuggestions();
   // Auto-classify type if known
-  if (type && type !== 'place') {
-    const sel = document.getElementById('ciType');
-    if (sel && sel.querySelector('option[value="' + type + '"]')) sel.value = type;
-  }
+  if (type && type !== 'place' && LOCATION_TYPES[type]) _selectTrackerType(type);
   if (lat && lng) {
     S.gpsCoords = { lat, lng };
     S.gpsSource = 'google';
@@ -259,8 +329,7 @@ function selectSuggestion(el) {
         if (!type || type === 'place') {
           const typeKey = _googleTypeToPlanner(place.types || []);
           if (typeKey && typeKey !== 'place') {
-            const sel = document.getElementById('ciType');
-            if (sel && sel.querySelector('option[value="' + typeKey + '"]')) sel.value = typeKey;
+            if (LOCATION_TYPES[typeKey]) _selectTrackerType(typeKey);
           }
         }
       } else { setGpsStatus('err', 'Could not get location — pick on map'); }
@@ -398,8 +467,9 @@ function renderCheckinList() {
 }
 
 function checkinCard(c) {
-  const col  = CI_COLORS[c.type]  || '#9E9E9E';
-  const icon = CI_ICONS[c.type]   || '📌';
+  const meta = trackerTypeMeta(c.type);
+  const col  = meta.color || '#9E9E9E';
+  const icon = meta.icon || '📌';
   const gpsInfo = (c.lat && c.lng) ? '📡 ' + parseFloat(c.lat).toFixed(4) + ', ' + parseFloat(c.lng).toFixed(4) : '';
   return `
     <div class="ci-card" onclick="editCheckinUI('${c.id}')">
@@ -426,7 +496,7 @@ function editCheckinUI(id) {
   document.getElementById('ciName').value = c.name || '';
   document.getElementById('ciDate').value = localDateStr(c.timestamp);
   document.getElementById('ciTime').value = String(_d.getHours()).padStart(2,'0') + ':' + String(_d.getMinutes()).padStart(2,'0');
-  document.getElementById('ciType').value = c.type || 'place';
+  _selectTrackerType(c.type || 'place');
   document.getElementById('ciSaveBtn').textContent = '✓ Update';
   hideSuggestions();
   if (S.gpsCoords) {
@@ -547,10 +617,13 @@ function buildCalendar() {
     const tds = week.map(day => {
       const cls   = 'cal7-cell' + (day.inRange ? '' : ' vacant');
       const pills = day.cis.map(c => {
-        const col = CI_COLORS[c.type] || '#9E9E9E';
-        return '<span class="cal7-pill" style="background:' + col + '18;color:' + col + '">' + (CI_ICONS[c.type] || '') + ' ' + esc(c.name) + '</span>';
+        const typeMeta = trackerTypeMeta(c.type);
+        const col = typeMeta.color || '#9E9E9E';
+        const mapsUrl = 'https://www.google.com/maps/search/?api=1&amp;query=' + encodeURIComponent(c.name || '');
+        return '<span class="cal7-pill" style="background:' + col + '18;color:' + col + '">' + (typeMeta.icon || '') + ' <a href="' + mapsUrl + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">' + esc(c.name) + '</a></span>';
       }).join('');
-      const foot = (day.hotel && day.inRange) ? '<div class="cal7-foot">🏨 ' + esc(day.hotel.name) + '</div>' : '';
+      const hotelUrl = day.hotel ? 'https://www.google.com/maps/search/?api=1&amp;query=' + encodeURIComponent(day.hotel.name || '') : '';
+      const foot = (day.hotel && day.inRange) ? '<div class="cal7-foot">🏨 <a href="' + hotelUrl + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">' + esc(day.hotel.name) + '</a></div>' : '';
       const descText = (S.calDescs && S.calDescs[day.ds]) || '';
       const hdrCls = day.inRange ? ' cal7-hdr-edit' : '';
       const hdrClick = day.inRange ? ' onclick="editCalDesc(\'' + day.ds + '\')"' : '';
@@ -624,7 +697,10 @@ function exportCalendar() {
       mm:       day.mm,
       inRange:  day.inRange,
       desc:     (S.calDescs && S.calDescs[day.ds]) || '',
-      cis:      day.cis.map(c => ({ name: c.name, type: c.type })),
+      cis:      day.cis.map(c => {
+        const meta = trackerTypeMeta(c.type);
+        return { name: c.name, type: c.type, icon: meta.icon, color: meta.color, label: meta.label };
+      }),
       hasHotel: !!day.hotel
     })))
   };
@@ -654,8 +730,8 @@ function exportTrackerKml() {
     'transport':  _S + 'cabs.png',
     'flight-in':  _S + 'airports.png',
     'flight-out': _S + 'airports.png',
-    'hike':       _S + 'hiker.png',
-    'groceries':  _S + 'grocery.png',
+    'nature-hike': _S + 'hiker.png',
+    'supermarket': _S + 'grocery.png',
     'other':      _S + 'info_circle.png'
   };
 
@@ -696,7 +772,7 @@ function exportTrackerKml() {
     .sort((a, b) => (a.timestamp < b.timestamp ? -1 : 1))
     .map(c => '    <Placemark>' +
       '<name>' + kx(c.name) + '</name>' +
-      '<description>' + kx((CI_ICONS[c.type] || '') + ' ' + (CI_TYPE_LABELS[c.type] || c.type) + ' · ' + fmtCheckinTime(c.timestamp)) + '</description>' +
+      '<description>' + kx((trackerTypeMeta(c.type).icon || '') + ' ' + (trackerTypeMeta(c.type).label || c.type) + ' · ' + fmtCheckinTime(c.timestamp)) + '</description>' +
       '<styleUrl>#ci-' + c.type + '</styleUrl>' +
       '<Point><coordinates>' + parseFloat(c.lng).toFixed(7) + ',' + parseFloat(c.lat).toFixed(7) + ',0</coordinates></Point>' +
       '</Placemark>')
@@ -765,7 +841,8 @@ function _renderLeafletMap() {
   const infoWindow = S._trackerInfoWindow;
   const bounds = new google.maps.LatLngBounds();
   withGPS.forEach((c, i) => {
-    const col = CI_COLORS[c.type] || '#9E9E9E';
+    const typeMeta = trackerTypeMeta(c.type);
+    const col = typeMeta.color || '#9E9E9E';
     const marker = new google.maps.Marker({
       position: { lat: parseFloat(c.lat), lng: parseFloat(c.lng) },
       map: S.leafletMap,
@@ -776,7 +853,7 @@ function _renderLeafletMap() {
     marker.addListener('click', () => {
       infoWindow.setContent(
         '<div style="font-weight:700;font-size:13px;margin-bottom:2px">' + esc(c.name) + '</div>' +
-        '<div style="font-size:11px;color:var(--muted)">' + (CI_ICONS[c.type] || '') + ' ' + (CI_TYPE_LABELS[c.type] || c.type) + ' · ' + fmtCheckinTime(c.timestamp) + '</div>' +
+        '<div style="font-size:11px;color:var(--muted)">' + (typeMeta.icon || '') + ' ' + (typeMeta.label || c.type) + ' · ' + fmtCheckinTime(c.timestamp) + '</div>' +
         '<button onclick="editCheckinUI(\'' + c.id + '\')" style="margin-top:7px;background:none;border:1.5px solid var(--primary);color:var(--primary);border-radius:6px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer">✏ Edit</button>'
       );
       infoWindow.open(S.leafletMap, marker);
