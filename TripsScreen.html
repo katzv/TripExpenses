@@ -79,7 +79,13 @@ function renderTrips() {
     ${S.trips.map(t => {
       const days = tripDays(t);
       return `
-      <div class="trip-card" onclick="openTrip('${t.id}')">
+      <div class="trip-card" data-trip-id="${t.id}" onclick="openTrip('${t.id}')">
+        <button class="trip-drag-handle" type="button" title="Drag to reorder trips" aria-label="Drag to reorder ${esc(t.title)}"
+                onpointerdown="startTripReorder(event,'${t.id}')"
+                onpointermove="moveTripReorder(event)"
+                onpointerup="finishTripReorder(event)"
+                onpointercancel="cancelTripReorder(event)"
+                onclick="event.stopPropagation()"><svg viewBox="0 0 12 20" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="9" cy="3" r="1.5"/><circle cx="3" cy="10" r="1.5"/><circle cx="9" cy="10" r="1.5"/><circle cx="3" cy="17" r="1.5"/><circle cx="9" cy="17" r="1.5"/></svg></button>
         <div class="trip-card-body">
           <div class="trip-card-title">${esc(t.title)}</div>
           <div class="trip-card-sub">📍 ${esc(t.country)} &nbsp;·&nbsp; ${t.currency}</div>
@@ -91,6 +97,108 @@ function renderTrips() {
                 onclick="event.stopPropagation();confirmDelTrip('${t.id}')">🗑</button>
       </div>`;
     }).join('')}`;
+}
+
+var _tripDragState = null;
+
+function startTripReorder(event, id) {
+  if (event.button !== undefined && event.button !== 0) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const card = event.currentTarget.closest('.trip-card');
+  _tripDragState = {
+    id,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    card,
+    moved: false,
+    active: false,
+    offsetX: 0,
+    offsetY: 0,
+    ghost: null,
+    dropBeforeId: null,
+    startOrder: Array.from(document.querySelectorAll('#trips-list .trip-card')).map(node => node.dataset.tripId)
+  };
+  if (event.currentTarget.setPointerCapture) event.currentTarget.setPointerCapture(event.pointerId);
+}
+
+function beginTripLift(drag, event) {
+  const rect = drag.card.getBoundingClientRect();
+  drag.active = true;
+  drag.moved = true;
+  drag.offsetX = event.clientX - rect.left;
+  drag.offsetY = event.clientY - rect.top;
+  drag.ghost = drag.card.cloneNode(true);
+  drag.ghost.classList.remove('dragging');
+  drag.ghost.classList.add('trip-card-drag-ghost');
+  drag.ghost.removeAttribute('data-trip-id');
+  drag.ghost.setAttribute('aria-hidden', 'true');
+  drag.ghost.querySelectorAll('button').forEach(button => button.remove());
+  drag.ghost.style.width = rect.width + 'px';
+  document.body.appendChild(drag.ghost);
+  drag.card.classList.add('trip-card-drag-placeholder');
+}
+
+function moveTripReorder(event) {
+  const drag = _tripDragState;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  if (!drag.active && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 6) return;
+  event.preventDefault();
+  if (!drag.active) beginTripLift(drag, event);
+  drag.ghost.style.left = (event.clientX - drag.offsetX) + 'px';
+  drag.ghost.style.top = (event.clientY - drag.offsetY) + 'px';
+  const cards = Array.from(document.querySelectorAll('#trips-list .trip-card:not(.trip-card-drag-placeholder)'));
+  const before = cards.find(card => event.clientY < card.getBoundingClientRect().top + card.offsetHeight / 2);
+  drag.dropBeforeId = before ? before.dataset.tripId : null;
+}
+
+function finishTripReorder(event) {
+  const drag = _tripDragState;
+  if (!drag || (event.pointerId !== undefined && drag.pointerId !== event.pointerId)) return;
+  _tripDragState = null;
+  if (drag.ghost) drag.ghost.remove();
+  drag.card.classList.remove('trip-card-drag-placeholder');
+  if (!drag.active) return;
+
+  const list = document.getElementById('trips-list');
+  const before = drag.dropBeforeId
+    ? document.querySelector('#trips-list .trip-card[data-trip-id="' + drag.dropBeforeId + '"]')
+    : null;
+  if (before) list.insertBefore(drag.card, before);
+  else list.appendChild(drag.card);
+
+  const ids = Array.from(document.querySelectorAll('#trips-list .trip-card')).map(card => card.dataset.tripId);
+  if (ids.join('|') === drag.startOrder.join('|')) return;
+  const oldTrips = S.trips.slice();
+  const tripsById = {};
+  oldTrips.forEach(trip => { tripsById[trip.id] = trip; });
+  S.trips = ids.map(id => tripsById[id]).filter(Boolean);
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success) {
+        toast('Trip order saved', 'ok');
+      } else {
+        S.trips = oldTrips;
+        renderTrips();
+        toast('Could not save trip order', 'err');
+      }
+    })
+    .withFailureHandler(err => {
+      S.trips = oldTrips;
+      renderTrips();
+      toast('Could not save trip order: ' + err.message, 'err');
+    })
+    .updateTripOrder(ids);
+}
+
+function cancelTripReorder(event) {
+  const drag = _tripDragState;
+  if (!drag || (event.pointerId !== undefined && drag.pointerId !== event.pointerId)) return;
+  _tripDragState = null;
+  if (drag.ghost) drag.ghost.remove();
+  drag.card.classList.remove('trip-card-drag-placeholder');
 }
 
 function openTrip(id) {

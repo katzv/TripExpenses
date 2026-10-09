@@ -88,6 +88,7 @@ Stored as `{id → entry}` object (not array) to give O(1) lookup/update/delete 
 
 ### Trips
 - `getTrips()` — returns array of trip objects
+- `updateTripOrder(ids)` — persists the user-defined order of existing trips while retaining any omitted trips in their previous relative order
 - `createTrip(d)` — creates trip with `{id, title, country, currency, startDate, endDate, createdAt}`, returns `{success, id}`
 - `updateTrip(d)` — updates `title`, `country`, `startDate`, `endDate`, `defaultView` for trip by id; preserves existing `country` if `d.country` is empty
 - `deleteTrip(id)` — deletes trip, its expenses (`exp_{id}`), its check-ins (`checkins_{id}`), its calendar descriptions (`caldesc_{id}`), and its plan data (`plan_{id}`)
@@ -279,6 +280,10 @@ Six views, only one active at a time (CSS `display:none`/`display:block` + `fade
 
 ### Trip List View
 - Shows all trips with: title, country+currency, date range, day count
+- Drag the compact six-dot grip in a 44×44px touch target to reorder trips; pointer-based dragging supports mouse, touch, and pen input without hijacking page scrolling outside the handle
+- After the drag threshold, show a lifted floating card with shadow while the original list stays in place; reorder the list only on drop, and restore it unchanged if the gesture is cancelled
+- Order is saved to the shared `trips` array through `updateTripOrder(ids)` and is preserved across reloads and devices
+- On save failure, restore the previous order and show an error
 - Edit button (✎) — opens Edit Trip modal (title + dates)
 - Delete button (🗑) — confirms then deletes trip + all its data
 - Tap anywhere on card → `openTrip(id)` which resets `S.defaultRates = {}`

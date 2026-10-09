@@ -48,6 +48,25 @@ function getTrips() {
   return trips;
 }
 
+function updateTripOrder(ids) {
+  var trips = load('trips', []);
+  var byId = {};
+  trips.forEach(function(trip) { byId[trip.id] = trip; });
+  var ordered = [];
+  var seen = {};
+  (Array.isArray(ids) ? ids : []).forEach(function(id) {
+    if (byId[id] && !seen[id]) {
+      ordered.push(byId[id]);
+      seen[id] = true;
+    }
+  });
+  trips.forEach(function(trip) {
+    if (!seen[trip.id]) ordered.push(trip);
+  });
+  save('trips', ordered);
+  return { success: true };
+}
+
 // Migrate existing trip check-ins into chronological insertion order.
 // Called during app startup so already-saved trips are corrected too.
 function migrateCheckinOrder(trips) {
