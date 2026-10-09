@@ -1090,7 +1090,7 @@ function _showTrackerPlaceRestoreReport(updatedCount, verifiedCount, skipped, la
 function _renderLeafletMap() {
   const container = document.getElementById('tracker-map');
   if (!container) return;
-  const withGPS = [...S.checkins].filter(c => c.lat && c.lng).sort((a, b) => a.timestamp < b.timestamp ? -1 : 1);
+  const withGPS = trackerRouteOrder(S.checkins.filter(c => c.lat && c.lng));
   (S.leafletMarkers || []).forEach(m => m.setMap(null));
   S.leafletMarkers = [];
   if (S._routeLine) { S._routeLine.setMap(null); S._routeLine = null; }
@@ -1153,6 +1153,34 @@ function _renderLeafletMap() {
   google.maps.event.addListenerOnce(S.leafletMap, 'bounds_changed', () => {
     if (S.leafletMap.getZoom() > 14) S.leafletMap.setZoom(14);
   });
+}
+
+function trackerRouteOrder(checkins) {
+  const byDay = {};
+  checkins.forEach(checkin => {
+    const day = localDateStr(checkin.timestamp);
+    if (!byDay[day]) byDay[day] = [];
+    byDay[day].push(checkin);
+  });
+  const route = [];
+  const included = new Set();
+  let lastNightLodging = null;
+  Object.keys(byDay).sort().forEach(day => {
+    const daily = byDay[day].sort(compareCheckinsByTime);
+    const lodgings = daily.filter(checkin => checkin.type === 'hotel');
+    // A lodging recorded on the prior evening is the next morning's route start.
+    if (lastNightLodging && !included.has(lastNightLodging.id)) {
+      route.push(lastNightLodging);
+      included.add(lastNightLodging.id);
+    }
+    daily.forEach(checkin => { if (checkin.type !== 'hotel') route.push(checkin); });
+    // As in the calendar, use the last lodging recorded on this date for the night.
+    if (lodgings.length) lastNightLodging = lodgings[lodgings.length - 1];
+  });
+  // Keep the final night's lodging as the trip's last route point if there is no
+  // following day whose morning can consume it.
+  if (lastNightLodging && !included.has(lastNightLodging.id)) route.push(lastNightLodging);
+  return route;
 }
 
 function _fetchTrackerMapPhoto(checkin) {
