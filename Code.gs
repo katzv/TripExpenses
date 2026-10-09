@@ -233,6 +233,8 @@ function saveCheckin(d) {
     type:      normalizeLocationType(d.type),
     lat:       d.lat       || null,
     lng:       d.lng       || null,
+    googlePlaceId: d.googlePlaceId || null,
+    googlePlaceName: d.googlePlaceId ? (d.googlePlaceName || d.name || null) : null,
     gpsSource: d.gpsSource || 'none',
     createdAt: nowISO()
   };
@@ -252,11 +254,48 @@ function updateCheckin(d) {
     type:      normalizeLocationType(d.type),
     lat:       d.lat       || null,
     lng:       d.lng       || null,
+    googlePlaceId: d.googlePlaceId || null,
+    googlePlaceName: d.googlePlaceId ? (d.googlePlaceName || map[d.id].googlePlaceName || d.name || null) : null,
     gpsSource: d.gpsSource || map[d.id].gpsSource || 'none',
     createdAt: map[d.id].createdAt  // preserve original creation time
   };
   saveCheckinsMap(d.tripId, map);
   return { success: true };
+}
+
+// Supplies all GPS check-ins so the browser can validate and repair stale Place IDs.
+function getCheckinsForGooglePlaceRepair() {
+  var rows = [];
+  load('trips', []).forEach(function(trip) {
+    if (!trip || !trip.id) return;
+    var checkins = loadCheckinsMap(trip.id);
+    Object.keys(checkins).forEach(function(id) {
+      var c = checkins[id];
+      if (c) rows.push({
+        tripId: trip.id, tripTitle: trip.title || '', country: trip.country || '',
+        id: c.id, name: c.name || '', lat: c.lat, lng: c.lng,
+        googlePlaceId: c.googlePlaceId || '', googlePlaceName: c.googlePlaceName || ''
+      });
+    });
+  });
+  return rows;
+}
+
+// Saves browser-verified Places matches, replacing an ID only if it has not changed since lookup.
+function saveRepairedGooglePlaceIds(updates) {
+  var updated = 0, skipped = 0, changedByTrip = {};
+  (Array.isArray(updates) ? updates : []).forEach(function(item) {
+    if (!item || !item.tripId || !item.checkinId || !item.placeId) { skipped++; return; }
+    var map = changedByTrip[item.tripId] || (changedByTrip[item.tripId] = loadCheckinsMap(item.tripId));
+    var checkin = map[item.checkinId];
+    if (!checkin || String(checkin.googlePlaceId || '') !== String(item.previousPlaceId || '') ||
+        String(checkin.googlePlaceName || '') !== String(item.previousPlaceName || '')) { skipped++; return; }
+    checkin.googlePlaceId = String(item.placeId);
+    if (item.placeName) checkin.googlePlaceName = String(item.placeName);
+    if (String(item.previousPlaceId || '') !== String(item.placeId)) updated++;
+  });
+  Object.keys(changedByTrip).forEach(function(tripId) { saveCheckinsMap(tripId, changedByTrip[tripId]); });
+  return { success: true, updated: updated, skipped: skipped };
 }
 
 // O(1) delete by id
@@ -597,7 +636,8 @@ function exportCalendarToSheet(params) {
             bodyLinks.push({
               start: bodyLength + prefix.length,
               end: bodyLength + prefix.length + name.length,
-              url: 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(name),
+              url: 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(name) +
+                (ci.googlePlaceId ? '&query_place_id=' + encodeURIComponent(ci.googlePlaceId) : ''),
               color: lineColor
             });
           }
@@ -622,7 +662,8 @@ function exportCalendarToSheet(params) {
         footLinks.push({
           start: hotelPrefix.length,
           end: hotelPrefix.length + String(hotelCi.name).length,
-          url: 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(String(hotelCi.name))
+          url: 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(String(hotelCi.name)) +
+            (hotelCi.googlePlaceId ? '&query_place_id=' + encodeURIComponent(hotelCi.googlePlaceId) : '')
         });
       }
       footVals.push(footText);

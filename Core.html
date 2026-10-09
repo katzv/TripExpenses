@@ -285,7 +285,22 @@ function _navigateSuggest(listId, idx, delta) {
 // MODAL
 // =======================================================
 
-function showModal(title, body) {
+function showModal(title, body, closable) {
+  const modal = document.querySelector('#modalBg .modal');
+  const oldClose = document.getElementById('modalCloseBtn');
+  if (oldClose) oldClose.remove();
+  modal.classList.toggle('has-close', !!closable);
+  if (closable) {
+    const close = document.createElement('button');
+    close.id = 'modalCloseBtn';
+    close.className = 'modal-close-btn';
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Close');
+    close.title = 'Close';
+    close.innerHTML = '&times;';
+    close.onclick = closeModal;
+    modal.insertBefore(close, modal.firstChild);
+  }
   document.getElementById('modalTitle').textContent = title;
   document.getElementById('modalBody').innerHTML = body;
   document.getElementById('modalBg').classList.add('open');

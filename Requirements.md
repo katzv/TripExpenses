@@ -99,10 +99,11 @@ Stored as `{id → entry}` object (not array) to give O(1) lookup/update/delete 
 
 ### Tracker Check-ins
 - `loadCheckins(tripId)` — returns array in the chronological timestamp order persisted in PropertiesService
-- `saveCheckin(d)` — creates new check-in with `{id, tripId, timestamp, name, type, lat, lng, gpsSource, createdAt}`, returns `{success, id}`
+- `saveCheckin(d)` — creates new check-in with `{id, tripId, timestamp, name, type, lat, lng, googlePlaceId, gpsSource, createdAt}`, returns `{success, id}`
 - `updateCheckin(d)` — O(1) update by id, preserves `createdAt`
 - `deleteCheckin(checkinId, tripId)` — O(1) delete by id
 - `deleteCheckinFile(tripId)` — deletes entire `checkins_{tripId}` property (called by `deleteTrip`)
+- `getCheckinsForGooglePlaceRepair()` / `saveRepairedGooglePlaceIds(updates)` — legacy repair support: browser Places search checks each saved full name with its trip country and GPS location bias; it replaces stale IDs only with a name-matching result within 200 m, leaving unmatched entries unchanged.
 
 ### Expenses
 - `getExpenses(tripId)` — returns array of expense objects

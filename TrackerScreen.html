@@ -57,8 +57,14 @@
   </div>
 
   <div id="panel-map" style="display:none">
-    <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
-      <button class="btn btn-outline btn-sm" style="padding:5px 10px;min-height:32px;font-size:11px;white-space:nowrap" onclick="exportTrackerKml()">&#128229; Export KML</button>
+    <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:8px">
+      <div id="trackerAdvancedWrap" style="position:relative;margin-left:auto">
+        <button type="button" class="btn btn-outline btn-sm" aria-haspopup="true" aria-expanded="false" onclick="toggleTrackerAdvancedMenu(event)" style="padding:5px 10px;min-height:32px;font-size:11px;white-space:nowrap">Advanced &#9662;</button>
+        <div id="trackerAdvancedMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);z-index:100;min-width:180px;padding:4px;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.16)">
+          <button type="button" onclick="closeTrackerAdvancedMenu();repairTrackerPlaceIds()" style="display:block;width:100%;padding:9px 10px;text-align:left;background:none;border:0;border-radius:7px;color:var(--text);font-size:12px;cursor:pointer">&#128269; Repair map links</button>
+          <button type="button" onclick="closeTrackerAdvancedMenu();exportTrackerKml()" style="display:block;width:100%;padding:9px 10px;text-align:left;background:none;border:0;border-radius:7px;color:var(--text);font-size:12px;cursor:pointer">&#128229; Export KML</button>
+        </div>
+      </div>
     </div>
     <div style="border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);margin-bottom:14px">
       <div id="tracker-map"></div>
@@ -153,6 +159,9 @@ function showCheckinForm() {
   S.editingCheckinId = null;
   S.gpsCoords = null;
   S.gpsSource = 'none';
+  S.selectedGooglePlaceId = null;
+  S.selectedGooglePlaceName = '';
+  S.selectedGooglePlaceDisplayName = '';
   const _now = new Date();
   document.getElementById('ciName').value = '';
   document.getElementById('ciDate').value = today();
@@ -207,6 +216,10 @@ function onCiNameFocus() {
 
 function onCiNameInput() {
   const q = (document.getElementById('ciName').value || '').trim();
+  if (q !== (S.selectedGooglePlaceName || '')) {
+    S.selectedGooglePlaceId = null;
+    S.selectedGooglePlaceDisplayName = '';
+  }
   clearTimeout(S.suggestTimer);
   if (!q) {
     if (S.gpsCoords) fetchNearbySuggestions();
@@ -307,6 +320,9 @@ function selectSuggestion(el) {
   const lat     = parseFloat(el.getAttribute('data-lat')) || null;
   const lng     = parseFloat(el.getAttribute('data-lng')) || null;
   const placeId = el.getAttribute('data-place-id');
+  S.selectedGooglePlaceId = placeId || null;
+  S.selectedGooglePlaceName = name;
+  S.selectedGooglePlaceDisplayName = name;
   const type    = el.getAttribute('data-type') || '';
   document.getElementById('ciName').value = name;
   hideSuggestions();
@@ -356,6 +372,8 @@ function saveCheckinUI() {
     name, type,
     lat:       S.gpsCoords ? S.gpsCoords.lat : null,
     lng:       S.gpsCoords ? S.gpsCoords.lng : null,
+    googlePlaceId: S.selectedGooglePlaceId || null,
+    googlePlaceName: S.selectedGooglePlaceDisplayName || null,
     gpsSource: S.gpsSource || 'none'
   };
 
@@ -475,7 +493,7 @@ function checkinCard(c) {
     <div class="ci-card" onclick="editCheckinUI('${c.id}')">
       <div class="ci-icon" style="background:${col}22;color:${col}">${icon}</div>
       <div class="ci-body">
-        <div class="ci-name">${esc(c.name)}</div>
+        <div class="ci-name">${esc(trackerLocationLabel(c))}</div>
         <div class="ci-time">${fmtCheckinTime(c.timestamp)}</div>
         ${gpsInfo ? `<div class="ci-gps">${gpsInfo}</div>` : ''}
       </div>
@@ -492,6 +510,9 @@ function editCheckinUI(id) {
   S.editingCheckinId = id;
   S.gpsCoords = (c.lat && c.lng) ? { lat: parseFloat(c.lat), lng: parseFloat(c.lng) } : null;
   S.gpsSource = c.gpsSource || 'none';
+  S.selectedGooglePlaceId = c.googlePlaceId || null;
+  S.selectedGooglePlaceName = c.googlePlaceId ? (c.name || '') : '';
+  S.selectedGooglePlaceDisplayName = c.googlePlaceId ? (c.googlePlaceName || c.name || '') : '';
   const _d = new Date(c.timestamp);
   document.getElementById('ciName').value = c.name || '';
   document.getElementById('ciDate').value = localDateStr(c.timestamp);
@@ -619,8 +640,9 @@ function buildCalendar() {
       const pills = day.cis.map(c => {
         const typeMeta = trackerTypeMeta(c.type);
         const col = typeMeta.color || '#9E9E9E';
-        const mapsUrl = 'https://www.google.com/maps/search/?api=1&amp;query=' + encodeURIComponent(c.name || '');
-        return '<span class="cal7-pill" style="background:' + col + '18;color:' + col + '">' + (typeMeta.icon || '') + ' <a href="' + mapsUrl + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">' + esc(c.name) + '</a></span>';
+        const mapsUrl = 'https://www.google.com/maps/search/?api=1&amp;query=' + encodeURIComponent(c.name || '') +
+          (c.googlePlaceId ? '&amp;query_place_id=' + encodeURIComponent(c.googlePlaceId) : '');
+        return '<span class="cal7-pill" style="background:' + col + '18;color:' + col + '">' + (typeMeta.icon || '') + ' <a href="' + mapsUrl + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">' + esc(trackerLocationLabel(c)) + '</a></span>';
       }).join('');
       const hotelUrl = day.hotel ? 'https://www.google.com/maps/search/?api=1&amp;query=' + encodeURIComponent(day.hotel.name || '') : '';
       const foot = (day.hotel && day.inRange) ? '<div class="cal7-foot">🏨 <a href="' + hotelUrl + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">' + esc(day.hotel.name) + '</a></div>' : '';
@@ -699,7 +721,7 @@ function exportCalendar() {
       desc:     (S.calDescs && S.calDescs[day.ds]) || '',
       cis:      day.cis.map(c => {
         const meta = trackerTypeMeta(c.type);
-        return { name: c.name, type: c.type, icon: meta.icon, color: meta.color, label: meta.label };
+        return { name: trackerLocationLabel(c), googlePlaceId: c.googlePlaceId || '', type: c.type, icon: meta.icon, color: meta.color, label: meta.label };
       }),
       hasHotel: !!day.hotel
     })))
@@ -771,7 +793,7 @@ function exportTrackerKml() {
   const placemarks = [...withGPS]
     .sort((a, b) => (a.timestamp < b.timestamp ? -1 : 1))
     .map(c => '    <Placemark>' +
-      '<name>' + kx(c.name) + '</name>' +
+      '<name>' + kx(trackerLocationLabel(c)) + '</name>' +
       '<description>' + kx((trackerTypeMeta(c.type).icon || '') + ' ' + (trackerTypeMeta(c.type).label || c.type) + ' · ' + fmtCheckinTime(c.timestamp)) + '</description>' +
       '<styleUrl>#ci-' + c.type + '</styleUrl>' +
       '<Point><coordinates>' + parseFloat(c.lng).toFixed(7) + ',' + parseFloat(c.lat).toFixed(7) + ',0</coordinates></Point>' +
@@ -814,6 +836,257 @@ function initTrackerMap() {
   loadGoogleMaps(() => _renderLeafletMap());
 }
 
+var _trackerPhotoCache = {};
+
+function toggleTrackerAdvancedMenu(event) {
+  event.stopPropagation();
+  const menu = document.getElementById('trackerAdvancedMenu');
+  const button = event.currentTarget;
+  const open = menu && menu.style.display !== 'block';
+  if (menu) menu.style.display = open ? 'block' : 'none';
+  if (button) button.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function closeTrackerAdvancedMenu() {
+  const menu = document.getElementById('trackerAdvancedMenu');
+  const button = document.querySelector('#trackerAdvancedWrap > button');
+  if (menu) menu.style.display = 'none';
+  if (button) button.setAttribute('aria-expanded', 'false');
+}
+
+document.addEventListener('click', event => {
+  const wrap = document.getElementById('trackerAdvancedWrap');
+  if (wrap && !wrap.contains(event.target)) closeTrackerAdvancedMenu();
+});
+
+var _trackerRestoreInProgress = false;
+function repairTrackerPlaceIds() {
+  if (_trackerRestoreInProgress) return;
+  _trackerRestoreInProgress = true;
+  showModal('Repair map links', '<div id="placeIdRestoreStatus" style="font-size:13px;color:var(--muted)">Loading saved locations…</div>');
+  google.script.run
+    .withFailureHandler(err => { _trackerRestoreInProgress = false; showModal('Repair failed', '<div style="font-size:13px;color:var(--danger)">' + esc(err.message || String(err)) + '</div>'); })
+    .withSuccessHandler(rows => {
+      loadGoogleMaps(() => _searchMissingTrackerPlaceIds(rows || []));
+    })
+    .getCheckinsForGooglePlaceRepair();
+}
+
+function _searchMissingTrackerPlaceIds(rows) {
+  const service = _getPlacesService();
+  const updates = [], skipped = [], verifiedRows = [];
+  let verified = 0;
+  let index = 0;
+  const status = document.getElementById('placeIdRestoreStatus');
+  if (!rows.length) {
+    _trackerRestoreInProgress = false;
+    showModal('Repair map links', 'There are no saved check-ins to repair.', true);
+    return;
+  }
+  const showFinalReport = updatedCount => {
+    google.script.run
+      .withFailureHandler(err => { _trackerRestoreInProgress = false; showModal('Repair failed', '<div style="font-size:13px;color:var(--danger)">' + esc(err.message || String(err)) + '</div>'); })
+      .withSuccessHandler(latestRows => _showTrackerPlaceRestoreReport(updatedCount, verified, skipped, latestRows || [], verifiedRows))
+      .getCheckinsForGooglePlaceRepair();
+  };
+  const finish = () => {
+    if (!updates.length) { showFinalReport(0); return; }
+    if (status) status.textContent = 'Saving ' + updates.length + ' corrected location' + (updates.length === 1 ? '' : 's') + '…';
+    google.script.run
+      .withFailureHandler(err => { _trackerRestoreInProgress = false; showModal('Repair failed', '<div style="font-size:13px;color:var(--danger)">' + esc(err.message || String(err)) + '</div>'); })
+      .withSuccessHandler(result => {
+        updates.forEach(update => {
+          const checkin = (S.checkins || []).find(c => c.id === update.checkinId);
+          if (checkin && (checkin.googlePlaceId || '') === update.previousPlaceId &&
+              (checkin.googlePlaceName || '') === update.previousPlaceName) {
+            checkin.googlePlaceId = update.placeId;
+            checkin.googlePlaceName = update.placeName;
+          }
+        });
+        showFinalReport(result.updated || 0);
+      })
+      .saveRepairedGooglePlaceIds(updates);
+  };
+  const next = () => {
+    if (index >= rows.length) { finish(); return; }
+    const row = rows[index++];
+    if (status) status.textContent = 'Searching ' + index + ' of ' + rows.length + ': ' + row.name;
+    const lat = Number(row.lat), lng = Number(row.lng);
+    if (!row.name || !isFinite(lat) || !isFinite(lng)) {
+      skipped.push({ row, reason: 'No saved name or coordinates', candidates: [] });
+      setTimeout(next, 0);
+      return;
+    }
+    const request = {
+      query: row.name + (row.country ? ', ' + row.country : ''),
+      location: { lat, lng }, radius: 5000
+    };
+    const toCandidates = results => (results || [])
+        .map(place => {
+          const point = place.geometry && place.geometry.location;
+          const distance = point ? _trackerDistanceMeters(lat, lng,
+            typeof point.lat === 'function' ? point.lat() : point.lat,
+            typeof point.lng === 'function' ? point.lng() : point.lng) : Infinity;
+          return { placeId: place.place_id, name: place.name || '', address: place.formatted_address || '', distance: Math.round(distance) };
+        }).filter(place => place.placeId).sort((a, b) => a.distance - b.distance);
+    const resolveCandidates = candidates => {
+      const accepted = candidates.find(place => {
+        // Exact place names can tolerate modest GPS drift (for example, an airport
+        // pin recorded near a terminal). Partial/fuzzy matches still require a
+        // very close coordinate match to avoid assigning a similarly named POI.
+        const exactName = _trackerNormalizePlaceName(row.name) === _trackerNormalizePlaceName(place.name);
+        const knownAlias = _trackerPlaceNameAliasMatch(row.name, place.name);
+        return ((exactName || knownAlias) && place.distance <= 5000) ||
+          (place.distance <= 200 && _trackerPlaceNamesMatch(row.name, place.name));
+      });
+      if (accepted) {
+        verified++;
+        verifiedRows.push({ tripId: row.tripId, checkinId: row.id, placeId: accepted.placeId });
+        if (accepted.placeId !== row.googlePlaceId || accepted.name !== row.googlePlaceName) updates.push({
+          tripId: row.tripId, checkinId: row.id,
+          previousPlaceId: row.googlePlaceId || '', previousPlaceName: row.googlePlaceName || '',
+          placeId: accepted.placeId, placeName: accepted.name
+        });
+      }
+      else skipped.push({ row, reason: candidates.length ? 'No result matched both the saved name and GPS location' : 'Places search returned no results', candidates: candidates.slice(0, 3) });
+      setTimeout(next, 0);
+    };
+    const hasAcceptedCandidate = candidates => candidates.some(place => {
+      const exact = _trackerNormalizePlaceName(row.name) === _trackerNormalizePlaceName(place.name);
+      return ((exact || _trackerPlaceNameAliasMatch(row.name, place.name)) && place.distance <= 5000) ||
+        (place.distance <= 200 && _trackerPlaceNamesMatch(row.name, place.name));
+    });
+    const searchNearbyFallback = (keywords, candidatePool) => {
+      if (!keywords.length) return resolveCandidates(candidatePool);
+      const keyword = keywords.shift();
+      service.nearbySearch({ keyword, location: { lat, lng }, radius: 5000 }, (nearbyResults, nearbyStatus) => {
+        const nearby = toCandidates(nearbyStatus === google.maps.places.PlacesServiceStatus.OK ? nearbyResults : []);
+        const byId = Object.create(null);
+        candidatePool.concat(nearby).forEach(place => { byId[place.placeId] = place; });
+        const combined = Object.keys(byId).map(id => byId[id]).sort((a, b) => a.distance - b.distance);
+        if (hasAcceptedCandidate(combined) || !keywords.length) return resolveCandidates(combined);
+        searchNearbyFallback(keywords, combined);
+      });
+    };
+    const searchAliasText = (aliases, candidatePool) => {
+      if (!aliases.length) return searchNearbyFallback([row.name].concat(_trackerPlaceNameAliases(row.name)), candidatePool);
+      const alias = aliases.shift();
+      service.textSearch({ query: alias + (row.country ? ', ' + row.country : ''), location: { lat, lng }, radius: 5000 }, (aliasResults, aliasStatus) => {
+        const aliasCandidates = toCandidates(aliasStatus === google.maps.places.PlacesServiceStatus.OK ? aliasResults : []);
+        const byId = Object.create(null);
+        candidatePool.concat(aliasCandidates).forEach(place => { byId[place.placeId] = place; });
+        const combined = Object.keys(byId).map(id => byId[id]).sort((a, b) => a.distance - b.distance);
+        if (hasAcceptedCandidate(combined)) return resolveCandidates(combined);
+        if (!aliases.length) return searchNearbyFallback([row.name].concat(_trackerPlaceNameAliases(row.name)), combined);
+        searchAliasText(aliases, combined);
+      });
+    };
+    service.textSearch(request, (results, searchStatus) => {
+      const candidates = toCandidates(searchStatus === google.maps.places.PlacesServiceStatus.OK ? results : []);
+      if (hasAcceptedCandidate(candidates)) return resolveCandidates(candidates);
+      searchAliasText(_trackerPlaceNameAliases(row.name), candidates);
+    });
+  };
+  next();
+}
+
+function _trackerPlaceNamesMatch(savedName, candidateName) {
+  const saved = _trackerNormalizePlaceName(savedName), candidate = _trackerNormalizePlaceName(candidateName);
+  if (!saved || !candidate) return false;
+  if (saved === candidate || saved.indexOf(candidate) !== -1 || candidate.indexOf(saved) !== -1) return true;
+  const savedWords = saved.split(/\s+/), candidateWords = candidate.split(/\s+/);
+  const overlap = candidateWords.filter(word => savedWords.indexOf(word) !== -1).length;
+  return candidateWords.length >= 2 && overlap / candidateWords.length >= 0.7;
+}
+
+function _trackerNormalizePlaceName(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function _trackerPlaceNameAliasMatch(savedName, candidateName) {
+  const saved = _trackerNormalizePlaceName(savedName), candidate = _trackerNormalizePlaceName(candidateName);
+  if (saved === 'hotel praha' && candidate.indexOf('hotel praha liberec') === 0) return true;
+  return _trackerPlaceNameAliasGroups().some(group => group.indexOf(saved) !== -1 && group.indexOf(candidate) !== -1);
+}
+
+function _trackerPlaceNameAliases(savedName) {
+  const saved = _trackerNormalizePlaceName(savedName);
+  if (saved === 'hotel praha') return ['hotel praha liberec'];
+  const group = _trackerPlaceNameAliasGroups().find(names => names.indexOf(saved) !== -1);
+  return group ? group.filter(name => name !== saved) : [];
+}
+
+function _trackerPlaceNameAliasGroups() {
+  return [
+    ['prachovske skaly', 'prachov cliffs'],
+    ['stezka korunami stromu krkonose', 'the timber trail krkonose'],
+    ['adrspasske skaly', 'adrspach rock formation'],
+    ['wilde klamm', 'divoka souteska', 'wild gorge', 'pristaviste divoka souteska', 'kamenice gorge'],
+    ['pravcicka brana', 'pravcicka archway'],
+    ['vyhlidkova vez pastyrska stena', 'lookout tower shepherd s wall'],
+    ['prague international airport prg', 'letiste vaclava havla praha']
+  ];
+}
+
+function trackerLocationLabel(checkin) {
+  const savedName = String(checkin && checkin.name || '').trim();
+  const googleName = String(checkin && checkin.googlePlaceName || '').trim();
+  const saved = _trackerNormalizePlaceName(savedName), google = _trackerNormalizePlaceName(googleName);
+  const localizedNames = [
+    { local: 'Prachovské skály', english: 'Prachov Cliffs', names: ['prachovske skaly', 'prachov cliffs'] },
+    { local: 'Stezka korunami stromů Krkonoše', english: 'The Timber Trail, Krkonoše', names: ['stezka korunami stromu krkonose', 'the timber trail krkonose'] },
+    { local: 'Adršpašské skály', english: 'Adršpach Rock Formation', names: ['adrspasske skaly', 'adrspach rock formation'] },
+    { local: 'Divoká soutěska', english: 'Wild Gorge', names: ['wilde klamm', 'divoka souteska', 'wild gorge', 'pristaviste divoka souteska', 'kamenice gorge'] },
+    { local: 'Pravčická brána', english: 'Pravčická Archway', names: ['pravcicka brana', 'pravcicka archway'] },
+    { local: 'Vyhlídková věž Pastýřská stěna', english: "Lookout Tower Shepherd's Wall", names: ['vyhlidkova vez pastyrska stena', 'lookout tower shepherd s wall'] },
+    { local: 'Letiště Václava Havla Praha', english: 'Prague International Airport', names: ['prague international airport prg', 'prague international airport', 'letiste vaclava havla praha'] }
+  ];
+  const localized = localizedNames.find(item => item.names.indexOf(saved) !== -1 || item.names.indexOf(google) !== -1);
+  if (localized) return localized.local + ' (' + localized.english + ')';
+  if (!googleName || !google || saved === google) return savedName;
+  return savedName + ' (' + googleName + ')';
+}
+
+function _trackerDistanceMeters(lat1, lng1, lat2, lng2) {
+  const rad = Math.PI / 180, dLat = (lat2 - lat1) * rad, dLng = (lng2 - lng1) * rad;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function _showTrackerPlaceRestoreReport(updatedCount, verifiedCount, skipped, latestRows, verifiedRows) {
+  _trackerRestoreInProgress = false;
+  let html = '<div style="font-size:13px;margin-bottom:8px">Verified ' + verifiedCount + ' location' + (verifiedCount === 1 ? '' : 's') + '; corrected ' + updatedCount + ' Place ID' + (updatedCount === 1 ? '' : 's') + '; left ' + skipped.length + ' unmatched location' + (skipped.length === 1 ? '' : 's') + ' unchanged.</div>';
+  const czechRows = latestRows.filter(row => /czech/i.test(row.country || ''));
+  if (czechRows.length) {
+    const verifiedByKey = Object.create(null), skippedByKey = Object.create(null);
+    (verifiedRows || []).forEach(item => { verifiedByKey[item.tripId + '|' + item.checkinId] = item.placeId; });
+    skipped.forEach(item => { skippedByKey[item.row.tripId + '|' + item.row.id] = item; });
+    const czechStatus = czechRows.map(row => {
+      const key = row.tripId + '|' + row.id, id = row.googlePlaceId || '';
+      return { row, id, verified: !!id && verifiedByKey[key] === id, skipped: skippedByKey[key] || null };
+    });
+    const confirmed = czechStatus.filter(item => item.verified).length;
+    const withUnverifiedId = czechStatus.filter(item => item.id && !item.verified).length;
+    const missingId = czechStatus.filter(item => !item.id).length;
+    html += '<div style="border:1px solid var(--border);border-radius:8px;padding:9px 10px;margin:8px 0;font-size:12px"><b>Czech locations:</b> ' + czechRows.length + ' total; ' + confirmed + ' have a Place ID confirmed by this lookup; ' + withUnverifiedId + ' have an ID but could not be confirmed; ' + missingId + ' are missing an ID.';
+    const unresolved = czechStatus.filter(item => !item.verified);
+    if (unresolved.length) html += '<div style="margin-top:6px">' + unresolved.map(item =>
+      '<div style="padding-top:4px"><b>' + esc(item.row.name || '(unnamed)') + '</b> — ' +
+      (item.id ? 'ID present, lookup not confirmed' : 'missing ID') +
+      (item.skipped && item.skipped.candidates.length ? '<div style="color:var(--muted)">' + item.skipped.candidates.map(candidate => esc(candidate.name) + ' (' + candidate.distance + ' m)').join('; ') + '</div>' : '') +
+      '</div>').join('') + '</div>';
+    html += '</div>';
+  }
+  if (skipped.length) html += '<div style="max-height:45vh;overflow-y:auto">' + skipped.map(item =>
+    '<div style="border-top:1px solid var(--border);padding:8px 0;font-size:12px"><b>' + esc(item.row.name || '(unnamed)') + '</b>' +
+    '<div style="color:var(--muted)">' + esc(item.row.tripTitle || '') + ' · ' + esc(item.row.country || '') + '</div>' +
+    '<div style="color:var(--muted)">' + esc(item.reason) + '</div>' +
+    (item.candidates.length ? '<div style="margin-top:3px">' + item.candidates.map(candidate =>
+      esc(candidate.name) + ' — ' + esc(candidate.address) + ' (' + candidate.distance + ' m)').join('<br>') + '</div>' : '') +
+    '</div>').join('') + '</div>';
+  showModal('Repair map links', html, true);
+}
+
 function _renderLeafletMap() {
   const container = document.getElementById('tracker-map');
   if (!container) return;
@@ -829,6 +1102,7 @@ function _renderLeafletMap() {
     });
     S.leafletMap.addListener('click', function() {
       if (S._trackerInfoWindow) S._trackerInfoWindow.close();
+      S._trackerOpenCheckinId = null;
     });
   }
   if (withGPS.length > 1) {
@@ -837,7 +1111,7 @@ function _renderLeafletMap() {
       strokeColor: '#1565C0', strokeOpacity: 0.55, strokeWeight: 2.5, map: S.leafletMap
     });
   }
-  S._trackerInfoWindow = new google.maps.InfoWindow();
+  S._trackerInfoWindow = new google.maps.InfoWindow({ maxWidth: 280 });
   const infoWindow = S._trackerInfoWindow;
   const bounds = new google.maps.LatLngBounds();
   withGPS.forEach((c, i) => {
@@ -848,15 +1122,29 @@ function _renderLeafletMap() {
       map: S.leafletMap,
       icon: { path: google.maps.SymbolPath.CIRCLE, fillColor: col, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2.5, scale: 14 },
       label: { text: String(i + 1), color: '#fff', fontSize: '11px', fontWeight: '700' },
-      title: c.name
+      title: trackerLocationLabel(c)
     });
+    marker._checkinId = c.id;
     marker.addListener('click', () => {
+      S._trackerOpenCheckinId = c.id;
+      const photoUrl = _trackerPhotoCache[c.id];
+      const mapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(c.name || '') +
+        (c.googlePlaceId ? '&query_place_id=' + encodeURIComponent(c.googlePlaceId) : '');
       infoWindow.setContent(
-        '<div style="font-weight:700;font-size:13px;margin-bottom:2px">' + esc(c.name) + '</div>' +
-        '<div style="font-size:11px;color:var(--muted)">' + (typeMeta.icon || '') + ' ' + (typeMeta.label || c.type) + ' · ' + fmtCheckinTime(c.timestamp) + '</div>' +
-        '<button onclick="editCheckinUI(\'' + c.id + '\')" style="margin-top:7px;background:none;border:1.5px solid var(--primary);color:var(--primary);border-radius:6px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer">✏ Edit</button>'
+        '<div style="position:relative;width:260px;max-width:100%;background:#fff;border-radius:10px;overflow:hidden;font-family:Arial,sans-serif">' +
+          '<button type="button" aria-label="Close location details" onclick="S._trackerOpenCheckinId=null;S._trackerInfoWindow.close()" style="position:absolute;top:0;right:0;background:rgba(255,255,255,.92);border:0;border-radius:0 0 0 8px;font-size:22px;line-height:1;cursor:pointer;color:#667085;z-index:1;padding:7px 11px">&times;</button>' +
+          (photoUrl ? '<div style="height:80px;overflow:hidden;background:#e5e7eb"><img src="' + esc(photoUrl) + '" style="width:100%;height:100%;object-fit:cover" loading="lazy" onerror="this.parentNode.style.display=\'none\'"></div>' : '') +
+          '<div style="padding:10px 14px 2px;padding-right:40px;font-weight:700;font-size:13px;line-height:1.4;color:#1A1A2E;overflow-wrap:anywhere">' + esc(trackerLocationLabel(c)) + '</div>' +
+          '<div style="padding:0 14px 3px;font-size:11px;line-height:1.5;color:' + col + '">' + (typeMeta.icon || '') + ' ' + esc(typeMeta.label || c.type || '') + '</div>' +
+          '<div style="padding:0 14px 9px;font-size:11px;color:#667085">' + fmtCheckinTime(c.timestamp) + '</div>' +
+          '<div style="border-top:1px solid #E5E7EB;display:flex;align-items:center">' +
+            '<button onclick="S._trackerInfoWindow.close();editCheckinUI(\'' + c.id + '\')" style="flex:1;padding:8px 10px;background:none;border:0;cursor:pointer;font-size:12px;font-weight:600;color:#1565C0">✏ Edit</button>' +
+            '<a href="' + esc(mapsUrl) + '" target="_blank" rel="noopener" style="flex:1;padding:8px 10px;border-left:1px solid #E5E7EB;text-align:center;font-size:12px;font-weight:600;color:#667085;text-decoration:none">🗺️ Google Maps</a>' +
+          '</div>' +
+        '</div>'
       );
       infoWindow.open(S.leafletMap, marker);
+      if (photoUrl === undefined && c.name) _fetchTrackerMapPhoto(c);
     });
     S.leafletMarkers.push(marker);
     bounds.extend({ lat: parseFloat(c.lat), lng: parseFloat(c.lng) });
@@ -864,6 +1152,29 @@ function _renderLeafletMap() {
   S.leafletMap.fitBounds(bounds);
   google.maps.event.addListenerOnce(S.leafletMap, 'bounds_changed', () => {
     if (S.leafletMap.getZoom() > 14) S.leafletMap.setZoom(14);
+  });
+}
+
+function _fetchTrackerMapPhoto(checkin) {
+  _trackerPhotoCache[checkin.id] = null;
+  loadGoogleMaps(() => {
+    const service = _getPlacesService();
+    if (!service) return;
+    const request = { query: checkin.name, fields: ['photos'] };
+    const lat = parseFloat(checkin.lat), lng = parseFloat(checkin.lng);
+    if (!isNaN(lat) && !isNaN(lng)) request.locationBias = { lat, lng };
+    service.findPlaceFromQuery(request, (results, status) => {
+      if (status === 'OK' && results && results[0]) {
+        _trackerPhotoCache[checkin.id] = results[0].photos && results[0].photos.length
+          ? results[0].photos[0].getUrl({ maxWidth: 640, maxHeight: 160 }) : null;
+      } else {
+        _trackerPhotoCache[checkin.id] = null;
+      }
+      if (S._trackerOpenCheckinId === checkin.id) {
+        const marker = (S.leafletMarkers || []).find(m => m._checkinId === checkin.id);
+        if (marker) google.maps.event.trigger(marker, 'click');
+      }
+    });
   });
 }
 
