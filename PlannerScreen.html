@@ -1476,11 +1476,6 @@ function initPlannerMap(fitAll) {
   if (!container) return;
   renderBankBarChips();
   const withGPS = S.planBank.filter(p => p.lat && p.lng);
-  if (!withGPS.length) {
-    if (S.plannerMap) { (S.plannerMarkers || []).forEach(m => m.setMap(null)); S.plannerMarkers = []; S.plannerMap = null; }
-    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:14px;padding:20px">No places with GPS data yet</div>';
-    return;
-  }
   if (!S.plannerMap) {
     container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:13px">Loading map...</div>';
   }
@@ -1497,9 +1492,13 @@ function _renderPlannerLeaflet() {
   const _isNewMap = !S.plannerMap;
   if (!S.plannerMap) {
     container.innerHTML = '';
+    const countryCenters = _getTripCountryCenters();
     S.plannerMap = new google.maps.Map(container, {
-      center: { lat: parseFloat(withGPS[0].lat), lng: parseFloat(withGPS[0].lng) },
-      zoom: 10, mapTypeControl: false, streetViewControl: false, fullscreenControl: false, gestureHandling: 'greedy'
+      center: withGPS.length
+        ? { lat: parseFloat(withGPS[0].lat), lng: parseFloat(withGPS[0].lng) }
+        : (countryCenters[0] || { lat: 30, lng: 20 }),
+      zoom: withGPS.length ? 10 : (countryCenters.length === 1 ? 6 : 2),
+      mapTypeControl: false, streetViewControl: false, fullscreenControl: false, gestureHandling: 'greedy'
     });
 
     // Click on map: suppress Google's POI info card, deselect chip, close context menu
@@ -1637,11 +1636,27 @@ function _renderPlannerLeaflet() {
   });
 
   google.maps.event.trigger(S.plannerMap, 'resize');
-  if (_isNewMap || fitAll) {
+  if (withGPS.length && (_isNewMap || fitAll)) {
     S.plannerMap.fitBounds(bounds, { top: 60, right: 50, bottom: 50, left: 50 });
     google.maps.event.addListenerOnce(S.plannerMap, 'bounds_changed', () => {
       if (S.plannerMap.getZoom() > 14) S.plannerMap.setZoom(14);
     });
+  } else if (!withGPS.length) {
+    const countryCenters = _getTripCountryCenters();
+    if (countryCenters.length > 1) {
+      const countryBounds = new google.maps.LatLngBounds();
+      countryCenters.forEach(center => countryBounds.extend(center));
+      S.plannerMap.fitBounds(countryBounds, { top: 60, right: 50, bottom: 50, left: 50 });
+      google.maps.event.addListenerOnce(S.plannerMap, 'bounds_changed', () => {
+        if (S.plannerMap.getZoom() > 7) S.plannerMap.setZoom(7);
+      });
+    } else if (countryCenters.length === 1) {
+      S.plannerMap.setCenter(countryCenters[0]);
+      S.plannerMap.setZoom(6);
+    } else {
+      S.plannerMap.setCenter({ lat: 30, lng: 20 });
+      S.plannerMap.setZoom(2);
+    }
   }
   renderBankBarChips();
 

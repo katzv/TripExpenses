@@ -588,9 +588,17 @@ function _getTripCountryCodes() {
 }
 
 function _getTripCountryCenter() {
-  if (!S.currentTrip) return null;
-  const first = S.currentTrip.country.split(',')[0].trim().toLowerCase();
-  return COUNTRY_CENTERS[first] || null;
+  return _getTripCountryCenters()[0] || null;
+}
+
+function _getTripCountryCenters() {
+  if (!S.currentTrip || !S.currentTrip.country) return [];
+  const centers = S.currentTrip.country.split(',')
+    .map(country => COUNTRY_CENTERS[country.trim().toLowerCase()])
+    .filter(Boolean);
+  const unique = {};
+  centers.forEach(center => { unique[center.lat + ',' + center.lng] = center; });
+  return Object.keys(unique).map(key => unique[key]);
 }
 
 // =======================================================

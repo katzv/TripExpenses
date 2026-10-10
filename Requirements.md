@@ -645,7 +645,7 @@ Three tabs: **List**, **Calendar**, **Map**
     1. Reads the context's current coordinates (`S.planGpsCoords` or `S.gpsCoords`)
     2. If coordinates exist, centers on them at zoom 15 and displays a draggable pin initialized to those coordinates. This preserves an existing location when editing and reuses GPS coordinates during check-in.
     3. If no coordinates exist, centers on `_getTripCountryCenter()` at zoom 7 when available; otherwise falls back to `{lat:30, lng:20}` at zoom 2
-  - `_getTripCountryCenter()` — reads first country from `S.currentTrip.country`, looks up `COUNTRY_CENTERS` map (40+ entries, country name → `{lat, lng}`); returns `null` if not found
+  - `_getTripCountryCenters()` — reads all countries from `S.currentTrip.country`, looks up configured `COUNTRY_CENTERS`, and removes duplicate centers; `_getTripCountryCenter()` returns the first configured center for single-center fallbacks.
   - `confirmMapPin()` routes to `S.planGpsCoords` + `setPlanGpsStatus()` or `S.gpsCoords` + `setGpsStatus()` based on `_mpContext`
 - Tap map → drops/moves marker, updates coords display, enables confirm button
 - Marker is draggable — `dragend` updates coords
@@ -858,6 +858,7 @@ Notes:
 ### Map Tab (Planner)
 - Google Maps showing all bank places that have GPS coords
 - Compact lower-right current-location control requests device GPS, pans to that location, and zooms to level 16
+- The map initializes even when no places have coordinates. With one configured trip country it centers there at zoom 6; with multiple configured countries it fits their centers at up to zoom 7; with no configured centers it uses a world view.
 - Markers: `SymbolPath.CIRCLE`, colored per LOCATION_TYPES, white stroke 2.5px, scale 14; label = type emoji (13px)
 - InfoWindow (`S._planInfoWindow`, `maxWidth: 300`): place name + type icon/label + full description (linkified, `max-height: 120px; overflow-y: auto`) + assigned days list + "📅 Assign to Day" button
   - Content wrapped in `<div style="min-width:240px">` to prevent narrow/misaligned popup
@@ -871,7 +872,7 @@ Notes:
 - `_latLngToPixel(map, lat, lng)` — reverse of `_pixelToLatLng`; maps LatLng → viewport `{x, y}` using same linear interpolation
 - `_repositionContextMenu()` — reads `menu._anchorLat/Lng`, calls `_latLngToPixel`, recomputes `menu.style.left/top` using same side-preference logic as initial placement
 - Separate instance `S.plannerMap` (does not share with `S.leafletMap` or `_mpMap`)
-- No GPS data → "No places with GPS data yet" message
+- Places without GPS coordinates are omitted from the map; an empty mapped-place set still shows the map centered on the trip country/countries.
 
 #### Right-click / Long-press Context Menu (Place Menu)
 
@@ -1021,7 +1022,7 @@ Maps lowercase country name → ISO 3166-1 alpha-2 code. Previously used to scop
 Examples: `"austria" → "at"`, `"czech republic" → "cz"`, `"greece" → "gr"`, `"israel" → "il"`, `"france" → "fr"`, etc.
 
 ### COUNTRY_CENTERS (40+ entries)
-Maps lowercase country name → `{ lat, lng }` geographic center. Used by `_getTripCountryCenter()` to set the default map picker viewport.
+Maps lowercase country name → `{ lat, lng }` geographic center. Used by `_getTripCountryCenters()` for empty Planner map views and by `_getTripCountryCenter()` to set a single-country default map picker viewport.
 
 Examples: `"austria" → {lat:47.5, lng:14.5}`, `"greece" → {lat:39.0, lng:22.0}`, `"france" → {lat:46.2, lng:2.2}`, etc.
 
