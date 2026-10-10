@@ -60,11 +60,23 @@ function openMapPicker(context) {
         if (_mpMarker) { _mpMarker.setMap(null); _mpMarker = null; }
       }
       var _ctxCoords = (_mpContext === 'planner') ? S.planGpsCoords : S.gpsCoords;
-      var _ctxSource = (_mpContext === 'planner') ? S.planGpsSource : S.gpsSource;
-      var intentional = _ctxCoords && (_ctxSource === 'manual' || _ctxSource === 'nominatim' || _ctxSource === 'saved');
-      var countryCenter = (!intentional && _mpContext === 'planner') ? _getTripCountryCenter() : null;
-      var center = intentional ? _ctxCoords : (countryCenter || { lat: 30, lng: 20 });
-      var zoom   = intentional ? 13 : (countryCenter ? 7 : 2);
+      // GPS, manually selected, geocoded, and previously saved coordinates are all
+      // valid starting points. In particular, don't send an edit to the world view.
+      var hasCoords = _ctxCoords && isFinite(_ctxCoords.lat) && isFinite(_ctxCoords.lng);
+      var countryCenter = !hasCoords ? _getTripCountryCenter() : null;
+      var center = hasCoords ? _ctxCoords : (countryCenter || { lat: 30, lng: 20 });
+      var zoom   = hasCoords ? 15 : (countryCenter ? 7 : 2);
+      _mpCoords = hasCoords ? { lat: Number(_ctxCoords.lat), lng: Number(_ctxCoords.lng) } : null;
+      if (_mpMarker) { _mpMarker.setMap(null); _mpMarker = null; }
+      if (_mpCoords) {
+        _mpMarker = new google.maps.Marker({ position: _mpCoords, map: _mpMap, draggable: true });
+        _mpMarker.addListener('dragend', function() {
+          var pos = _mpMarker.getPosition();
+          _mpCoords = { lat: pos.lat(), lng: pos.lng() };
+          _updateMpCoords();
+        });
+      }
+      _updateMpCoords();
       _mpMap.setCenter({ lat: center.lat, lng: center.lng });
       _mpMap.setZoom(zoom);
     });
@@ -129,5 +141,29 @@ function useMyLocationInPicker() {
     },
     { enableHighAccuracy: true, timeout: 10000 }
   );
+}
+
+// Shared handler for the floating GPS focus controls on the Planner and Tracker maps.
+function focusMapOnMyLocation(map, button) {
+  if (!map) { toast('Map is not ready yet', 'err'); return; }
+  if (!navigator.geolocation) { toast('GPS not available on this device', 'err'); return; }
+  if (button) { button.disabled = true; button.classList.add('loading'); }
+  navigator.geolocation.getCurrentPosition(function(pos) {
+    var point = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+    map.panTo(point);
+    map.setZoom(16);
+    if (button) { button.disabled = false; button.classList.remove('loading'); }
+  }, function() {
+    if (button) { button.disabled = false; button.classList.remove('loading'); }
+    toast('Could not get your location. Check location access and try again.', 'err');
+  }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
+}
+
+function focusTrackerMapOnMyLocation(button) {
+  focusMapOnMyLocation(S.leafletMap, button);
+}
+
+function focusPlannerMapOnMyLocation(button) {
+  focusMapOnMyLocation(S.plannerMap, button);
 }
 </script>

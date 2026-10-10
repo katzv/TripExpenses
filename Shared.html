@@ -379,6 +379,12 @@ tbody tr:last-child td { border-bottom: none; }
 #view-planner #panel-plan-cal,
 #view-planner #panel-plan-map { padding: 0 14px; }
 #planner-map { height: calc(100svh - 130px); min-height: 300px; border-radius: var(--radius); overflow: hidden; }
+.map-location-btn { position:absolute; z-index:5; right:12px; bottom:26px; width:42px; height:42px; display:flex; align-items:center; justify-content:center; padding:0; border:0; border-radius:50%; background:#fff; color:#3c4043; box-shadow:0 2px 7px rgba(0,0,0,.3); cursor:pointer; touch-action:manipulation; }
+.map-location-btn:hover { background:#f5f8ff; color:#1a73e8; }
+.map-location-btn:disabled { opacity:.65; cursor:wait; }
+.map-location-btn.loading svg { animation: map-loc-pulse .8s ease-in-out infinite alternate; }
+.map-location-btn svg { width:21px; height:21px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+@keyframes map-loc-pulse { to { transform:scale(.8); opacity:.55; } }
 
 /* Planner form — floating popup near mouse */
 .plan-form-overlay {

@@ -585,6 +585,8 @@ Three tabs: **List**, **Calendar**, **Map**
   - Returns name, type subtitle (from `_googleTypeToCheckin(result.types)`), and coords from `geometry.location`
   - `gpsSource: 'google'` set when a nearby suggestion is selected
 - **Name search** (when user types): `AutocompleteService.getPlacePredictions()`, `language: 'en'`, session token (`_trackerToken()`)
+  - Soft-biases predictions to the device GPS fix (`S.checkinDeviceCoords`) within 50 km; if unavailable, soft-biases to the trip destination center within 300 km. Results are not country-restricted, so check-ins in departure and transit countries remain available.
+  - Keeps `S.checkinDeviceCoords` separate from `S.gpsCoords`, which changes to the selected place coordinates.
   - `structured_formatting.main_text` as name, `.secondary_text` as subtitle; no coords in predictions
 - **Selection with `place_id`**: `PlacesService.getDetails({ placeId, fields: ['geometry', 'types'], sessionToken: _trackerToken() })` resolves lat/lng AND place types; `_trackerAcToken = null` cleared after call
   - `types` field: passed to `_googleTypeToCheckin(types)` to auto-set the check-in type dropdown
@@ -625,8 +627,10 @@ Three tabs: **List**, **Calendar**, **Map**
 - On tab switch: `setTimeout(initTrackerMap, 50)`
 - Markers: `SymbolPath.CIRCLE`, colored fill (per CI_COLORS), white stroke 2.5px, scale 14; label = sequence number (white, 11px bold)
 - Route polyline: `google.maps.Polyline`, strokeColor #1565C0, strokeOpacity 0.55, strokeWeight 2.5, chronological order
+- Floating current-location control in the map's lower-right corner requests device GPS, pans to the current location, and zooms to level 16
+- Tracker map initializes even when no check-ins have coordinates; the empty map starts centered on the trip country when available, allowing the GPS control to work independently of saved check-ins.
 - InfoWindow (`S._trackerInfoWindow`): shared single instance (re-created on each `_renderLeafletMap` call), shows name (bold) + type icon + **type label** (from `CI_TYPE_LABELS[checkin.type]`) + formatted time + **"✏️ Edit" button** (calls `editCheckin(id)`, closes InfoWindow); clicking map background closes it (map `click` listener, registered once on first map creation)
-- `fitBounds`, maxZoom 14 enforced via `bounds_changed` one-time listener
+- With geotagged check-ins, `fitBounds`, maxZoom 14 enforced via `bounds_changed` one-time listener; with no geotagged check-ins, the map stays at the trip-country fallback center until the user pans or focuses GPS.
 - Map instance (`S.leafletMap`) reused; markers (`S.leafletMarkers`) and polyline (`S._routeLine`) removed and re-added on each render
 
 ### Map Picker Overlay (`#mapPickerOverlay`)
@@ -637,18 +641,16 @@ Three tabs: **List**, **Calendar**, **Map**
 - **Bottom bar**: coords display + "✓ Use This Location" confirm button
 - **Context-aware**: `openMapPicker(context)` where context is `'checkin'` (default) or `'planner'`
   - Module-level var `_mpContext` tracks which context opened the picker
-  - **Opening center logic (planner context)**:
-    1. Reads stored coords (`S.planGpsCoords`) and source (`S.planGpsSource`)
-    2. Coords are treated as "intentional" only if source is `'manual'`, `'nominatim'`, or `'saved'` — GPS auto-acquired (`'gps'`) is NOT treated as intentional (unreliable when the user just opened the form in their home country)
-    3. If intentional coords exist: center at zoom 13
-    4. If not intentional: call `_getTripCountryCenter()` → center on trip country at zoom 7
-    5. Fallback: `{lat:30, lng:20}` world view at zoom 2
+  - **Opening center logic (both contexts)**:
+    1. Reads the context's current coordinates (`S.planGpsCoords` or `S.gpsCoords`)
+    2. If coordinates exist, centers on them at zoom 15 and displays a draggable pin initialized to those coordinates. This preserves an existing location when editing and reuses GPS coordinates during check-in.
+    3. If no coordinates exist, centers on `_getTripCountryCenter()` at zoom 7 when available; otherwise falls back to `{lat:30, lng:20}` at zoom 2
   - `_getTripCountryCenter()` — reads first country from `S.currentTrip.country`, looks up `COUNTRY_CENTERS` map (40+ entries, country name → `{lat, lng}`); returns `null` if not found
-  - Checkin context: always uses `S.gpsCoords` at zoom 13, or world view if none
   - `confirmMapPin()` routes to `S.planGpsCoords` + `setPlanGpsStatus()` or `S.gpsCoords` + `setGpsStatus()` based on `_mpContext`
 - Tap map → drops/moves marker, updates coords display, enables confirm button
 - Marker is draggable — `dragend` updates coords
 - **"My Location" button** (`id="myLocBtn"`): calls `navigator.geolocation.getCurrentPosition`, centers map at zoom 15, drops/moves marker. Shows "Locating…" while waiting. Placed in header (not bottom) to always be visible regardless of screen height.
+- Planner and Tracker full map views also show a compact lower-right GPS focus button; it pans to device location and zooms to level 16.
 - `_mpMap` (`google.maps.Map`), `_mpMarker` (`google.maps.Marker`), `_mpCoords`, `_mpContext` are module-level vars (separate from `S.leafletMap`)
 - On reopen: removes previous marker (`_mpMarker.setMap(null)`, resets to clean state)
 
@@ -855,6 +857,7 @@ Notes:
 
 ### Map Tab (Planner)
 - Google Maps showing all bank places that have GPS coords
+- Compact lower-right current-location control requests device GPS, pans to that location, and zooms to level 16
 - Markers: `SymbolPath.CIRCLE`, colored per LOCATION_TYPES, white stroke 2.5px, scale 14; label = type emoji (13px)
 - InfoWindow (`S._planInfoWindow`, `maxWidth: 300`): place name + type icon/label + full description (linkified, `max-height: 120px; overflow-y: auto`) + assigned days list + "📅 Assign to Day" button
   - Content wrapped in `<div style="min-width:240px">` to prevent narrow/misaligned popup

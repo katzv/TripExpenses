@@ -66,8 +66,11 @@
         </div>
       </div>
     </div>
-    <div style="border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);margin-bottom:14px">
+    <div style="position:relative;border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);margin-bottom:14px">
       <div id="tracker-map"></div>
+      <button type="button" class="map-location-btn" aria-label="Focus map on my location" title="My location" onclick="focusTrackerMapOnMyLocation(this)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0-6v3m0 14v3M2 12h3m14 0h3"/><circle cx="12" cy="12" r="9"/></svg>
+      </button>
     </div>
     <div style="height:30px"></div>
   </div>
@@ -158,6 +161,7 @@ function _trackerTypeKeydown(event) {
 function showCheckinForm() {
   S.editingCheckinId = null;
   S.gpsCoords = null;
+  S.checkinDeviceCoords = null;
   S.gpsSource = 'none';
   S.selectedGooglePlaceId = null;
   S.selectedGooglePlaceName = '';
@@ -188,12 +192,14 @@ function acquireGPS() {
   navigator.geolocation.getCurrentPosition(
     pos => {
       S.gpsCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      S.checkinDeviceCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       S.gpsSource = 'gps';
       setGpsStatus('ok', 'GPS: ' + S.gpsCoords.lat.toFixed(5) + ', ' + S.gpsCoords.lng.toFixed(5));
       if (!document.getElementById('ciName').value.trim()) fetchNearbySuggestions();
     },
     () => {
       S.gpsCoords = null;
+      S.checkinDeviceCoords = null;
       S.gpsSource = 'none';
       setGpsStatus('err', 'GPS unavailable — type a place name');
     },
@@ -278,7 +284,19 @@ function fetchNearbySuggestions() {
 function searchByName(q) {
   loadGoogleMaps(() => {
     const svc = new google.maps.places.AutocompleteService();
-    svc.getPlacePredictions({ input: q, sessionToken: _trackerToken(), language: 'en' }, (predictions, status) => {
+    const request = { input: q, sessionToken: _trackerToken(), language: 'en' };
+    // Keep the device fix separate from S.gpsCoords, which changes to the
+    // selected place after a suggestion is picked.
+    const gps = S.checkinDeviceCoords;
+    if (gps && isFinite(Number(gps.lat)) && isFinite(Number(gps.lng))) {
+      request.locationBias = { center: { lat: Number(gps.lat), lng: Number(gps.lng) }, radius: 50000 };
+    } else {
+      // A soft destination bias helps when device location is unavailable, while
+      // still allowing check-ins made in a departure or transit country.
+      const tripCenter = _getTripCountryCenter();
+      if (tripCenter) request.locationBias = { center: tripCenter, radius: 300000 };
+    }
+    svc.getPlacePredictions(request, (predictions, status) => {
       if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions) { hideSuggestions(); return; }
       const items = predictions.slice(0, 8).map(p => ({
         place_id: p.place_id,
@@ -508,6 +526,7 @@ function editCheckinUI(id) {
   const c = S.checkins.find(x => x.id === id);
   if (!c) return;
   S.editingCheckinId = id;
+  S.checkinDeviceCoords = null;
   S.gpsCoords = (c.lat && c.lng) ? { lat: parseFloat(c.lat), lng: parseFloat(c.lng) } : null;
   S.gpsSource = c.gpsSource || 'none';
   S.selectedGooglePlaceId = c.googlePlaceId || null;
@@ -824,12 +843,6 @@ function exportTrackerKml() {
 function initTrackerMap() {
   const container = document.getElementById('tracker-map');
   if (!container) return;
-  const withGPS = S.checkins.filter(c => c.lat && c.lng);
-  if (!withGPS.length) {
-    if (S.leafletMap) { (S.leafletMarkers || []).forEach(m => m.setMap(null)); S.leafletMarkers = []; if (S._routeLine) { S._routeLine.setMap(null); S._routeLine = null; } S.leafletMap = null; }
-    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:14px;padding:20px">No GPS data yet</div>';
-    return;
-  }
   if (!S.leafletMap) {
     container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:13px">Loading map…</div>';
   }
@@ -1096,9 +1109,13 @@ function _renderLeafletMap() {
   if (S._routeLine) { S._routeLine.setMap(null); S._routeLine = null; }
   if (!S.leafletMap) {
     container.innerHTML = '';
+    const tripCenter = _getTripCountryCenter();
     S.leafletMap = new google.maps.Map(container, {
-      center: { lat: parseFloat(withGPS[0].lat), lng: parseFloat(withGPS[0].lng) },
-      zoom: 10, mapTypeControl: false, streetViewControl: false, fullscreenControl: false, gestureHandling: 'greedy'
+      center: withGPS.length
+        ? { lat: parseFloat(withGPS[0].lat), lng: parseFloat(withGPS[0].lng) }
+        : (tripCenter || { lat: 30, lng: 20 }),
+      zoom: withGPS.length ? 10 : (tripCenter ? 7 : 2),
+      mapTypeControl: false, streetViewControl: false, fullscreenControl: false, gestureHandling: 'greedy'
     });
     S.leafletMap.addListener('click', function() {
       if (S._trackerInfoWindow) S._trackerInfoWindow.close();
@@ -1149,10 +1166,12 @@ function _renderLeafletMap() {
     S.leafletMarkers.push(marker);
     bounds.extend({ lat: parseFloat(c.lat), lng: parseFloat(c.lng) });
   });
-  S.leafletMap.fitBounds(bounds);
-  google.maps.event.addListenerOnce(S.leafletMap, 'bounds_changed', () => {
-    if (S.leafletMap.getZoom() > 14) S.leafletMap.setZoom(14);
-  });
+  if (withGPS.length) {
+    S.leafletMap.fitBounds(bounds);
+    google.maps.event.addListenerOnce(S.leafletMap, 'bounds_changed', () => {
+      if (S.leafletMap.getZoom() > 14) S.leafletMap.setZoom(14);
+    });
+  }
 }
 
 function trackerRouteOrder(checkins) {

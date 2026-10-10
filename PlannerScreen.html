@@ -24,8 +24,11 @@
     <div style="display:flex;justify-content:flex-end;padding:2px 0 5px">
       <button onclick="showPlanImportModal()" style="background:var(--card);border:1.5px solid var(--border);border-radius:8px;font-size:12px;padding:5px 11px;cursor:pointer;color:var(--muted);font-weight:600">📥 Import</button>
     </div>
-    <div style="border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);margin-bottom:14px">
+    <div style="position:relative;border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);margin-bottom:14px">
       <div id="planner-map"></div>
+      <button type="button" class="map-location-btn" aria-label="Focus map on my location" title="My location" onclick="focusPlannerMapOnMyLocation(this)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0-6v3m0 14v3M2 12h3m14 0h3"/><circle cx="12" cy="12" r="9"/></svg>
+      </button>
     </div>
     <div style="height:30px"></div> 
   </div>
