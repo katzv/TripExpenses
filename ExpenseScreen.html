@@ -452,6 +452,7 @@ function saveExpense() {
 
   const amtNum = parseFloat(amount);
   const btn = document.getElementById('saveExpBtn');
+  const saveBtnLabel = btn.textContent;
   btn.disabled = true;
 
   // ILS currency: no conversion needed
@@ -479,6 +480,12 @@ function saveExpense() {
   btn.textContent = 'Fetching rate…';
   google.script.run
     .withSuccessHandler(result => {
+      if (!result) {
+        btn.disabled = false;
+        btn.textContent = saveBtnLabel;
+        toast('Historical rate unavailable. Enter the ILS amount manually or try again later.', 'err');
+        return;
+      }
       const rateInfo = result || S.defaultRates[cur];
       const ilsNum = rateInfo
         ? parseFloat((amtNum * rateInfo.rate).toFixed(2))
@@ -489,9 +496,9 @@ function saveExpense() {
       _doSaveExpense(date, name, type, amtNum, cur, ilsNum, rate, rateSrc, rateDate);
     })
     .withFailureHandler(() => {
-      // Fallback: use the estimated ILS value already shown
-      const ilsNum = parseFloat(ilsVal);
-      _doSaveExpense(date, name, type, amtNum, cur, ilsNum, ilsNum / amtNum, 'manual', date);
+      btn.disabled = false;
+      btn.textContent = saveBtnLabel;
+      toast('Could not fetch the historical rate. Enter the ILS amount manually or try again later.', 'err');
     })
     .getExchangeRate(cur, 'ILS', date);
 }

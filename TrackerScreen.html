@@ -222,6 +222,7 @@ function onCiNameFocus() {
 
 function onCiNameInput() {
   const q = (document.getElementById('ciName').value || '').trim();
+  const searchSequence = ++_trackerSearchSequence;
   if (q !== (S.selectedGooglePlaceName || '')) {
     S.selectedGooglePlaceId = null;
     S.selectedGooglePlaceDisplayName = '';
@@ -232,10 +233,11 @@ function onCiNameInput() {
     else hideSuggestions();
     return;
   }
-  S.suggestTimer = setTimeout(() => searchByName(q), 600);
+  S.suggestTimer = setTimeout(() => searchByName(q, searchSequence), 600);
 }
 
 var _ciSuggestIdx = -1;
+var _trackerSearchSequence = 0;
 
 function onCiNameKeydown(e) {
   const list = document.getElementById('ciSuggest');
@@ -253,6 +255,7 @@ function onCiNameKeydown(e) {
 
 function fetchNearbySuggestions() {
   if (!S.gpsCoords) return;
+  const requestSequence = _trackerSearchSequence;
   const { lat, lng } = S.gpsCoords;
   loadGoogleMaps(() => {
     const svc = _getPlacesService();
@@ -262,6 +265,7 @@ function fetchNearbySuggestions() {
       'administrative_area_level_3','administrative_area_level_4',
       'natural_feature','route','street_address','postal_code']);
     svc.nearbySearch({ location: { lat, lng }, radius: 300 }, (results, status) => {
+      if (requestSequence !== _trackerSearchSequence || (document.getElementById('ciName').value || '').trim()) return;
       if (status !== google.maps.places.PlacesServiceStatus.OK || !results) return;
       const items = results
         .filter(r => r.types && !r.types.some(t => skipTypes.has(t)))
@@ -281,8 +285,12 @@ function fetchNearbySuggestions() {
   });
 }
 
-function searchByName(q) {
+function searchByName(q, sequence) {
+  const requestSequence = sequence == null ? ++_trackerSearchSequence : sequence;
+  const isCurrentQuery = () => requestSequence === _trackerSearchSequence &&
+    (document.getElementById('ciName').value || '').trim() === q;
   loadGoogleMaps(() => {
+    if (!isCurrentQuery()) return;
     const svc = new google.maps.places.AutocompleteService();
     const request = { input: q, sessionToken: _trackerToken(), language: 'en' };
     // Keep the device fix separate from S.gpsCoords, which changes to the
@@ -297,6 +305,7 @@ function searchByName(q) {
       if (tripCenter) request.locationBias = { center: tripCenter, radius: 300000 };
     }
     svc.getPlacePredictions(request, (predictions, status) => {
+      if (!isCurrentQuery()) return;
       if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions) { hideSuggestions(); return; }
       const items = predictions.slice(0, 8).map(p => ({
         place_id: p.place_id,
@@ -316,8 +325,8 @@ function showSuggestions(items) {
   list.innerHTML = items.map(item => `
     <div class="suggest-item"
          data-name="${esc(item.name)}"
-         data-lat="${item.lat || ''}"
-         data-lng="${item.lng || ''}"
+         data-lat="${item.lat == null ? '' : item.lat}"
+         data-lng="${item.lng == null ? '' : item.lng}"
          data-place-id="${item.place_id || ''}"
          data-type="${esc(item.type || '')}"
          onclick="selectSuggestion(this)">
@@ -335,8 +344,10 @@ function hideSuggestions() {
 
 function selectSuggestion(el) {
   const name    = el.getAttribute('data-name');
-  const lat     = parseFloat(el.getAttribute('data-lat')) || null;
-  const lng     = parseFloat(el.getAttribute('data-lng')) || null;
+  const latRaw  = el.getAttribute('data-lat');
+  const lngRaw  = el.getAttribute('data-lng');
+  const lat     = latRaw !== '' && isFinite(Number(latRaw)) ? Number(latRaw) : null;
+  const lng     = lngRaw !== '' && isFinite(Number(lngRaw)) ? Number(lngRaw) : null;
   const placeId = el.getAttribute('data-place-id');
   S.selectedGooglePlaceId = placeId || null;
   S.selectedGooglePlaceName = name;
@@ -346,7 +357,7 @@ function selectSuggestion(el) {
   hideSuggestions();
   // Auto-classify type if known
   if (type && type !== 'place' && LOCATION_TYPES[type]) _selectTrackerType(type);
-  if (lat && lng) {
+  if (lat !== null && lng !== null) {
     S.gpsCoords = { lat, lng };
     S.gpsSource = 'google';
     setGpsStatus('ok', 'Location: ' + lat.toFixed(5) + ', ' + lng.toFixed(5));
@@ -506,7 +517,7 @@ function checkinCard(c) {
   const meta = trackerTypeMeta(c.type);
   const col  = meta.color || '#9E9E9E';
   const icon = meta.icon || '📌';
-  const gpsInfo = (c.lat && c.lng) ? '📡 ' + parseFloat(c.lat).toFixed(4) + ', ' + parseFloat(c.lng).toFixed(4) : '';
+  const gpsInfo = hasGpsCoords(c) ? '📡 ' + parseFloat(c.lat).toFixed(4) + ', ' + parseFloat(c.lng).toFixed(4) : '';
   return `
     <div class="ci-card" onclick="editCheckinUI('${c.id}')">
       <div class="ci-icon" style="background:${col}22;color:${col}">${icon}</div>
@@ -527,7 +538,7 @@ function editCheckinUI(id) {
   if (!c) return;
   S.editingCheckinId = id;
   S.checkinDeviceCoords = null;
-  S.gpsCoords = (c.lat && c.lng) ? { lat: parseFloat(c.lat), lng: parseFloat(c.lng) } : null;
+  S.gpsCoords = hasGpsCoords(c) ? { lat: parseFloat(c.lat), lng: parseFloat(c.lng) } : null;
   S.gpsSource = c.gpsSource || 'none';
   S.selectedGooglePlaceId = c.googlePlaceId || null;
   S.selectedGooglePlaceName = c.googlePlaceId ? (c.name || '') : '';
@@ -759,7 +770,7 @@ function exportCalendar() {
 }
 
 function exportTrackerKml() {
-  const withGPS = S.checkins.filter(c => c.lat && c.lng);
+  const withGPS = S.checkins.filter(hasGpsCoords);
   if (!withGPS.length) { toast('No GPS check-ins to export', 'err'); return; }
 
   const _S = 'https://maps.google.com/mapfiles/kml/shapes/';
@@ -1103,7 +1114,7 @@ function _showTrackerPlaceRestoreReport(updatedCount, verifiedCount, skipped, la
 function _renderLeafletMap() {
   const container = document.getElementById('tracker-map');
   if (!container) return;
-  const withGPS = trackerRouteOrder(S.checkins.filter(c => c.lat && c.lng));
+  const withGPS = trackerRouteOrder(S.checkins.filter(hasGpsCoords));
   (S.leafletMarkers || []).forEach(m => m.setMap(null));
   S.leafletMarkers = [];
   if (S._routeLine) { S._routeLine.setMap(null); S._routeLine = null; }

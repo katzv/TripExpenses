@@ -21,14 +21,114 @@ function include(filename) {
 
 var props = PropertiesService.getScriptProperties();
 
+// Keep each property value below Apps Script's 9 KB per-value limit. Large
+// JSON records are written as versioned chunks, then published by one manifest.
+var PROPERTY_CHUNK_BYTES = 7000;
+function _chunkManifestKey(key) { return '__json_manifest__' + key; }
+
+function _readChunkManifest(key) {
+  var raw = props.getProperty(_chunkManifestKey(key));
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch(e) { return null; }
+}
+
+function _deleteChunkSet(manifest) {
+  if (!manifest || !manifest.prefix || !manifest.count) return;
+  for (var i = 0; i < manifest.count; i++) props.deleteProperty(manifest.prefix + i);
+}
+
+function _utf8ByteLength(text) {
+  var bytes = 0;
+  Array.from(text).forEach(function(ch) {
+    var cp = ch.codePointAt(0);
+    bytes += cp <= 0x7F ? 1 : (cp <= 0x7FF ? 2 : (cp <= 0xFFFF ? 3 : 4));
+  });
+  return bytes;
+}
+
+function _setStoredProperty(key, value) {
+  try { props.setProperty(key, value); }
+  catch(e) {
+    var message = String(e && e.message || e);
+    if (/limit|quota|too large|size/i.test(message)) {
+      throw new Error('Trip storage is full. Export and remove older trips to free space, then try again.');
+    }
+    throw e;
+  }
+}
+
 function load(key, fallback) {
-  var raw = props.getProperty(key);
-  if (!raw) return fallback;
-  try { return JSON.parse(raw); } catch(e) { return fallback; }
+  // Retry once if a writer replaces and cleans up the old chunk set while
+  // this read is in flight; the manifest points us at the published set.
+  for (var attempt = 0; attempt < 2; attempt++) {
+    var manifest = _readChunkManifest(key);
+    if (manifest) {
+      var parts = [], complete = true;
+      for (var i = 0; i < manifest.count; i++) {
+        var part = props.getProperty(manifest.prefix + i);
+        if (part === null) { complete = false; break; }
+        parts.push(part);
+      }
+      if (!complete) continue;
+      try { return JSON.parse(parts.join('')); } catch(e) { return fallback; }
+    }
+    var raw = props.getProperty(key);
+    if (!raw) return fallback;
+    try { return JSON.parse(raw); } catch(e) { return fallback; }
+  }
+  return fallback;
 }
 
 function save(key, data) {
-  props.setProperty(key, JSON.stringify(data));
+  var raw = JSON.stringify(data);
+  var oldManifest = _readChunkManifest(key);
+  // Small values remain in their existing single-property format.
+  if (_utf8ByteLength(raw) <= PROPERTY_CHUNK_BYTES) {
+    _setStoredProperty(key, raw);
+    props.deleteProperty(_chunkManifestKey(key));
+    _deleteChunkSet(oldManifest);
+    return;
+  }
+
+  // Count UTF-8 bytes by Unicode code point so emoji and non-Latin place names
+  // are never split and each property stays safely under the service limit.
+  var chars = Array.from(raw), chunks = [], current = [], byteCount = 0;
+  chars.forEach(function(ch) {
+    var cp = ch.codePointAt(0);
+    var bytes = cp <= 0x7F ? 1 : (cp <= 0x7FF ? 2 : (cp <= 0xFFFF ? 3 : 4));
+    if (byteCount + bytes > PROPERTY_CHUNK_BYTES) {
+      chunks.push(current.join(''));
+      current = []; byteCount = 0;
+    }
+    current.push(ch); byteCount += bytes;
+  });
+  if (current.length) chunks.push(current.join(''));
+
+  var prefix = '__json_chunk__' + Utilities.getUuid() + '__';
+  try {
+    chunks.forEach(function(part, i) { _setStoredProperty(prefix + i, part); });
+    // Publish the new chunk set only after all chunks are present.
+    _setStoredProperty(_chunkManifestKey(key), JSON.stringify({ prefix: prefix, count: chunks.length }));
+  } catch(e) {
+    for (var j = 0; j < chunks.length; j++) props.deleteProperty(prefix + j);
+    throw e;
+  }
+  props.deleteProperty(key);
+  _deleteChunkSet(oldManifest);
+}
+
+function removeStored(key) {
+  var manifest = _readChunkManifest(key);
+  props.deleteProperty(key);
+  props.deleteProperty(_chunkManifestKey(key));
+  _deleteChunkSet(manifest);
+}
+
+function _withDataLock(fn) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(4000);
+  try { return fn(); }
+  finally { lock.releaseLock(); }
 }
 
 function uuid() {
@@ -42,11 +142,15 @@ function nowISO() {
 // ---- TRIPS ----
 // Stored as: props['trips'] = JSON array of trip objects
 
-function getTrips() {
+function _getTripsUnlocked() {
   var trips = load('trips', []);
   migrateCheckinOrder(trips);
   migrateLocationTypes(trips);
   return trips;
+}
+
+function getTrips() {
+  return _withDataLock(_getTripsUnlocked);
 }
 
 function normalizeLocationType(type) {
@@ -89,22 +193,24 @@ function migrateLocationTypes(trips) {
 }
 
 function updateTripOrder(ids) {
-  var trips = load('trips', []);
-  var byId = {};
-  trips.forEach(function(trip) { byId[trip.id] = trip; });
-  var ordered = [];
-  var seen = {};
-  (Array.isArray(ids) ? ids : []).forEach(function(id) {
-    if (byId[id] && !seen[id]) {
-      ordered.push(byId[id]);
-      seen[id] = true;
-    }
+  return _withDataLock(function() {
+    var trips = load('trips', []);
+    var byId = {};
+    trips.forEach(function(trip) { byId[trip.id] = trip; });
+    var ordered = [];
+    var seen = {};
+    (Array.isArray(ids) ? ids : []).forEach(function(id) {
+      if (byId[id] && !seen[id]) {
+        ordered.push(byId[id]);
+        seen[id] = true;
+      }
+    });
+    trips.forEach(function(trip) {
+      if (!seen[trip.id]) ordered.push(trip);
+    });
+    save('trips', ordered);
+    return { success: true };
   });
-  trips.forEach(function(trip) {
-    if (!seen[trip.id]) ordered.push(trip);
-  });
-  save('trips', ordered);
-  return { success: true };
 }
 
 // Migrate existing trip check-ins into chronological insertion order.
@@ -123,45 +229,51 @@ function migrateCheckinOrder(trips) {
 }
 
 function createTrip(d) {
-  var trips = getTrips();
-  var id = uuid();
-  trips.push({
-    id:        id,
-    title:     d.title,
-    country:   d.country,
-    currency:  d.currency,
-    startDate: d.startDate || '',
-    endDate:   d.endDate   || '',
-    createdAt: nowISO()
+  return _withDataLock(function() {
+    var trips = _getTripsUnlocked();
+    var id = uuid();
+    trips.push({
+      id:        id,
+      title:     d.title,
+      country:   d.country,
+      currency:  d.currency,
+      startDate: d.startDate || '',
+      endDate:   d.endDate   || '',
+      createdAt: nowISO()
+    });
+    save('trips', trips);
+    return { success: true, id: id };
   });
-  save('trips', trips);
-  return { success: true, id: id };
 }
 
 function updateTrip(d) {
-  var trips = getTrips();
-  for (var i = 0; i < trips.length; i++) {
-    if (trips[i].id === d.id) {
-      trips[i].title       = d.title;
-      trips[i].country     = d.country     || trips[i].country || '';
-      trips[i].startDate   = d.startDate   || '';
-      trips[i].endDate     = d.endDate     || '';
-      trips[i].defaultView = d.defaultView || '';
-      break;
+  return _withDataLock(function() {
+    var trips = _getTripsUnlocked();
+    for (var i = 0; i < trips.length; i++) {
+      if (trips[i].id === d.id) {
+        trips[i].title       = d.title;
+        trips[i].country     = d.country     || trips[i].country || '';
+        trips[i].startDate   = d.startDate   || '';
+        trips[i].endDate     = d.endDate     || '';
+        trips[i].defaultView = d.defaultView || '';
+        break;
+      }
     }
-  }
-  save('trips', trips);
-  return { success: true };
+    save('trips', trips);
+    return { success: true };
+  });
 }
 
 function deleteTrip(id) {
-  var trips = getTrips().filter(function(t) { return t.id !== id; });
-  save('trips', trips);
-  props.deleteProperty('exp_' + id);
-  deleteCheckinFile(id);
-  props.deleteProperty('caldesc_' + id);
-  props.deleteProperty('plan_' + id);
-  return { success: true };
+  return _withDataLock(function() {
+    var trips = _getTripsUnlocked().filter(function(t) { return t.id !== id; });
+    save('trips', trips);
+    removeStored('exp_' + id);
+    deleteCheckinFile(id);
+    removeStored('caldesc_' + id);
+    removeStored('plan_' + id);
+    return { success: true };
+  });
 }
 
 // ---- CALENDAR DAY DESCRIPTIONS ----
@@ -172,15 +284,14 @@ function getCalDescs(tripId) {
 }
 
 function saveCalDesc(tripId, date, text) {
-  var descs = getCalDescs(tripId);
-  var trimmed = (text || '').replace(/^\s+|\s+$/g, '');
-  if (trimmed) {
-    descs[date] = trimmed;
-  } else {
-    delete descs[date];
-  }
-  save('caldesc_' + tripId, descs);
-  return { success: true };
+  return _withDataLock(function() {
+    var descs = getCalDescs(tripId);
+    var trimmed = (text || '').replace(/^\s+|\s+$/g, '');
+    if (trimmed) descs[date] = trimmed;
+    else delete descs[date];
+    save('caldesc_' + tripId, descs);
+    return { success: true };
+  });
 }
 
 // ---- TRACKER CHECK-INS ----
@@ -223,44 +334,48 @@ function loadCheckins(tripId) {
 }
 
 function saveCheckin(d) {
-  var map = loadCheckinsMap(d.tripId);
-  var id = uuid();
-  map[id] = {
+  return _withDataLock(function() {
+    var map = loadCheckinsMap(d.tripId);
+    var id = uuid();
+    map[id] = {
     id:        id,
     tripId:    d.tripId,
     timestamp: d.timestamp || nowISO(),
     name:      d.name,
     type:      normalizeLocationType(d.type),
-    lat:       d.lat       || null,
-    lng:       d.lng       || null,
+    lat:       d.lat == null || d.lat === '' ? null : d.lat,
+    lng:       d.lng == null || d.lng === '' ? null : d.lng,
     googlePlaceId: d.googlePlaceId || null,
     googlePlaceName: d.googlePlaceId ? (d.googlePlaceName || d.name || null) : null,
     gpsSource: d.gpsSource || 'none',
     createdAt: nowISO()
-  };
-  saveCheckinsMap(d.tripId, map);
-  return { success: true, id: id };
+    };
+    saveCheckinsMap(d.tripId, map);
+    return { success: true, id: id };
+  });
 }
 
 // O(1) lookup by id — no linear scan needed
 function updateCheckin(d) {
-  var map = loadCheckinsMap(d.tripId);
-  if (!map[d.id]) return { success: false, error: 'Not found' };
-  map[d.id] = {
+  return _withDataLock(function() {
+    var map = loadCheckinsMap(d.tripId);
+    if (!map[d.id]) return { success: false, error: 'Not found' };
+    map[d.id] = {
     id:        d.id,
     tripId:    d.tripId,
     timestamp: d.timestamp,
     name:      d.name,
     type:      normalizeLocationType(d.type),
-    lat:       d.lat       || null,
-    lng:       d.lng       || null,
+    lat:       d.lat == null || d.lat === '' ? null : d.lat,
+    lng:       d.lng == null || d.lng === '' ? null : d.lng,
     googlePlaceId: d.googlePlaceId || null,
     googlePlaceName: d.googlePlaceId ? (d.googlePlaceName || map[d.id].googlePlaceName || d.name || null) : null,
     gpsSource: d.gpsSource || map[d.id].gpsSource || 'none',
     createdAt: map[d.id].createdAt  // preserve original creation time
-  };
-  saveCheckinsMap(d.tripId, map);
-  return { success: true };
+    };
+    saveCheckinsMap(d.tripId, map);
+    return { success: true };
+  });
 }
 
 // Supplies all GPS check-ins so the browser can validate and repair stale Place IDs.
@@ -282,7 +397,7 @@ function getCheckinsForGooglePlaceRepair() {
 }
 
 // Saves browser-verified Places matches, replacing an ID only if it has not changed since lookup.
-function saveRepairedGooglePlaceIds(updates) {
+function _saveRepairedGooglePlaceIdsUnlocked(updates) {
   var updated = 0, skipped = 0, changedByTrip = {};
   (Array.isArray(updates) ? updates : []).forEach(function(item) {
     if (!item || !item.tripId || !item.checkinId || !item.placeId) { skipped++; return; }
@@ -298,17 +413,23 @@ function saveRepairedGooglePlaceIds(updates) {
   return { success: true, updated: updated, skipped: skipped };
 }
 
+function saveRepairedGooglePlaceIds(updates) {
+  return _withDataLock(function() { return _saveRepairedGooglePlaceIdsUnlocked(updates); });
+}
+
 // O(1) delete by id
 function deleteCheckin(checkinId, tripId) {
-  var map = loadCheckinsMap(tripId);
-  delete map[checkinId];
-  saveCheckinsMap(tripId, map);
-  return { success: true };
+  return _withDataLock(function() {
+    var map = loadCheckinsMap(tripId);
+    delete map[checkinId];
+    saveCheckinsMap(tripId, map);
+    return { success: true };
+  });
 }
 
 // Called by deleteTrip — removes checkin data for this trip
 function deleteCheckinFile(tripId) {
-  props.deleteProperty('checkins_' + tripId);
+  removeStored('checkins_' + tripId);
 }
 
 // ---- EXPENSES ----
@@ -318,7 +439,7 @@ function getExpenses(tripId) {
   return load('exp_' + tripId, []);
 }
 
-function addExpense(d) {
+function _addExpenseUnlocked(d) {
   var expenses = getExpenses(d.tripId);
   var id = uuid();
   expenses.push({
@@ -341,7 +462,11 @@ function addExpense(d) {
   return { success: true, id: id };
 }
 
-function updateExpense(d) {
+function addExpense(d) {
+  return _withDataLock(function() { return _addExpenseUnlocked(d); });
+}
+
+function _updateExpenseUnlocked(d) {
   var expenses = getExpenses(d.tripId);
   var found = false;
   for (var i = 0; i < expenses.length; i++) {
@@ -373,7 +498,11 @@ function updateExpense(d) {
   return { success: false, error: 'Not found' };
 }
 
-function deleteExpense(expenseId, tripId) {
+function updateExpense(d) {
+  return _withDataLock(function() { return _updateExpenseUnlocked(d); });
+}
+
+function _deleteExpenseUnlocked(expenseId, tripId) {
   // tripId passed from client for efficiency; also scan all if missing
   if (tripId) {
     var expenses = getExpenses(tripId).filter(function(e) { return e.id !== expenseId; });
@@ -384,16 +513,22 @@ function deleteExpense(expenseId, tripId) {
   var allKeys = props.getKeys();
   for (var i = 0; i < allKeys.length; i++) {
     var k = allKeys[i];
-    if (k.indexOf('exp_') === 0) {
-      var list = load(k, []);
+    var dataKey = k.indexOf('__json_manifest__exp_') === 0
+      ? k.substring('__json_manifest__'.length) : k;
+    if (dataKey.indexOf('exp_') === 0 && (k === dataKey || k === _chunkManifestKey(dataKey))) {
+      var list = load(dataKey, []);
       var match = list.some(function(e) { return e.id === expenseId; });
       if (match) {
-        save(k, list.filter(function(e) { return e.id !== expenseId; }));
+        save(dataKey, list.filter(function(e) { return e.id !== expenseId; }));
         return { success: true };
       }
     }
   }
   return { success: true };
+}
+
+function deleteExpense(expenseId, tripId) {
+  return _withDataLock(function() { return _deleteExpenseUnlocked(expenseId, tripId); });
 }
 
 // ---- EXCHANGE RATES (frankfurter.app — free, no API key needed) ----
@@ -431,7 +566,9 @@ function getExchangeRate(from, to, date) {
   } catch(e) { Logger.log('Rate error: ' + e); }
 
   var cached = loadRateCache(from, to);
-  if (cached) return { rate: cached.rate, source: 'cached', date: cached.date };
+  // The cache holds only the most recent fetched quote for this pair; it is
+  // safe for a historical lookup only when its effective date matches.
+  if (cached && cached.date === dateStr) return { rate: cached.rate, source: 'cached', date: cached.date };
   return null;
 }
 
@@ -458,9 +595,11 @@ function getRatesILStoUSDEUR() {
 // Stored inside the 'ratecache' property as a JSON object
 
 function saveRateCache(from, to, rate, date) {
-  var cache = load('ratecache', {});
-  cache[from + '_' + to] = { rate: rate, date: date };
-  save('ratecache', cache);
+  return _withDataLock(function() {
+    var cache = load('ratecache', {});
+    cache[from + '_' + to] = { rate: rate, date: date };
+    save('ratecache', cache);
+  });
 }
 
 function loadRateCache(from, to) {
@@ -486,7 +625,7 @@ function getExpenseTypes() {
   return defaults.concat(custom);
 }
 
-function addExpenseType(name) {
+function _addExpenseTypeUnlocked(name) {
   var trimmed = (name || '').trim();
   if (!trimmed) return getExpenseTypes();
   var settings = getSettings();
@@ -499,13 +638,21 @@ function addExpenseType(name) {
   return getExpenseTypes();
 }
 
-function deleteExpenseType(name) {
+function addExpenseType(name) {
+  return _withDataLock(function() { return _addExpenseTypeUnlocked(name); });
+}
+
+function _deleteExpenseTypeUnlocked(name) {
   var trimmed = (name || '').trim();
   var settings = getSettings();
   var custom = settings.customTypes || [];
   settings.customTypes = custom.filter(function(t) { return t !== trimmed; });
   save('settings', settings);
   return getExpenseTypes();
+}
+
+function deleteExpenseType(name) {
+  return _withDataLock(function() { return _deleteExpenseTypeUnlocked(name); });
 }
 
 // ---- REPORT ----
@@ -752,8 +899,8 @@ function savePlanPlace(d) {
         if (plan.bank[i].id === d.id) {
           plan.bank[i].name        = d.name;
           plan.bank[i].type        = normalizeLocationType(d.type);
-          plan.bank[i].lat         = d.lat  || null;
-          plan.bank[i].lng         = d.lng  || null;
+          plan.bank[i].lat         = d.lat == null || d.lat === '' ? null : d.lat;
+          plan.bank[i].lng         = d.lng == null || d.lng === '' ? null : d.lng;
           plan.bank[i].description = d.description || '';
           break;
         }
@@ -766,8 +913,8 @@ function savePlanPlace(d) {
         tripId:      d.tripId,
         name:        d.name,
         type:        normalizeLocationType(d.type),
-        lat:         d.lat  || null,
-        lng:         d.lng  || null,
+        lat:         d.lat == null || d.lat === '' ? null : d.lat,
+        lng:         d.lng == null || d.lng === '' ? null : d.lng,
         description: d.description || '',
         createdAt:   nowISO()
       });
@@ -1004,7 +1151,7 @@ function importFromJson(data) {
 
   var getRate = _buildRateFetcher(currencies, startDate, endDate);
 
-  var tripId = 'trip_' + Date.now();
+  var tripId = 'trip_' + uuid();
   var trip = {
     id: tripId,
     title: String(data.title).trim(),
@@ -1013,10 +1160,6 @@ function importFromJson(data) {
     startDate: startDate,
     endDate: endDate
   };
-  var trips = load('trips', []);
-  trips.unshift(trip);
-  save('trips', trips);
-
   var expenses = [];
   var importedCount = 0;
   var skipped = 0;
@@ -1030,6 +1173,9 @@ function importFromJson(data) {
     var expType = validTypes.indexOf(e.type) !== -1 ? e.type : 'Other';
 
     var rateInfo  = getRate(expCur, dateVal);
+    if (expCur !== 'ILS' && rateInfo.rateSource === 'unavailable') {
+      throw new Error('Could not get the historical ' + expCur + ' to ILS rate for ' + dateVal + '. Import was not saved. Try again later.');
+    }
     var amountILS = expCur === 'ILS' ? amount : Math.round(amount * rateInfo.rate * 100) / 100;
 
     expenses.push({
@@ -1051,8 +1197,14 @@ function importFromJson(data) {
     importedCount++;
   });
 
-  save('exp_' + tripId, expenses);
-  return { imported: importedCount, skipped: skipped, trips: trips };
+  return _withDataLock(function() {
+    var trips = load('trips', []);
+    trips.unshift(trip);
+    save('exp_' + tripId, expenses);
+    try { save('trips', trips); }
+    catch(e) { removeStored('exp_' + tripId); throw e; }
+    return { imported: importedCount, skipped: skipped, trips: trips };
+  });
 }
 
 function rerateImportedExpenses(tripId) {
@@ -1073,22 +1225,38 @@ function rerateImportedExpenses(tripId) {
   });
 
   var getRate = _buildRateFetcher(currencies, trip.startDate || '', trip.endDate || '');
-  var updated = 0;
+  var rateUpdates = {}, unavailableIds = {}, originalById = {};
 
   expenses.forEach(function(e) {
     var cur = String(e.currency || 'ILS').trim().toUpperCase();
+    originalById[e.id] = e;
     if (cur === 'ILS') return;
     var rateInfo  = getRate(cur, e.date);
-    var newILS    = Math.round(e.amount * rateInfo.rate * 100) / 100;
-    e.amountILS   = newILS;
-    e.rate        = rateInfo.rate;
-    e.rateDate    = rateInfo.rateDate;
-    e.rateSource  = rateInfo.rateSource;
-    updated++;
+    if (rateInfo.rateSource === 'unavailable') { unavailableIds[e.id] = true; return; }
+    rateUpdates[e.id] = {
+      amount: e.amount, currency: cur, date: e.date, rateInfo: rateInfo
+    };
   });
 
-  save('exp_' + tripId, expenses);
-  return { success: true, updated: updated };
+  return _withDataLock(function() {
+    var currentExpenses = getExpenses(tripId);
+    var updated = 0, unavailable = 0;
+    currentExpenses.forEach(function(e) {
+      var cur = String(e.currency || 'ILS').trim().toUpperCase();
+      var update = rateUpdates[e.id];
+      var original = originalById[e.id];
+      var unchanged = original && e.amount === original.amount && cur === String(original.currency || 'ILS').trim().toUpperCase() && e.date === original.date;
+      if (unavailableIds[e.id] && unchanged) unavailable++;
+      if (!update || !unchanged) return;
+      e.amountILS = Math.round(e.amount * update.rateInfo.rate * 100) / 100;
+      e.rate = update.rateInfo.rate;
+      e.rateDate = update.rateInfo.rateDate;
+      e.rateSource = update.rateInfo.rateSource;
+      updated++;
+    });
+    if (updated) save('exp_' + tripId, currentExpenses);
+    return { success: true, updated: updated, unavailable: unavailable };
+  });
 }
 
 // ---- COUNTRY → CURRENCY ----

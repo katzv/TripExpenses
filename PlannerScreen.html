@@ -570,8 +570,8 @@ function showPinMenu(placeId, cx, cy) {
   const menu = document.getElementById('plannerContextMenu');
   if (!menu) return;
   menu._pinId = placeId; // used by async photo update
-  menu._anchorLat = parseFloat(p.lat) || null;
-  menu._anchorLng = parseFloat(p.lng) || null;
+  menu._anchorLat = hasGpsCoords(p) ? parseFloat(p.lat) : null;
+  menu._anchorLng = hasGpsCoords(p) ? parseFloat(p.lng) : null;
   const vw = window.innerWidth, menuW = 260;
   menu.style.left = (vw - cx - 8 >= menuW ? cx + 4 : Math.max(8, cx - menuW - 4)) + 'px';
   menu.style.top  = Math.min(cy, window.innerHeight - 280) + 'px';
@@ -588,8 +588,9 @@ function showPinMenu(placeId, cx, cy) {
     ? '<div style="font-size:11px;color:#374151;padding:0 14px 6px;line-height:1.5;word-break:break-word;max-height:56px;overflow:hidden">' +
       _linkifyDesc(p.description.length > 100 ? p.description.substring(0, 100) + '…' : p.description) + '</div>'
     : '';
-  const bLat = parseFloat(p.lat) || 0, bLng = parseFloat(p.lng) || 0;
-  const _hasCoords = bLat !== 0 || bLng !== 0;
+  const _hasCoords = hasGpsCoords(p);
+  const bLat = _hasCoords ? parseFloat(p.lat) : 0;
+  const bLng = _hasCoords ? parseFloat(p.lng) : 0;
   // Search by name (falling back to coords only if unnamed) so the link lands on the
   // actual named place instead of an unlabeled point near it. Appending the coords as
   // extra query text helps Google disambiguate when the name alone is generic.
@@ -688,7 +689,7 @@ function editPlanPlace(id) {
   const p = S.planBank.find(x => x.id === id);
   if (!p) return;
   S.editingPlaceId = id;
-  S.planGpsCoords = (p.lat && p.lng) ? { lat: parseFloat(p.lat), lng: parseFloat(p.lng) } : null;
+  S.planGpsCoords = hasGpsCoords(p) ? { lat: parseFloat(p.lat), lng: parseFloat(p.lng) } : null;
   S.planGpsSource = S.planGpsCoords ? 'saved' : 'none';
   document.getElementById('planName').value = p.name || '';
   _selectPlanType(p.type || 'place');
@@ -1475,7 +1476,7 @@ function initPlannerMap(fitAll) {
   const container = document.getElementById('planner-map');
   if (!container) return;
   renderBankBarChips();
-  const withGPS = S.planBank.filter(p => p.lat && p.lng);
+  const withGPS = S.planBank.filter(hasGpsCoords);
   if (!S.plannerMap) {
     container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:13px">Loading map...</div>';
   }
@@ -1485,7 +1486,7 @@ function initPlannerMap(fitAll) {
 function _renderPlannerLeaflet() {
   const container = document.getElementById('planner-map');
   if (!container) return;
-  const withGPS = S.planBank.filter(p => p.lat && p.lng);
+  const withGPS = S.planBank.filter(hasGpsCoords);
   (S.plannerMarkers || []).forEach(m => m.setMap(null));
   S.plannerMarkers = [];
 
@@ -1756,7 +1757,7 @@ function _renderContextMenu(menu, opts) {
           photoUrl, bizStatus } = opts;
   const data = S._ctxMenuData || {};
   const c = data.coords || {};
-  const gmUrl = mapsUrl || ('https://maps.google.com/?q=' + (c.lat || 0) + ',' + (c.lng || 0));
+  const gmUrl = mapsUrl || ('https://maps.google.com/?q=' + (c.lat == null ? 0 : c.lat) + ',' + (c.lng == null ? 0 : c.lng));
 
   // Business status badge
   let statusBadge = '';
@@ -1889,22 +1890,27 @@ function onPlanNameFocus() {
 
 function onPlanNameInput() {
   const q = (document.getElementById('planName').value || '').trim();
+  const searchSequence = ++_plannerSearchSequence;
   clearTimeout(S.planSuggestTimer);
   if (!q) {
     if (S.planGpsCoords) fetchPlanNearbySuggestions();
     else hidePlanSuggestions();
     return;
   }
-  S.planSuggestTimer = setTimeout(() => searchPlanByName(q), 600);
+  S.planSuggestTimer = setTimeout(() => searchPlanByName(q, searchSequence), 600);
 }
+
+var _plannerSearchSequence = 0;
 
 function fetchPlanNearbySuggestions() {
   if (!S.planGpsCoords) return;
+  const requestSequence = _plannerSearchSequence;
   const { lat, lng } = S.planGpsCoords;
   loadGoogleMaps(() => {
     const svc = _getPlacesService();
     if (!svc) return;
     svc.nearbySearch({ location: { lat, lng }, radius: 600 }, (results, status) => {
+      if (requestSequence !== _plannerSearchSequence || (document.getElementById('planName').value || '').trim()) return;
       if (status !== google.maps.places.PlacesServiceStatus.OK || !results) return;
       const items = results.slice(0, 8).map(r => ({
         place_id: r.place_id,
@@ -1917,10 +1923,15 @@ function fetchPlanNearbySuggestions() {
   });
 }
 
-function searchPlanByName(q) {
+function searchPlanByName(q, sequence) {
+  const requestSequence = sequence == null ? ++_plannerSearchSequence : sequence;
+  const isCurrentQuery = () => requestSequence === _plannerSearchSequence &&
+    (document.getElementById('planName').value || '').trim() === q;
   loadGoogleMaps(() => {
+    if (!isCurrentQuery()) return;
     const svc = new google.maps.places.AutocompleteService();
     svc.getPlacePredictions({ input: q, sessionToken: _plannerToken(), language: 'en' }, (predictions, status) => {
+      if (!isCurrentQuery()) return;
       if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions) { hidePlanSuggestions(); return; }
       const items = predictions.slice(0, 8).map(p => ({
         place_id: p.place_id,
@@ -1938,7 +1949,7 @@ function showPlanSuggestions(items) {
   const list = document.getElementById('planSuggest');
   if (!list) return;
   list.innerHTML = items.map(item =>
-    '<div class="suggest-item" data-name="' + esc(item.name) + '" data-lat="' + (item.lat || '') + '" data-lng="' + (item.lng || '') + '" data-place-id="' + (item.place_id || '') + '" onclick="selectPlanSuggestion(this)">' +
+    '<div class="suggest-item" data-name="' + esc(item.name) + '" data-lat="' + (item.lat == null ? '' : item.lat) + '" data-lng="' + (item.lng == null ? '' : item.lng) + '" data-place-id="' + (item.place_id || '') + '" onclick="selectPlanSuggestion(this)">' +
     '<div class="si-name">' + esc(item.name) + '</div>' +
     (item.sub ? '<div class="si-sub">' + esc(item.sub) + '</div>' : '') +
     '</div>'
@@ -1954,13 +1965,15 @@ function hidePlanSuggestions() {
 
 function selectPlanSuggestion(el) {
   const name = el.getAttribute('data-name');
-  const lat  = parseFloat(el.getAttribute('data-lat')) || null;
-  const lng  = parseFloat(el.getAttribute('data-lng')) || null;
+  const latRaw = el.getAttribute('data-lat');
+  const lngRaw = el.getAttribute('data-lng');
+  const lat  = latRaw !== '' && isFinite(Number(latRaw)) ? Number(latRaw) : null;
+  const lng  = lngRaw !== '' && isFinite(Number(lngRaw)) ? Number(lngRaw) : null;
   const placeId = el.getAttribute('data-place-id');
   document.getElementById('planName').value = name;
   hidePlanSuggestions();
   const _focusSave = () => { const btn = document.getElementById('planSaveBtn'); if (btn) btn.focus(); };
-  if (lat && lng) {
+  if (lat !== null && lng !== null) {
     S.planGpsCoords = { lat, lng };
     S.planGpsSource = 'nominatim';
     setPlanGpsStatus('ok', 'Auto: ' + lat.toFixed(5) + ', ' + lng.toFixed(5));

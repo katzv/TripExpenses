@@ -359,6 +359,11 @@ function esc(s) {
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function hasGpsCoords(place) {
+  if (!place || place.lat == null || place.lng == null || place.lat === '' || place.lng === '') return false;
+  return isFinite(Number(place.lat)) && isFinite(Number(place.lng));
+}
+
 function fmtDate(d) {
   if (!d) return '';
   try {

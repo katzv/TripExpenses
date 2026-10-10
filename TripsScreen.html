@@ -294,7 +294,10 @@ function rerateExpenses() {
   google.script.run
     .withSuccessHandler(r => {
       closeModal();
-      toast('Re-rated ' + r.updated + ' expense' + (r.updated !== 1 ? 's' : '') + ' with historical rates', 'ok');
+      const skipped = Number(r.unavailable || 0);
+      const msg = 'Re-rated ' + r.updated + ' expense' + (r.updated !== 1 ? 's' : '') +
+        (skipped ? '; left ' + skipped + ' unchanged because rates were unavailable' : ' with historical rates');
+      toast(msg, skipped ? 'err' : 'ok');
       if (S.currentTrip && S.currentTrip.id === tripId) loadExpenses(tripId);
     })
     .withFailureHandler(err => {

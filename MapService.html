@@ -9,7 +9,12 @@ function loadGoogleMaps(cb) {
   _gmapsCallbacks.push(cb);
   if (_gmapsLoaded) return;
   _gmapsLoaded = true;
+  _startGoogleMapsLoad();
+}
+
+function _startGoogleMapsLoad() {
   window._gmapsReady = function() {
+    _gmapsLoaded = true;
     var cbs = _gmapsCallbacks.slice(); _gmapsCallbacks = [];
     cbs.forEach(function(fn) { fn(); });
   };
@@ -17,10 +22,26 @@ function loadGoogleMaps(cb) {
   s.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyD_DRzG7TqWgNiQMdeyOzk4MLW2pezem6U&libraries=places&callback=_gmapsReady';
   s.async = true;
   s.onerror = function() {
-    var c = document.getElementById('tracker-map');
-    if (c) c.innerHTML = '<div style="padding:20px;color:var(--danger)">Could not load map library</div>';
+    _gmapsLoaded = false;
+    if (typeof toast === 'function') toast('Google Maps could not load. Check your connection and retry from the map.', 'err');
+    ['tracker-map', 'planner-map', 'mapPicker'].forEach(function(id) {
+      var c = document.getElementById(id);
+      if (c) c.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;height:100%;padding:20px;text-align:center;color:var(--danger)">' +
+        '<span>Could not load Google Maps. Check your connection and try again.</span>' +
+        '<button type="button" onclick="retryGoogleMaps()" style="padding:8px 14px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--primary);font-weight:600">Retry</button></div>';
+    });
   };
   document.head.appendChild(s);
+}
+
+function retryGoogleMaps() {
+  if (window.google && window.google.maps && window.google.maps.places) {
+    window._gmapsReady();
+    return;
+  }
+  if (_gmapsLoaded) return;
+  _gmapsLoaded = true;
+  _startGoogleMapsLoad();
 }
 
 var _placesService = null;

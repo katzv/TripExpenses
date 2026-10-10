@@ -24,7 +24,7 @@ All data is stored in Google Apps Script `PropertiesService` (script properties,
 - The app is designed for a mobile-first Apps Script web app, not a full native app experience.
 - Google Maps and Places APIs are required for map and autocomplete features; usage is subject to Google’s API quotas and billing rules.
 - Free Google API usage has monthly limits, so heavy usage or many users may eventually require a paid Google Cloud plan or tighter quota controls.
-- Data is stored in Apps Script PropertiesService, so the app is best suited for lightweight personal/family use rather than large-scale multi-user production workloads.
+- Data is stored in Apps Script PropertiesService, so the app is best suited for lightweight personal/family use rather than large-scale multi-user production workloads. Large individual records are chunked to stay below the per-property size cap; the script property's overall storage quota still applies, and saves report when that store is full.
 
 ---
 
@@ -51,7 +51,7 @@ All data is stored in Google Apps Script `PropertiesService` (script properties,
 
 - **Modular frontend**: 12 HTML files assembled server-side. `Index.html` is a GAS template shell using `<?!= include('FileName') ?>` directives. `include(filename)` in `Code.gs` calls `HtmlService.createHtmlOutputFromFile(filename).getContent()`. Script execution order: `<head>` files (Constants → State → MapService → Core) define globals; `<body>` screen files define view functions; `<script>init();</script>` at end of body triggers startup.
 - **Backend**: `Code.gs` — all server-side logic called from the frontend via `google.script.run`
-- **Data storage**: `PropertiesService.getScriptProperties()` — JSON-serialized objects stored as string values
+- **Data storage**: `PropertiesService.getScriptProperties()` — JSON-serialized objects stored as string values; values above the per-property size threshold are transparently split across internal chunk properties and read through the same `load`/`save` helpers
 - **No external database, no Sheets for data** (Sheets used only for calendar export)
 - **Global state object**: `S` — single JS object holding all app runtime state
 - **Navigation**: deterministic view switching via `navigate(viewName)` + `goBack()`
@@ -84,7 +84,8 @@ Stored as `{id → entry}` object (not array) to give O(1) lookup/update/delete 
 - `uuid()` — returns `Utilities.getUuid()`
 - `nowISO()` — returns `new Date().toISOString()`
 - `load(key, fallback)` — reads + JSON-parses a PropertiesService key, returns fallback if missing
-- `save(key, data)` — JSON-stringifies and writes to PropertiesService
+- `save(key, data)` — JSON-stringifies and writes to PropertiesService, chunking larger values while preserving the existing logical keys
+- Shared read-modify-write operations use the Apps Script script lock so simultaneous family edits do not overwrite each other
 
 ### Trips
 - `getTrips()` — returns array of trip objects
