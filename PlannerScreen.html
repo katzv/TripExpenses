@@ -453,6 +453,7 @@ function _assignSelectedToDay(dateStr) {
   const cur = new Set(S.planAssignments[dateStr] || []);
   ids.forEach(id => cur.add(id));
   S.planAssignments[dateStr] = Array.from(cur);
+  _syncPlaceAssignmentOrder(dateStr, S.planAssignments[dateStr]);
   cancelPlanSelectMode();
   if (S.plannerTab === 'cal') buildPlannerCalendar();
   toast(ids.length + ' place' + (ids.length !== 1 ? 's' : '') + ' assigned', 'ok');
@@ -905,6 +906,23 @@ function _syncOrderOnMutation(date, type, id, action) {
   } else {
     S.planOrder[date].push({ type, id });
   }
+  _saveDayOrderAsync(date);
+}
+
+function _syncPlaceAssignmentOrder(date, placeIds) {
+  if (!S.planOrder || !S.planOrder[date]) return;
+  const selected = new Set(placeIds || []);
+  const order = S.planOrder[date].filter(item => item.type !== 'place' || selected.has(item.id));
+  const included = new Set(order.filter(item => item.type === 'place').map(item => item.id));
+  const bankPlaces = new Set(S.planBank.filter(place => place.type !== 'hotel').map(place => place.id));
+  (placeIds || []).forEach(id => {
+    if (bankPlaces.has(id) && !included.has(id)) {
+      order.push({ type: 'place', id });
+      included.add(id);
+    }
+  });
+  _setDayOrder(date, order);
+  _saveDayOrderAsync(date);
 }
 
 function _calDragStart(e, date, type, id) {
@@ -1361,16 +1379,7 @@ function applyAssignment(dateStr) {
   const selected = [];
   cbs.forEach(cb => { if (cb.checked) selected.push(cb.value); });
   closeModal();
-  // Sync custom order: remove unchecked places, append newly checked ones
-  if (S.planOrder && S.planOrder[dateStr]) {
-    const selSet = new Set(selected);
-    S.planOrder[dateStr] = S.planOrder[dateStr].filter(o => o.type !== 'place' || selSet.has(o.id));
-    const inOrd = new Set(S.planOrder[dateStr].filter(o => o.type === 'place').map(o => o.id));
-    const bId2 = {}; S.planBank.forEach(p => { bId2[p.id] = p; });
-    selected.filter(id => !inOrd.has(id) && bId2[id] && bId2[id].type !== 'hotel')
-            .forEach(id => S.planOrder[dateStr].push({ type: 'place', id }));
-    if (!S.planOrder[dateStr].length) delete S.planOrder[dateStr];
-  }
+  _syncPlaceAssignmentOrder(dateStr, selected);
   if (selected.length) S.planAssignments[dateStr] = selected;
   else delete S.planAssignments[dateStr];
   buildPlannerCalendar();
@@ -1461,6 +1470,7 @@ function toggleDayCell(placeId, ds, color, el) {
       .withFailureHandler(err => toast('Sync error: ' + err.message, 'err'))
       .setPlanDayAssignment(S.currentTrip.id, ds, S.planAssignments[ds]);
   }
+  _syncPlaceAssignmentOrder(ds, S.planAssignments[ds] || []);
   if (S.plannerTab === 'cal') buildPlannerCalendar();
 }
 
